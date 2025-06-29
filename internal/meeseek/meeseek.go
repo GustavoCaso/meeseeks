@@ -9,6 +9,20 @@ type Meeseek interface {
 	Start()
 }
 
+type meeseek struct {
+	programs []program.Program
+}
+
+func (m *meeseek) AddProgram(p program.Program) {
+	m.programs = append(m.programs, p)
+}
+
+func (m *meeseek) Start() {
+	for _, p := range m.programs {
+		p.Start()
+	}
+}
+
 func New() Meeseek {
-	return nil
+	return &meeseek{}
 }
