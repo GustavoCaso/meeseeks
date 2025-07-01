@@ -2,7 +2,6 @@ package program
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -71,9 +70,6 @@ type program struct {
 	arguments []string
 	daemon    bool
 
-	stdin        io.WriteCloser
-	stdout       io.ReadCloser
-	stderr       io.ReadCloser
 	customStdout io.Writer
 	customStderr io.Writer
 	customStdin  io.Reader
@@ -95,133 +91,100 @@ func (p *program) Start(ctx context.Context) error {
 	cmd.Env = append(os.Environ(), p.customEnv...)
 	p.cmd = cmd
 
-	if p.daemon {
-		return p.startDaemon()
+	outReader, outWriter := io.Pipe()
+	errReader, errWriter := io.Pipe()
+
+	if p.customStdout != nil {
+		p.cmd.Stdout = io.MultiWriter(p.customStdout, outWriter)
 	} else {
-		return p.oneShot()
+		p.cmd.Stdout = outWriter
 	}
-}
 
-func (p *program) oneShot() error {
-	defer func() {
-		p.exitCode = p.cmd.ProcessState.ExitCode()
-	}()
-
-	var err error
+	if p.customStderr != nil {
+		p.cmd.Stderr = io.MultiWriter(p.customStderr, errWriter)
+	} else {
+		p.cmd.Stderr = errWriter
+	}
 
 	if p.customStdin != nil {
 		p.cmd.Stdin = p.customStdin
 	}
 
-	if p.customStdout == nil && p.customStderr == nil {
-		output, err := p.cmd.CombinedOutput()
-		if err != nil {
-			p.state = StateError
-			p.errorBuffer.Write(output)
-			return err
-		}
-		p.outputBuffer.Write(output)
-	} else if p.customStdout == nil {
-
-		var stdout bytes.Buffer
-		p.cmd.Stdout = &stdout
-		p.cmd.Stderr = p.customStderr
-
-		err = p.cmd.Run()
-		if err != nil {
-			p.state = StateError
-			return err
-		}
-		p.outputBuffer.Write(stdout.Bytes())
-	} else if p.customStderr == nil {
-
-		var stderr bytes.Buffer
-		p.cmd.Stdout = p.customStdout
-		p.cmd.Stderr = &stderr
-
-		err = p.cmd.Run()
-		if err != nil {
-			p.state = StateError
-			p.errorBuffer.Write(stderr.Bytes())
-			return err
-		}
+	if p.daemon {
+		return p.startDaemon(outReader, errReader, outWriter, errWriter)
 	} else {
-		p.cmd.Stdout = p.customStdout
-		p.cmd.Stderr = p.customStderr
+		return p.oneShot(outReader, errReader, outWriter, errWriter)
+	}
+}
 
-		err = p.cmd.Run()
-		if err != nil {
-			p.state = StateError
-			return err
-		}
+func (p *program) oneShot(outReader io.ReadCloser, errReader io.ReadCloser, outWriter io.WriteCloser, errWriter io.WriteCloser) error {
+	defer func() {
+		p.exitCode = p.cmd.ProcessState.ExitCode()
+	}()
+
+	// WaitGroup ensures readOutput goroutines finish reading all data.
+	// This prevents race conditions where callers might see incomplete output.
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		p.readOutput(context.Background(), outReader, false)
+	}()
+
+	go func() {
+		defer wg.Done()
+		p.readOutput(context.Background(), errReader, true)
+	}()
+
+	err := p.cmd.Run()
+
+	outWriter.Close()
+	errWriter.Close()
+
+	// Wait for readers to finish processing all data
+	wg.Wait()
+
+	outReader.Close()
+	errReader.Close()
+
+	if err != nil {
+		p.state = StateError
+		return err
 	}
 
 	p.state = StateFinished
 	return nil
 }
 
-func (p *program) startDaemon() error {
-	var stdout, stderr io.ReadCloser
-	var err error
-
-	if p.customStdout != nil {
-		p.cmd.Stdout = p.customStdout
-	} else {
-		stdout, err = p.cmd.StdoutPipe()
-		if err != nil {
-			return err
-		}
-		p.stdout = stdout
-	}
-
-	if p.customStderr != nil {
-		p.cmd.Stderr = p.customStderr
-	} else {
-		stderr, err = p.cmd.StderrPipe()
-		if err != nil {
-			return err
-		}
-		p.stderr = stderr
-	}
-
-	if p.customStdin != nil {
-		p.cmd.Stdin = p.customStdin
-	} else {
-		stdin, err := p.cmd.StdinPipe()
-		if err != nil {
-			return err
-		}
-		p.stdin = stdin
-	}
-
-	err = p.cmd.Start()
+func (p *program) startDaemon(outReader io.ReadCloser, errReader io.ReadCloser, outWriter io.WriteCloser, errWriter io.WriteCloser) error {
+	err := p.cmd.Start()
 	if err != nil {
 		return err
 	}
 	p.state = StateRunning
-	p.monitorProcess()
+	p.monitorProcess(outReader, errReader, outWriter, errWriter)
 	return nil
 }
 
-func (p *program) monitorProcess() {
+func (p *program) monitorProcess(outReader io.ReadCloser, errReader io.ReadCloser, outWriter io.WriteCloser, errWriter io.WriteCloser) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	if p.stdout != nil {
-		go func() {
-			defer p.stdout.Close()
-			p.readOutput(ctx, p.stdout, false)
-		}()
-	}
-
-	if p.stderr != nil {
-		go func() {
-			defer p.stderr.Close()
-			p.readOutput(ctx, p.stderr, true)
-		}()
-	}
+	go p.readOutput(ctx, outReader, false)
+	go p.readOutput(ctx, errReader, true)
 
 	err := p.cmd.Wait()
+
+	// Close writers first so readers receive EOF
+	outWriter.Close()
+	errWriter.Close()
+
+	// Cancel context to signal readers to stop
 	cancel()
+
+	outReader.Close()
+	errReader.Close()
+
 	if err != nil {
 		p.stderrLock.Lock()
 		p.errorBuffer.WriteString(err.Error())
@@ -235,7 +198,7 @@ func (p *program) monitorProcess() {
 	p.exitCode = p.cmd.ProcessState.ExitCode()
 }
 
-func (p *program) readOutput(ctx context.Context, reader io.ReadCloser, isError bool) {
+func (p *program) readOutput(ctx context.Context, reader io.Reader, isError bool) {
 	scanner := bufio.NewScanner(reader)
 	for {
 		select {
@@ -257,14 +220,12 @@ func (p *program) readOutput(ctx context.Context, reader io.ReadCloser, isError 
 
 			if isError {
 				p.stderrLock.Lock()
-				p.errorBuffer.WriteString(line)
-				p.errorBuffer.WriteString("\n")
+				p.errorBuffer.WriteString(line + "\n")
 				p.lastError = line
 				p.stderrLock.Unlock()
 			} else {
 				p.stdoutLock.Lock()
-				p.outputBuffer.WriteString(line)
-				p.outputBuffer.WriteString("\n")
+				p.outputBuffer.WriteString(line + "\n")
 				p.lastLine = line
 				p.stdoutLock.Unlock()
 			}
