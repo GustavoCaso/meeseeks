@@ -12,7 +12,6 @@ import (
 	"time"
 )
 
-// waitForState waits for a program to reach a specific state using a channel
 func waitForState(p Program, targetState ProcessState, timeout time.Duration) bool {
 	done := make(chan bool, 1)
 
@@ -158,10 +157,8 @@ func TestCustomIO(t *testing.T) {
 			t.Fatalf("Failed to start program: %v", err)
 		}
 
-		// Close the file to ensure data is flushed
 		outFile.Close()
 
-		// Read the file content
 		content, err := os.ReadFile(tmpFile)
 		if err != nil {
 			t.Fatalf("Failed to read temp file: %v", err)
@@ -373,7 +370,6 @@ func TestEdgeCases(t *testing.T) {
 			t.Fatal("Process failed to complete within timeout")
 		}
 
-		// Verify we got some output
 		if len(p.Output()) == 0 {
 			t.Error("Expected some output from concurrent access test")
 		}
