@@ -1,6 +1,7 @@
 package meeseek
 
 import (
+	"context"
 	"log"
 	"sync"
 
@@ -9,7 +10,7 @@ import (
 
 type Meeseek interface {
 	AddProgram(program.Program)
-	Start()
+	Start(ctx context.Context)
 	Status() []string
 	Wait()
 }
@@ -23,14 +24,14 @@ func (m *meeseek) AddProgram(p program.Program) {
 	m.programs = append(m.programs, p)
 }
 
-func (m *meeseek) Start() {
+func (m *meeseek) Start(ctx context.Context) {
 	m.wg.Add(len(m.programs))
 
 	for _, p := range m.programs {
 		go func() {
 			defer m.wg.Done()
 
-			err := p.Start()
+			err := p.Start(ctx)
 			if err != nil {
 				log.Printf("failed to start program '%s' error '%s'\n", p.Name(), err)
 			}

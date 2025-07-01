@@ -3,6 +3,7 @@ package program
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -14,7 +15,7 @@ import (
 type Program interface {
 	LongRunning() bool
 	Name() string
-	Start() error
+	Start(ctx context.Context) error
 	Status() string
 	LastLine() string
 	Output() string
@@ -76,8 +77,8 @@ type program struct {
 	daemon bool
 }
 
-func (p *program) Start() error {
-	cmd := exec.Command(p.command, p.arguments...)
+func (p *program) Start(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, p.command, p.arguments...)
 	cmd.Env = os.Environ()
 	p.cmd = cmd
 
@@ -188,6 +189,11 @@ func (p *program) monitorProcess() {
 
 	err := p.cmd.Wait()
 	if err != nil {
+		p.stderrLock.Lock()
+		p.errorBuffer.WriteString(err.Error())
+		p.errorBuffer.WriteString("\n")
+		p.lastError = err.Error()
+		p.stderrLock.Unlock()
 		p.state = StateError
 	} else {
 		p.state = StateFinished
@@ -233,9 +239,9 @@ func (p *program) Status() string {
 	case StateError:
 		errorMsg := p.Error()
 		if errorMsg == "" {
-			return fmt.Sprintf("[%s] error with exit code: %d", p.name, p.exitCode)
+			return fmt.Sprintf("[%s] error code: %d", p.name, p.exitCode)
 		}
-		return fmt.Sprintf("[%s] error: %s", p.name, strings.TrimSpace(errorMsg))
+		return fmt.Sprintf("[%s] error code: %d\n%s", p.name, p.exitCode, strings.TrimSpace(errorMsg))
 	default:
 		return fmt.Sprintf("[%s] not started", p.name)
 	}
