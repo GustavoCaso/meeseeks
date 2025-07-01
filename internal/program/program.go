@@ -51,17 +51,25 @@ var Args = func(args ...string) Option {
 	}
 }
 
+var Envs = func(envs ...string) Option {
+	return func(p *program) {
+		p.customEnv = envs
+	}
+}
+
 type program struct {
 	cmd       *exec.Cmd
 	name      string
 	command   string
 	arguments []string
+	daemon    bool
 
 	stdin        io.WriteCloser
 	stdout       io.ReadCloser
 	stderr       io.ReadCloser
 	customStdout io.Writer
 	customStderr io.Writer
+	customEnv    []string
 
 	state    ProcessState
 	exitCode int
@@ -73,13 +81,11 @@ type program struct {
 	errorBuffer  strings.Builder
 	lastError    string
 	lastLine     string
-
-	daemon bool
 }
 
 func (p *program) Start(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, p.command, p.arguments...)
-	cmd.Env = os.Environ()
+	cmd.Env = append(os.Environ(), p.customEnv...)
 	p.cmd = cmd
 
 	if p.daemon {
@@ -174,20 +180,22 @@ func (p *program) startDaemon() error {
 
 func (p *program) monitorProcess() {
 	p.wg.Add(2)
+	ctx, cancel := context.WithCancel(context.Background())
 
 	go func() {
 		defer p.wg.Done()
 		defer p.stdout.Close()
-		p.readOutput(p.stdout, false)
+		p.readOutput(ctx, p.stdout, false)
 	}()
 
 	go func() {
 		defer p.wg.Done()
 		defer p.stderr.Close()
-		p.readOutput(p.stderr, true)
+		p.readOutput(ctx, p.stderr, true)
 	}()
 
 	err := p.cmd.Wait()
+	cancel()
 	if err != nil {
 		p.stderrLock.Lock()
 		p.errorBuffer.WriteString(err.Error())
@@ -201,23 +209,39 @@ func (p *program) monitorProcess() {
 	p.exitCode = p.cmd.ProcessState.ExitCode()
 }
 
-func (p *program) readOutput(reader io.ReadCloser, isError bool) {
+func (p *program) readOutput(ctx context.Context, reader io.ReadCloser, isError bool) {
 	scanner := bufio.NewScanner(reader)
-	for scanner.Scan() {
-		line := scanner.Text()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			if !scanner.Scan() {
+				if err := scanner.Err(); err != nil && err != io.EOF {
+					if isError {
+						p.stderrLock.Lock()
+						p.errorBuffer.WriteString("Scanner error: " + err.Error())
+						p.errorBuffer.WriteString("\n")
+						p.stderrLock.Unlock()
+					}
+				}
+				return
+			}
+			line := scanner.Text()
 
-		if isError {
-			p.stderrLock.Lock()
-			p.errorBuffer.WriteString(line)
-			p.errorBuffer.WriteString("\n")
-			p.lastError = line
-			p.stderrLock.Unlock()
-		} else {
-			p.stderrLock.Lock()
-			p.outputBuffer.WriteString(line)
-			p.outputBuffer.WriteString("\n")
-			p.lastLine = line
-			p.stderrLock.Unlock()
+			if isError {
+				p.stderrLock.Lock()
+				p.errorBuffer.WriteString(line)
+				p.errorBuffer.WriteString("\n")
+				p.lastError = line
+				p.stderrLock.Unlock()
+			} else {
+				p.stdoutLock.Lock()
+				p.outputBuffer.WriteString(line)
+				p.outputBuffer.WriteString("\n")
+				p.lastLine = line
+				p.stdoutLock.Unlock()
+			}
 		}
 	}
 }

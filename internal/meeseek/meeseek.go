@@ -58,8 +58,8 @@ func (m *meeseek) Results(w io.Writer) {
 	fmt.Fprintf(w, "Total Execution Time: %s\n", executionTime)
 	fmt.Fprintln(w, "Program Statuses:")
 
-	for name, p := range m.programs {
-		fmt.Fprintf(w, "  - %s: %s\n", name, p.Status())
+	for _, p := range m.programs {
+		fmt.Fprintf(w, "  - %s\n", p.Status())
 		if errMsg := p.Error(); errMsg != "" {
 			fmt.Fprintf(w, "    Error: %s\n", errMsg)
 		}
