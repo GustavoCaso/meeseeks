@@ -20,6 +20,7 @@ type Program interface {
 	LastLine() string
 	Output() string
 	Error() string
+	State() ProcessState
 }
 
 type ProcessState int
@@ -42,6 +43,12 @@ var Stdout = func(o io.Writer) Option {
 var Stderr = func(o io.Writer) Option {
 	return func(p *program) {
 		p.customStderr = o
+	}
+}
+
+var Stdin = func(o io.Reader) Option {
+	return func(p *program) {
+		p.customStdin = o
 	}
 }
 
@@ -69,6 +76,7 @@ type program struct {
 	stderr       io.ReadCloser
 	customStdout io.Writer
 	customStderr io.Writer
+	customStdin  io.Reader
 	customEnv    []string
 
 	state    ProcessState
@@ -76,7 +84,6 @@ type program struct {
 
 	stdoutLock   sync.RWMutex
 	stderrLock   sync.RWMutex
-	wg           sync.WaitGroup
 	outputBuffer strings.Builder
 	errorBuffer  strings.Builder
 	lastError    string
@@ -102,8 +109,11 @@ func (p *program) oneShot() error {
 
 	var err error
 
-	if p.customStdout == nil && p.customStderr == nil {
+	if p.customStdin != nil {
+		p.cmd.Stdin = p.customStdin
+	}
 
+	if p.customStdout == nil && p.customStderr == nil {
 		output, err := p.cmd.CombinedOutput()
 		if err != nil {
 			p.state = StateError
@@ -151,23 +161,38 @@ func (p *program) oneShot() error {
 }
 
 func (p *program) startDaemon() error {
-	stdin, err := p.cmd.StdinPipe()
-	if err != nil {
-		return err
-	}
-	stdout, err := p.cmd.StdoutPipe()
-	if err != nil {
-		return err
+	var stdout, stderr io.ReadCloser
+	var err error
+
+	if p.customStdout != nil {
+		p.cmd.Stdout = p.customStdout
+	} else {
+		stdout, err = p.cmd.StdoutPipe()
+		if err != nil {
+			return err
+		}
+		p.stdout = stdout
 	}
 
-	stderr, err := p.cmd.StderrPipe()
-	if err != nil {
-		return err
+	if p.customStderr != nil {
+		p.cmd.Stderr = p.customStderr
+	} else {
+		stderr, err = p.cmd.StderrPipe()
+		if err != nil {
+			return err
+		}
+		p.stderr = stderr
 	}
 
-	p.stdout = stdout
-	p.stdin = stdin
-	p.stderr = stderr
+	if p.customStdin != nil {
+		p.cmd.Stdin = p.customStdin
+	} else {
+		stdin, err := p.cmd.StdinPipe()
+		if err != nil {
+			return err
+		}
+		p.stdin = stdin
+	}
 
 	err = p.cmd.Start()
 	if err != nil {
@@ -179,20 +204,21 @@ func (p *program) startDaemon() error {
 }
 
 func (p *program) monitorProcess() {
-	p.wg.Add(2)
 	ctx, cancel := context.WithCancel(context.Background())
 
-	go func() {
-		defer p.wg.Done()
-		defer p.stdout.Close()
-		p.readOutput(ctx, p.stdout, false)
-	}()
+	if p.stdout != nil {
+		go func() {
+			defer p.stdout.Close()
+			p.readOutput(ctx, p.stdout, false)
+		}()
+	}
 
-	go func() {
-		defer p.wg.Done()
-		defer p.stderr.Close()
-		p.readOutput(ctx, p.stderr, true)
-	}()
+	if p.stderr != nil {
+		go func() {
+			defer p.stderr.Close()
+			p.readOutput(ctx, p.stderr, true)
+		}()
+	}
 
 	err := p.cmd.Wait()
 	cancel()
@@ -283,6 +309,10 @@ func (p *program) Error() string {
 	p.stderrLock.RLock()
 	defer p.stderrLock.RUnlock()
 	return p.errorBuffer.String()
+}
+
+func (p *program) State() ProcessState {
+	return p.state
 }
 
 func New(name, command string, opts ...Option) Program {
