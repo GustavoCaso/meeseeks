@@ -233,15 +233,11 @@ func (p *program) Name() string {
 func (p *program) Status() string {
 	switch p.state {
 	case StateRunning:
-		return fmt.Sprintf("[%s] running, last line:\n%s", p.name, p.LastLine())
+		return fmt.Sprintf("[%s] running, pid: %d, last line: %s", p.name, p.cmd.Process.Pid, p.LastLine())
 	case StateFinished:
 		return fmt.Sprintf("[%s] finished with exit code: %d", p.name, p.exitCode)
 	case StateError:
-		errorMsg := p.Error()
-		if errorMsg == "" {
-			return fmt.Sprintf("[%s] error code: %d", p.name, p.exitCode)
-		}
-		return fmt.Sprintf("[%s] error code: %d\n%s", p.name, p.exitCode, strings.TrimSpace(errorMsg))
+		return fmt.Sprintf("[%s] error code: %d", p.name, p.exitCode)
 	default:
 		return fmt.Sprintf("[%s] not started", p.name)
 	}
