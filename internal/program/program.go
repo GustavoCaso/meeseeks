@@ -12,7 +12,7 @@ import (
 )
 
 type Program interface {
-	LongRunning() bool
+	Async() bool
 	Name() string
 	Start(ctx context.Context) error
 	Status() string
@@ -71,12 +71,18 @@ var KeepStdinOpen = func() Option {
 	}
 }
 
+var Async = func() Option {
+	return func(p *program) {
+		p.async = true
+	}
+}
+
 type program struct {
 	cmd       *exec.Cmd
 	name      string
 	command   string
 	arguments []string
-	daemon    bool
+	async     bool
 
 	customStdout  io.Writer
 	customStderr  io.Writer
@@ -160,14 +166,14 @@ func (p *program) Start(ctx context.Context) error {
 		inWriter.Close()
 	}
 
-	if p.daemon {
-		return p.startDaemon()
+	if p.async {
+		return p.runAsync()
 	} else {
-		return p.oneShot()
+		return p.run()
 	}
 }
 
-func (p *program) oneShot() error {
+func (p *program) run() error {
 	defer func() {
 		p.exitCode = p.cmd.ProcessState.ExitCode()
 	}()
@@ -206,13 +212,13 @@ func (p *program) oneShot() error {
 	return nil
 }
 
-func (p *program) startDaemon() error {
+func (p *program) runAsync() error {
 	err := p.cmd.Start()
 	if err != nil {
 		return err
 	}
 	p.state = StateRunning
-	p.monitorProcess()
+	go p.monitorProcess()
 	return nil
 }
 
@@ -304,8 +310,8 @@ func (p *program) CloseStdin() error {
 	return p.pipes.inWriter.Close()
 }
 
-func (p *program) LongRunning() bool {
-	return p.daemon
+func (p *program) Async() bool {
+	return p.async
 }
 
 func (p *program) Name() string {
@@ -351,20 +357,6 @@ func New(name, command string, opts ...Option) Program {
 	p := &program{
 		name:    name,
 		command: command,
-	}
-
-	for _, opt := range opts {
-		opt(p)
-	}
-
-	return p
-}
-
-func LongRunning(name, command string, opts ...Option) Program {
-	p := &program{
-		name:    name,
-		command: command,
-		daemon:  true,
 	}
 
 	for _, opt := range opts {
