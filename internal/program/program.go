@@ -16,6 +16,8 @@ type Program interface {
 	Name() string
 	Start(ctx context.Context) error
 	Status() string
+	Send([]byte) error
+	CloseStdin() error
 	LastLine() string
 	Output() string
 	Error() string
@@ -63,6 +65,12 @@ var Envs = func(envs ...string) Option {
 	}
 }
 
+var KeepStdinOpen = func() Option {
+	return func(p *program) {
+		p.keepStdinOpen = true
+	}
+}
+
 type program struct {
 	cmd       *exec.Cmd
 	name      string
@@ -70,10 +78,11 @@ type program struct {
 	arguments []string
 	daemon    bool
 
-	customStdout io.Writer
-	customStderr io.Writer
-	customStdin  io.Reader
-	customEnv    []string
+	customStdout  io.Writer
+	customStderr  io.Writer
+	customStdin   io.Reader
+	keepStdinOpen bool
+	customEnv     []string
 
 	state    ProcessState
 	exitCode int
@@ -84,6 +93,29 @@ type program struct {
 	errorBuffer  strings.Builder
 	lastError    string
 	lastLine     string
+
+	pipes *pipes
+}
+
+type pipes struct {
+	outReader *io.PipeReader
+	outWriter *io.PipeWriter
+	errReader *io.PipeReader
+	errWriter *io.PipeWriter
+	inReader  *io.PipeReader
+	inWriter  *io.PipeWriter
+}
+
+func (p *pipes) closeWriters() {
+	p.outWriter.Close()
+	p.errWriter.Close()
+	p.inWriter.Close()
+}
+
+func (p *pipes) closeReaders() {
+	p.outReader.Close()
+	p.errReader.Close()
+	p.inReader.Close()
 }
 
 func (p *program) Start(ctx context.Context) error {
@@ -93,6 +125,18 @@ func (p *program) Start(ctx context.Context) error {
 
 	outReader, outWriter := io.Pipe()
 	errReader, errWriter := io.Pipe()
+	inReader, inWriter := io.Pipe()
+
+	pipes := &pipes{
+		outReader: outReader,
+		outWriter: outWriter,
+		errReader: errReader,
+		errWriter: errWriter,
+		inReader:  inReader,
+		inWriter:  inWriter,
+	}
+
+	p.pipes = pipes
 
 	if p.customStdout != nil {
 		p.cmd.Stdout = io.MultiWriter(p.customStdout, outWriter)
@@ -107,20 +151,27 @@ func (p *program) Start(ctx context.Context) error {
 	}
 
 	if p.customStdin != nil {
-		p.cmd.Stdin = p.customStdin
+		p.cmd.Stdin = io.MultiReader(p.customStdin, inReader)
+	} else {
+		p.cmd.Stdin = inReader
+	}
+
+	if !p.keepStdinOpen {
+		inWriter.Close()
 	}
 
 	if p.daemon {
-		return p.startDaemon(outReader, errReader, outWriter, errWriter)
+		return p.startDaemon()
 	} else {
-		return p.oneShot(outReader, errReader, outWriter, errWriter)
+		return p.oneShot()
 	}
 }
 
-func (p *program) oneShot(outReader io.ReadCloser, errReader io.ReadCloser, outWriter io.WriteCloser, errWriter io.WriteCloser) error {
+func (p *program) oneShot() error {
 	defer func() {
 		p.exitCode = p.cmd.ProcessState.ExitCode()
 	}()
+	p.state = StateRunning
 
 	// WaitGroup ensures readOutput goroutines finish reading all data.
 	// This prevents race conditions where callers might see incomplete output.
@@ -129,24 +180,22 @@ func (p *program) oneShot(outReader io.ReadCloser, errReader io.ReadCloser, outW
 
 	go func() {
 		defer wg.Done()
-		p.readOutput(context.Background(), outReader, false)
+		p.readOutput(context.Background(), p.pipes.outReader, false)
 	}()
 
 	go func() {
 		defer wg.Done()
-		p.readOutput(context.Background(), errReader, true)
+		p.readOutput(context.Background(), p.pipes.errReader, true)
 	}()
 
 	err := p.cmd.Run()
 
-	outWriter.Close()
-	errWriter.Close()
+	p.pipes.closeWriters()
 
 	// Wait for readers to finish processing all data
 	wg.Wait()
 
-	outReader.Close()
-	errReader.Close()
+	p.pipes.closeReaders()
 
 	if err != nil {
 		p.state = StateError
@@ -157,33 +206,30 @@ func (p *program) oneShot(outReader io.ReadCloser, errReader io.ReadCloser, outW
 	return nil
 }
 
-func (p *program) startDaemon(outReader io.ReadCloser, errReader io.ReadCloser, outWriter io.WriteCloser, errWriter io.WriteCloser) error {
+func (p *program) startDaemon() error {
 	err := p.cmd.Start()
 	if err != nil {
 		return err
 	}
 	p.state = StateRunning
-	p.monitorProcess(outReader, errReader, outWriter, errWriter)
+	p.monitorProcess()
 	return nil
 }
 
-func (p *program) monitorProcess(outReader io.ReadCloser, errReader io.ReadCloser, outWriter io.WriteCloser, errWriter io.WriteCloser) {
+func (p *program) monitorProcess() {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	go p.readOutput(ctx, outReader, false)
-	go p.readOutput(ctx, errReader, true)
+	go p.readOutput(ctx, p.pipes.outReader, false)
+	go p.readOutput(ctx, p.pipes.errReader, true)
 
 	err := p.cmd.Wait()
 
-	// Close writers first so readers receive EOF
-	outWriter.Close()
-	errWriter.Close()
+	p.pipes.closeWriters()
 
 	// Cancel context to signal readers to stop
 	cancel()
 
-	outReader.Close()
-	errReader.Close()
+	p.pipes.closeReaders()
 
 	if err != nil {
 		p.stderrLock.Lock()
@@ -231,6 +277,31 @@ func (p *program) readOutput(ctx context.Context, reader io.Reader, isError bool
 			}
 		}
 	}
+}
+
+func (p *program) Send(data []byte) error {
+	if p.state != StateRunning {
+		return fmt.Errorf("can not send data to a non-running program")
+	}
+
+	if !p.keepStdinOpen {
+		return fmt.Errorf("to send data to a running please use the KeepStdinOpen option when initialazing the program")
+	}
+
+	_, err := p.pipes.inWriter.Write(data)
+	return err
+}
+
+func (p *program) CloseStdin() error {
+	if p.state != StateRunning {
+		return fmt.Errorf("closing stdin of non-running process has no effect")
+	}
+
+	if !p.keepStdinOpen {
+		return fmt.Errorf("stding is already closed please KeepStdinOpen option when initialazing the program to have full control over stdin")
+	}
+
+	return p.pipes.inWriter.Close()
 }
 
 func (p *program) LongRunning() bool {

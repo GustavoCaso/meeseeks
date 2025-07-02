@@ -376,6 +376,125 @@ func TestEdgeCases(t *testing.T) {
 	})
 }
 
+func TestSend(t *testing.T) {
+	t.Run("send data to interactive command", func(t *testing.T) {
+		p := New("cat-test", "cat", KeepStdinOpen())
+
+		var startErr error
+		go func() {
+			startErr = p.Start(context.Background())
+		}()
+
+		if !waitForState(p, StateRunning, 5*time.Second) {
+			t.Fatal("Process failed to start within timeout")
+		}
+
+		if startErr != nil {
+			t.Fatalf("Failed to start program: %v", startErr)
+		}
+
+		// Send first line
+		err := p.Send([]byte("hello world\n"))
+		if err != nil {
+			t.Fatalf("Failed to send data: %v", err)
+		}
+
+		// Wait a bit for output
+		time.Sleep(100 * time.Millisecond)
+
+		// Send second line
+		err = p.Send([]byte("second line\n"))
+		if err != nil {
+			t.Fatalf("Failed to send second data: %v", err)
+		}
+
+		time.Sleep(100 * time.Millisecond)
+
+		// Close stdin to finish cat
+		err = p.CloseStdin()
+		if err != nil {
+			t.Fatalf("Failed to close stdin: %v", err)
+		}
+
+		if !waitForState(p, StateFinished, 5*time.Second) {
+			t.Fatal("Process failed to complete within timeout")
+		}
+
+		output := p.Output()
+		if !strings.Contains(output, "hello world") {
+			t.Errorf("Expected output to contain 'hello world', got: %q", output)
+		}
+		if !strings.Contains(output, "second line") {
+			t.Errorf("Expected output to contain 'second line', got: %q", output)
+		}
+	})
+
+	t.Run("send with custom stdin and runtime input", func(t *testing.T) {
+		initialInput := strings.NewReader("initial input\n")
+		p := New("cat-combined", "cat", Stdin(initialInput), KeepStdinOpen())
+
+		var startErr error
+		go func() {
+			startErr = p.Start(context.Background())
+		}()
+
+		if !waitForState(p, StateRunning, 5*time.Second) {
+			t.Fatal("Process failed to start within timeout")
+		}
+
+		if startErr != nil {
+			t.Fatalf("Failed to start program: %v", startErr)
+		}
+
+		time.Sleep(100 * time.Millisecond)
+
+		// Send additional data via Send()
+		err := p.Send([]byte("runtime input\n"))
+		if err != nil {
+			t.Fatalf("Failed to send data: %v", err)
+		}
+
+		time.Sleep(100 * time.Millisecond)
+
+		err = p.CloseStdin()
+		if err != nil {
+			t.Fatalf("Failed to close stdin: %v", err)
+		}
+
+		if !waitForState(p, StateFinished, 5*time.Second) {
+			t.Fatal("Process failed to complete within timeout")
+		}
+
+		output := p.Output()
+		if !strings.Contains(output, "initial input") {
+			t.Errorf("Expected output to contain 'initial input', got: %q", output)
+		}
+		if !strings.Contains(output, "runtime input") {
+			t.Errorf("Expected output to contain 'runtime input', got: %q", output)
+		}
+	})
+
+	t.Run("send to finished process should error", func(t *testing.T) {
+		p := New("echo-finished", "echo", Args("done"))
+
+		err := p.Start(context.Background())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
+		}
+
+		// Process should be finished now
+		if p.State() != StateFinished {
+			t.Fatal("Expected process to be finished")
+		}
+
+		// Sending to finished process should error
+		err = p.Send([]byte("too late\n"))
+		if err == nil {
+			t.Fatal("Expected error when sending to finished process")
+		}
+	})
+}
+
 func TestMultiplePrograms(t *testing.T) {
 	t.Run("run multiple programs", func(t *testing.T) {
 		var programs []Program
