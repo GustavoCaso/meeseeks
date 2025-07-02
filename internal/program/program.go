@@ -186,12 +186,12 @@ func (p *program) run() error {
 
 	go func() {
 		defer wg.Done()
-		p.readOutput(context.Background(), p.pipes.outReader, false)
+		p.readOutput(p.pipes.outReader, false)
 	}()
 
 	go func() {
 		defer wg.Done()
-		p.readOutput(context.Background(), p.pipes.errReader, true)
+		p.readOutput(p.pipes.errReader, true)
 	}()
 
 	err := p.cmd.Run()
@@ -223,17 +223,27 @@ func (p *program) runAsync() error {
 }
 
 func (p *program) monitorProcess() {
-	ctx, cancel := context.WithCancel(context.Background())
+	// WaitGroup ensures readOutput goroutines finish reading all data.
+	// This prevents race conditions where callers might see incomplete output.
+	var wg sync.WaitGroup
+	wg.Add(2)
 
-	go p.readOutput(ctx, p.pipes.outReader, false)
-	go p.readOutput(ctx, p.pipes.errReader, true)
+	go func() {
+		defer wg.Done()
+		p.readOutput(p.pipes.outReader, false)
+	}()
+
+	go func() {
+		defer wg.Done()
+		p.readOutput(p.pipes.errReader, true)
+	}()
 
 	err := p.cmd.Wait()
 
 	p.pipes.closeWriters()
 
-	// Cancel context to signal readers to stop
-	cancel()
+	// Wait for readers to finish processing all data
+	wg.Wait()
 
 	p.pipes.closeReaders()
 
@@ -250,37 +260,31 @@ func (p *program) monitorProcess() {
 	p.exitCode = p.cmd.ProcessState.ExitCode()
 }
 
-func (p *program) readOutput(ctx context.Context, reader io.Reader, isError bool) {
+func (p *program) readOutput(reader io.Reader, isError bool) {
 	scanner := bufio.NewScanner(reader)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			if !scanner.Scan() {
-				if err := scanner.Err(); err != nil && err != io.EOF {
-					if isError {
-						p.stderrLock.Lock()
-						p.errorBuffer.WriteString("Scanner error: " + err.Error())
-						p.errorBuffer.WriteString("\n")
-						p.stderrLock.Unlock()
-					}
-				}
-				return
-			}
-			line := scanner.Text()
 
-			if isError {
-				p.stderrLock.Lock()
-				p.errorBuffer.WriteString(line + "\n")
-				p.lastError = line
-				p.stderrLock.Unlock()
-			} else {
-				p.stdoutLock.Lock()
-				p.outputBuffer.WriteString(line + "\n")
-				p.lastLine = line
-				p.stdoutLock.Unlock()
-			}
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if isError {
+			p.stderrLock.Lock()
+			p.errorBuffer.WriteString(line + "\n")
+			p.lastError = line
+			p.stderrLock.Unlock()
+		} else {
+			p.stdoutLock.Lock()
+			p.outputBuffer.WriteString(line + "\n")
+			p.lastLine = line
+			p.stdoutLock.Unlock()
+		}
+	}
+
+	if err := scanner.Err(); err != nil && err != io.EOF {
+		if isError {
+			p.stderrLock.Lock()
+			p.errorBuffer.WriteString("Scanner error: " + err.Error())
+			p.errorBuffer.WriteString("\n")
+			p.stderrLock.Unlock()
 		}
 	}
 }
