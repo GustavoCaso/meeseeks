@@ -205,6 +205,9 @@ func (p *program) run() error {
 	p.pipes.closeReaders()
 
 	if err != nil {
+		p.errorBuffer.WriteString(err.Error())
+		p.errorBuffer.WriteString("\n")
+		p.lastError = err.Error()
 		p.state = StateError
 		return err
 	}
@@ -224,6 +227,10 @@ func (p *program) runAsync() error {
 }
 
 func (p *program) monitorProcess() {
+	defer func() {
+		p.exitCode = p.cmd.ProcessState.ExitCode()
+	}()
+
 	// WaitGroup ensures readOutput goroutines finish reading all data.
 	// This prevents race conditions where callers might see incomplete output.
 	var wg sync.WaitGroup
@@ -249,16 +256,13 @@ func (p *program) monitorProcess() {
 	p.pipes.closeReaders()
 
 	if err != nil {
-		p.stderrLock.Lock()
 		p.errorBuffer.WriteString(err.Error())
 		p.errorBuffer.WriteString("\n")
 		p.lastError = err.Error()
-		p.stderrLock.Unlock()
 		p.state = StateError
 	} else {
 		p.state = StateFinished
 	}
-	p.exitCode = p.cmd.ProcessState.ExitCode()
 }
 
 func (p *program) readOutput(reader io.Reader, isError bool) {
