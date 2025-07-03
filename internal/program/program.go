@@ -16,6 +16,7 @@ type Program interface {
 	Name() string
 	Start(ctx context.Context) error
 	Status() string
+	Done() bool
 	Send([]byte) error
 	CloseStdin() error
 	LastLine() string
@@ -333,6 +334,10 @@ func (p *program) Status() string {
 	default:
 		return fmt.Sprintf("[%s] not started", p.name)
 	}
+}
+
+func (p *program) Done() bool {
+	return p.state == StateFinished || p.state == StateError
 }
 
 func (p *program) Output() string {
