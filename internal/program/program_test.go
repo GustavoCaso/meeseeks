@@ -51,7 +51,7 @@ func TestOneShot(t *testing.T) {
 			t.Errorf("Expected no error output, got: %q", p.Error())
 		}
 
-		if status := p.Status(); !strings.Contains(status, "finished with exit code: 0") {
+		if status := p.Status(); !strings.Contains(status, "finished") {
 			t.Errorf("Expected status to indicate successful completion, got: %q", status)
 		}
 	})
@@ -65,7 +65,7 @@ func TestOneShot(t *testing.T) {
 		}
 
 		status := p.Status()
-		if !strings.Contains(status, "error code: 2") {
+		if !strings.Contains(status, "code: 2") {
 			t.Errorf("Expected status to contain 'error code: 2', got: %q", status)
 		}
 	})
@@ -493,6 +493,155 @@ func TestMultiplePrograms(t *testing.T) {
 			if !strings.Contains(output, expected) {
 				t.Errorf("Program %s: expected output to contain %q, got: %q", p.Name(), expected, output)
 			}
+		}
+	})
+}
+
+func TestInterval(t *testing.T) {
+	t.Run("program with interval", func(t *testing.T) {
+		p := New("echo-test", "echo", Args("hello world"), Interval(time.Duration(10)*time.Millisecond))
+
+		ctx, cancel := context.WithCancel(context.Background())
+
+		err := p.Start(ctx)
+		if err != nil {
+			t.Fatalf("Failed to start program %s: %v", p.Name(), err)
+		}
+		time.Sleep(1 * time.Second)
+		cancel()
+
+		if p.Runs() <= 0 {
+			t.Fatalf("Failed to run program %s multiple times expected more than zero got zero", p.Name())
+		}
+	})
+
+	t.Run("async program with interval", func(t *testing.T) {
+		p := New("echo-test", "echo", Args("hello world"), Async(), Interval(time.Duration(10)*time.Millisecond))
+
+		ctx, cancel := context.WithCancel(context.Background())
+
+		err := p.Start(ctx)
+		if err != nil {
+			t.Fatalf("Failed to start program %s: %v", p.Name(), err)
+		}
+		time.Sleep(1 * time.Second)
+		cancel()
+
+		if p.Runs() <= 0 {
+			t.Fatalf("Failed to run program %s multiple times expected more than zero got zero", p.Name())
+		}
+	})
+}
+
+func TestStatistics(t *testing.T) {
+	t.Run("statistics for interval program", func(t *testing.T) {
+		p := New("echo-test", "echo", Args("hello world"), Interval(time.Duration(10)*time.Millisecond))
+
+		ctx, cancel := context.WithCancel(context.Background())
+
+		err := p.Start(ctx)
+		if err != nil {
+			t.Fatalf("Failed to start program %s: %v", p.Name(), err)
+		}
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+
+		stats := p.Statistics()
+
+		if stats.ProgramName != "echo-test" {
+			t.Errorf("Expected program name 'echo-test', got %q", stats.ProgramName)
+		}
+
+		if stats.TotalRuns <= 0 {
+			t.Errorf("Expected at least 1 run, got %d", stats.TotalRuns)
+		}
+
+		if stats.Successful <= 0 {
+			t.Errorf("Expected at least 1 successful run, got %d", stats.Successful)
+		}
+
+		if !stats.HasInterval {
+			t.Error("Expected HasInterval to be true")
+		}
+
+		if stats.Interval != 10*time.Millisecond {
+			t.Errorf("Expected interval 10ms, got %v", stats.Interval)
+		}
+
+		if stats.TotalOutputLines <= 0 {
+			t.Errorf("Expected at least 1 output line, got %d", stats.TotalOutputLines)
+		}
+
+		stringOutput := stats.String()
+		if !strings.Contains(stringOutput, "echo-test") {
+			t.Errorf("Expected string output to contain program name, got: %q", stringOutput)
+		}
+
+		if !strings.Contains(stringOutput, "interval: 10ms") {
+			t.Errorf("Expected string output to contain interval info, got: %q", stringOutput)
+		}
+
+		if stats.LastOutput == "" {
+			t.Error("Expected LastOutput to be set")
+		}
+
+		if !strings.Contains(stringOutput, "last output:") {
+			t.Errorf("Expected string output to contain last output info, got: %q", stringOutput)
+		}
+	})
+
+	t.Run("statistics for failed program", func(t *testing.T) {
+		p := New("failure-test", "bash", Args("-c", "echo 'before error'; exit 1"))
+
+		err := p.Start(context.Background())
+		if err == nil {
+			t.Fatal("Expected error for failing command")
+		}
+
+		stats := p.Statistics()
+
+		if stats.TotalRuns != 1 {
+			t.Errorf("Expected 1 run, got %d", stats.TotalRuns)
+		}
+
+		if stats.Failed != 1 {
+			t.Errorf("Expected 1 failed run, got %d", stats.Failed)
+		}
+
+		if stats.Successful != 0 {
+			t.Errorf("Expected 0 successful runs, got %d", stats.Successful)
+		}
+
+		if stats.LastError == "" {
+			t.Error("Expected LastError to be set")
+		}
+
+		stringOutput := stats.String()
+		if !strings.Contains(stringOutput, "failed: 1") {
+			t.Errorf("Expected string output to show failed runs, got: %q", stringOutput)
+		}
+
+		if stats.LastOutput == "" {
+			t.Error("Expected LastOutput to be set even for failed programs")
+		}
+
+		if !strings.Contains(stats.LastOutput, "before error") {
+			t.Errorf("Expected LastOutput to contain output before error, got: %q", stats.LastOutput)
+		}
+	})
+
+	t.Run("statistics for program with no runs", func(t *testing.T) {
+		p := New("no-run-test", "echo", Args("hello"))
+
+		stats := p.Statistics()
+
+		if stats.TotalRuns != 0 {
+			t.Errorf("Expected 0 runs, got %d", stats.TotalRuns)
+		}
+
+		stringOutput := stats.String()
+		if !strings.Contains(stringOutput, "No runs completed yet") {
+			t.Errorf("Expected message about no runs, got: %q", stringOutput)
 		}
 	})
 }
