@@ -512,6 +512,38 @@ func TestInterval(t *testing.T) {
 			t.Fatalf("Failed to run program %s multiple times expected more than zero got zero", p.Name())
 		}
 	})
+
+	t.Run("interval program with error signals done", func(t *testing.T) {
+		// Use a command that will fail to test error handling
+		p := New("failing-interval", "command_that_does_not_exist", Interval(time.Duration(50)*time.Millisecond))
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		done, err := p.Start(ctx)
+		if err != nil {
+			t.Fatalf("Failed to start interval program: %v", err)
+		}
+
+		// The done channel should be signaled when the command fails
+		select {
+		case <-done:
+			// Expected: done channel should be signaled due to command error
+		case <-time.After(2 * time.Second):
+			t.Fatal("Expected done channel to be signaled when interval command fails, but it wasn't")
+		}
+
+		// Verify that the program is in error state
+		if p.State() != StateError {
+			t.Errorf("Expected program state to be StateError, got: %v", p.State())
+		}
+
+		// Verify error message is captured
+		errorOutput := p.Error()
+		if errorOutput == "" {
+			t.Error("Expected error output to be captured, but it was empty")
+		}
+	})
 }
 
 func TestStatistics(t *testing.T) {

@@ -146,7 +146,7 @@ func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
 	p.current = 0
 	if p.interval > 0 {
 		ticker := time.NewTicker(p.interval)
-
+		intervalDone := make(chan struct{}, 1)
 		go func() {
 			for {
 				select {
@@ -155,6 +155,7 @@ func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
 				case <-ticker.C:
 					done, err := p.start(ctx)
 					if err != nil {
+						intervalDone <- struct{}{}
 						return
 					}
 					<-done
@@ -163,9 +164,9 @@ func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
 				}
 			}
 		}()
-		// We return a channel that would never be used.
-		// That way a caller waiting for an interval command will wait unbound
-		return make(<-chan struct{}), nil
+		// We return a separate done channel from the program struct, as interval programs are long running ones
+		// We only signal that we are done with an interval program if there is an error executing the program
+		return intervalDone, nil
 	} else {
 		return p.start(ctx)
 	}
