@@ -17,14 +17,14 @@ type Meeseek interface {
 	Results(w io.Writer)
 	Status(program string) (string, error)
 	Wait(ctx context.Context) error
+	Statistics() []program.Statistics
 }
 
 type meeseek struct {
-	startTime     time.Time
-	endTime       time.Time
-	programs      map[string]program.Program
-	asyncPrograms map[string]program.Program
-	wg            *sync.WaitGroup
+	startTime time.Time
+	endTime   time.Time
+	programs  map[string]program.Program
+	wg        *sync.WaitGroup
 }
 
 func (m *meeseek) AddProgram(p program.Program) error {
@@ -32,46 +32,22 @@ func (m *meeseek) AddProgram(p program.Program) error {
 		return fmt.Errorf("duplicated %s program", p.Name())
 	}
 
-	if _, ok := m.asyncPrograms[p.Name()]; ok {
-		return fmt.Errorf("duplicated %s program", p.Name())
-	}
-
-	if p.Async() {
-		m.asyncPrograms[p.Name()] = p
-	} else {
-		m.programs[p.Name()] = p
-	}
-
+	m.programs[p.Name()] = p
 	return nil
 }
 
 func (m *meeseek) Start(ctx context.Context) {
 	m.startTime = time.Now()
-	m.wg.Add(len(m.programs) + len(m.asyncPrograms))
+	m.wg.Add(len(m.programs))
 
 	for _, p := range m.programs {
 		go func(prog program.Program) {
-			defer m.wg.Done()
-
-			err := prog.Start(ctx)
+			done, err := prog.Start(ctx)
 			if err != nil {
 				log.Printf("failed to start program '%s' error '%s'\n", prog.Name(), err)
 			}
-		}(p)
-	}
-
-	for _, p := range m.asyncPrograms {
-		go func(prog program.Program) {
-			defer m.wg.Done()
-
-			err := prog.Start(ctx)
-			if err != nil {
-				log.Printf("failed to start program '%s' error '%s'\n", prog.Name(), err)
-			}
-
-			for !prog.Done() {
-				time.Sleep(10 * time.Millisecond)
-			}
+			<-done
+			m.wg.Done()
 		}(p)
 	}
 }
@@ -94,22 +70,21 @@ func (m *meeseek) Results(w io.Writer) {
 			fmt.Fprintf(w, "    Error: %s\n", errMsg)
 		}
 	}
+}
 
-	for _, p := range m.asyncPrograms {
-		fmt.Fprintf(w, "  - %s\n", p.Status())
-		if errMsg := p.Error(); errMsg != "" {
-			fmt.Fprintf(w, "    Error: %s\n", errMsg)
-		}
+func (m *meeseek) Statistics() []program.Statistics {
+	statistics := []program.Statistics{}
+
+	for _, p := range m.programs {
+		statistics = append(statistics, p.Statistics())
 	}
+
+	return statistics
 }
 
 func (m *meeseek) Status(program string) (string, error) {
 	if _, ok := m.programs[program]; !ok {
-		if asyncProgram, asyncOk := m.asyncPrograms[program]; !asyncOk {
-			return "", fmt.Errorf("program %s not present", program)
-		} else {
-			return asyncProgram.Status(), nil
-		}
+		return "", fmt.Errorf("program %s not present", program)
 	}
 
 	return m.programs[program].Status(), nil
@@ -133,8 +108,7 @@ func (m *meeseek) Wait(ctx context.Context) error {
 
 func New() Meeseek {
 	return &meeseek{
-		wg:            &sync.WaitGroup{},
-		programs:      map[string]program.Program{},
-		asyncPrograms: map[string]program.Program{},
+		wg:       &sync.WaitGroup{},
+		programs: map[string]program.Program{},
 	}
 }

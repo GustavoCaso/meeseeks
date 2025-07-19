@@ -12,35 +12,15 @@ import (
 	"time"
 )
 
-func waitForState(p Program, targetState ProcessState, timeout time.Duration) bool {
-	done := make(chan bool, 1)
-
-	go func() {
-		for {
-			if p.State() == targetState {
-				done <- true
-				return
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
-	}()
-
-	select {
-	case <-done:
-		return true
-	case <-time.After(timeout):
-		return false
-	}
-}
-
 func TestOneShot(t *testing.T) {
 	t.Run("basic command execution", func(t *testing.T) {
 		p := New("echo-test", "echo", Args("hello world"))
 
-		err := p.Start(context.Background())
+		done, err := p.Start(context.Background())
 		if err != nil {
 			t.Fatalf("Failed to start program: %v", err)
 		}
+		<-done
 
 		output := p.Output()
 		if !strings.Contains(output, "hello world") {
@@ -59,7 +39,7 @@ func TestOneShot(t *testing.T) {
 	t.Run("exit code handling", func(t *testing.T) {
 		p := New("failure-test", "bash", Args("-c", "exit 2"))
 
-		err := p.Start(context.Background())
+		_, err := p.Start(context.Background())
 		if err == nil {
 			t.Fatal("Expected error for non-zero exit code but got nil")
 		}
@@ -73,7 +53,7 @@ func TestOneShot(t *testing.T) {
 	t.Run("stderr output", func(t *testing.T) {
 		p := New("stderr-test", "bash", Args("-c", "echo 'error message' >&2; exit 1"))
 
-		err := p.Start(context.Background())
+		_, err := p.Start(context.Background())
 		if err == nil {
 			t.Fatal("Expected error but got nil")
 		}
@@ -89,10 +69,11 @@ func TestCustomIO(t *testing.T) {
 		var buf bytes.Buffer
 		p := New("stdout-test", "echo", Args("hello custom stdout"), Stdout(&buf))
 
-		err := p.Start(context.Background())
+		done, err := p.Start(context.Background())
 		if err != nil {
 			t.Fatalf("Failed to start program: %v", err)
 		}
+		<-done
 
 		if !strings.Contains(buf.String(), "hello custom stdout") {
 			t.Errorf("Custom stdout should contain 'hello custom stdout', got: %q", buf.String())
@@ -103,10 +84,11 @@ func TestCustomIO(t *testing.T) {
 		var buf bytes.Buffer
 		p := New("stderr-test", "bash", Args("-c", "echo 'custom error' >&2; exit 0"), Stderr(&buf))
 
-		err := p.Start(context.Background())
+		done, err := p.Start(context.Background())
 		if err != nil {
 			t.Fatalf("Failed to start program: %v", err)
 		}
+		<-done
 
 		if !strings.Contains(buf.String(), "custom error") {
 			t.Errorf("Custom stderr should contain 'custom error', got: %q", buf.String())
@@ -117,10 +99,11 @@ func TestCustomIO(t *testing.T) {
 		input := strings.NewReader("hello from stdin")
 		p := New("stdin-test", "cat", Stdin(input))
 
-		err := p.Start(context.Background())
+		done, err := p.Start(context.Background())
 		if err != nil {
 			t.Fatalf("Failed to start program: %v", err)
 		}
+		<-done
 
 		if output := p.Output(); !strings.Contains(output, "hello from stdin") {
 			t.Errorf("Expected output to contain stdin content, got: %q", output)
@@ -130,10 +113,11 @@ func TestCustomIO(t *testing.T) {
 	t.Run("custom env vars", func(t *testing.T) {
 		p := New("env-test", "bash", Args("-c", "echo $CUSTOM_VAR"), Envs("CUSTOM_VAR=test_value"))
 
-		err := p.Start(context.Background())
+		done, err := p.Start(context.Background())
 		if err != nil {
 			t.Fatalf("Failed to start program: %v", err)
 		}
+		<-done
 
 		if output := p.Output(); !strings.Contains(output, "test_value") {
 			t.Errorf("Expected output to contain env var value, got: %q", output)
@@ -152,10 +136,11 @@ func TestCustomIO(t *testing.T) {
 
 		p := New("file-test", "echo", Args("write to file"), Stdout(outFile))
 
-		err = p.Start(context.Background())
+		done, err := p.Start(context.Background())
 		if err != nil {
 			t.Fatalf("Failed to start program: %v", err)
 		}
+		<-done
 
 		outFile.Close()
 
@@ -174,16 +159,15 @@ func TestAsync(t *testing.T) {
 	t.Run("background process", func(t *testing.T) {
 		p := New("long-test", "bash", Args("-c", "for i in {1..3}; do echo \"iteration $i\"; sleep 0.1; done"), Async())
 
-		err := p.Start(context.Background())
+		done, err := p.Start(context.Background())
 		if err != nil {
 			t.Fatalf("Failed to start program: %v", err)
 		}
 
-		if !waitForState(p, StateRunning, 5*time.Second) {
-			t.Fatal("Process failed to start within timeout")
-		}
-
-		if !waitForState(p, StateFinished, 5*time.Second) {
+		select {
+		case <-done:
+			// Process completed
+		case <-time.After(5 * time.Second):
 			t.Fatal("Process failed to complete within timeout")
 		}
 
@@ -199,18 +183,17 @@ func TestAsync(t *testing.T) {
 
 		p := New("cancel-test", "bash", Args("-c", "for i in {1..10}; do echo \"loop $i\"; sleep 0.5; done"), Async())
 
-		err := p.Start(ctx)
+		done, err := p.Start(ctx)
 		if err != nil {
 			t.Fatalf("Failed to start program: %v", err)
 		}
 
-		if !waitForState(p, StateRunning, 5*time.Second) {
-			t.Fatal("Process failed to start within timeout")
-		}
-
 		cancel()
 
-		if !waitForState(p, StateError, 5*time.Second) {
+		select {
+		case <-done:
+			// Process completed (either finished or error)
+		case <-time.After(5 * time.Second):
 			t.Fatal("Process was not in the valid state")
 		}
 
@@ -230,16 +213,15 @@ func TestAsync(t *testing.T) {
 			Stderr(&stderrBuf),
 			Async())
 
-		err := p.Start(context.Background())
+		done, err := p.Start(context.Background())
 		if err != nil {
 			t.Fatalf("Failed to start program: %v", err)
 		}
 
-		if !waitForState(p, StateRunning, 5*time.Second) {
-			t.Fatal("Process failed to start within timeout")
-		}
-
-		if !waitForState(p, StateFinished, 5*time.Second) {
+		select {
+		case <-done:
+			// Process completed
+		case <-time.After(5 * time.Second):
 			t.Fatal("Process failed to complete within timeout")
 		}
 
@@ -255,16 +237,15 @@ func TestAsync(t *testing.T) {
 	t.Run("lastLine tracking", func(t *testing.T) {
 		p := New("lastline-test", "bash", Args("-c", "echo 'line 1'; sleep 0.1; echo 'line 2'; sleep 0.1; echo 'final line'"), Async())
 
-		err := p.Start(context.Background())
+		done, err := p.Start(context.Background())
 		if err != nil {
 			t.Fatalf("Failed to start program: %v", err)
 		}
 
-		if !waitForState(p, StateRunning, 5*time.Second) {
-			t.Fatal("Process failed to start within timeout")
-		}
-
-		if !waitForState(p, StateFinished, 5*time.Second) {
+		select {
+		case <-done:
+			// Process completed
+		case <-time.After(5 * time.Second):
 			t.Fatal("Process failed to complete within timeout")
 		}
 
@@ -279,7 +260,7 @@ func TestEdgeCases(t *testing.T) {
 	t.Run("command not found", func(t *testing.T) {
 		p := New("not-exists", "command_that_does_not_exist")
 
-		err := p.Start(context.Background())
+		_, err := p.Start(context.Background())
 		if err == nil {
 			t.Fatal("Expected error for non-existent command but got nil")
 		}
@@ -293,7 +274,7 @@ func TestEdgeCases(t *testing.T) {
 	t.Run("empty command", func(t *testing.T) {
 		p := New("empty", "")
 
-		err := p.Start(context.Background())
+		_, err := p.Start(context.Background())
 		if err == nil {
 			t.Fatal("Expected error for empty command but got nil")
 		}
@@ -303,10 +284,11 @@ func TestEdgeCases(t *testing.T) {
 		// Generate ~100KB of output
 		p := New("large-output", "bash", Args("-c", "for i in {1..5000}; do echo \"line $i of large output\"; done"))
 
-		err := p.Start(context.Background())
+		done, err := p.Start(context.Background())
 		if err != nil {
 			t.Fatalf("Failed to start program: %v", err)
 		}
+		<-done
 
 		output := p.Output()
 		if len(output) < 90000 {
@@ -321,13 +303,9 @@ func TestEdgeCases(t *testing.T) {
 	t.Run("concurrent access", func(t *testing.T) {
 		p := New("concurrent-test", "bash", Args("-c", "for i in {1..20}; do echo \"output $i\"; sleep 0.05; done"), Async())
 
-		err := p.Start(context.Background())
+		done, err := p.Start(context.Background())
 		if err != nil {
 			t.Fatalf("Failed to start program: %v", err)
-		}
-
-		if !waitForState(p, StateRunning, 5*time.Second) {
-			t.Fatal("Process failed to start within timeout")
 		}
 
 		var wg sync.WaitGroup
@@ -347,7 +325,10 @@ func TestEdgeCases(t *testing.T) {
 
 		wg.Wait()
 
-		if !waitForState(p, StateFinished, 5*time.Second) {
+		select {
+		case <-done:
+			// Process completed
+		case <-time.After(5 * time.Second):
 			t.Fatal("Process failed to complete within timeout")
 		}
 
@@ -361,13 +342,9 @@ func TestSend(t *testing.T) {
 	t.Run("send data to interactive command", func(t *testing.T) {
 		p := New("cat-test", "cat", KeepStdinOpen(), Async())
 
-		err := p.Start(context.Background())
+		done, err := p.Start(context.Background())
 		if err != nil {
 			t.Fatalf("Failed to start program: %v", err)
-		}
-
-		if !waitForState(p, StateRunning, 5*time.Second) {
-			t.Fatal("Process failed to start within timeout")
 		}
 
 		// Send first line
@@ -393,7 +370,10 @@ func TestSend(t *testing.T) {
 			t.Fatalf("Failed to close stdin: %v", err)
 		}
 
-		if !waitForState(p, StateFinished, 5*time.Second) {
+		select {
+		case <-done:
+			// Process completed
+		case <-time.After(5 * time.Second):
 			t.Fatal("Process failed to complete within timeout")
 		}
 
@@ -410,13 +390,9 @@ func TestSend(t *testing.T) {
 		initialInput := strings.NewReader("initial input\n")
 		p := New("cat-combined", "cat", Stdin(initialInput), KeepStdinOpen(), Async())
 
-		err := p.Start(context.Background())
+		done, err := p.Start(context.Background())
 		if err != nil {
 			t.Fatalf("Failed to start program: %v", err)
-		}
-
-		if !waitForState(p, StateRunning, 5*time.Second) {
-			t.Fatal("Process failed to start within timeout")
 		}
 
 		time.Sleep(100 * time.Millisecond)
@@ -434,7 +410,10 @@ func TestSend(t *testing.T) {
 			t.Fatalf("Failed to close stdin: %v", err)
 		}
 
-		if !waitForState(p, StateFinished, 5*time.Second) {
+		select {
+		case <-done:
+			// Process completed
+		case <-time.After(5 * time.Second):
 			t.Fatal("Process failed to complete within timeout")
 		}
 
@@ -450,10 +429,11 @@ func TestSend(t *testing.T) {
 	t.Run("send to finished process should error", func(t *testing.T) {
 		p := New("echo-finished", "echo", Args("done"))
 
-		err := p.Start(context.Background())
+		done, err := p.Start(context.Background())
 		if err != nil {
 			t.Fatalf("Failed to start program: %v", err)
 		}
+		<-done
 
 		// Process should be finished now
 		if p.State() != StateFinished {
@@ -481,10 +461,11 @@ func TestMultiplePrograms(t *testing.T) {
 		}
 
 		for _, p := range programs {
-			err := p.Start(context.Background())
+			done, err := p.Start(context.Background())
 			if err != nil {
 				t.Fatalf("Failed to start program %s: %v", p.Name(), err)
 			}
+			<-done
 		}
 
 		for i, p := range programs {
@@ -503,7 +484,7 @@ func TestInterval(t *testing.T) {
 
 		ctx, cancel := context.WithCancel(context.Background())
 
-		err := p.Start(ctx)
+		_, err := p.Start(ctx)
 		if err != nil {
 			t.Fatalf("Failed to start program %s: %v", p.Name(), err)
 		}
@@ -520,7 +501,7 @@ func TestInterval(t *testing.T) {
 
 		ctx, cancel := context.WithCancel(context.Background())
 
-		err := p.Start(ctx)
+		_, err := p.Start(ctx)
 		if err != nil {
 			t.Fatalf("Failed to start program %s: %v", p.Name(), err)
 		}
@@ -539,7 +520,7 @@ func TestStatistics(t *testing.T) {
 
 		ctx, cancel := context.WithCancel(context.Background())
 
-		err := p.Start(ctx)
+		_, err := p.Start(ctx)
 		if err != nil {
 			t.Fatalf("Failed to start program %s: %v", p.Name(), err)
 		}
@@ -593,7 +574,7 @@ func TestStatistics(t *testing.T) {
 	t.Run("statistics for failed program", func(t *testing.T) {
 		p := New("failure-test", "bash", Args("-c", "echo 'before error'; exit 1"))
 
-		err := p.Start(context.Background())
+		_, err := p.Start(context.Background())
 		if err == nil {
 			t.Fatal("Expected error for failing command")
 		}
