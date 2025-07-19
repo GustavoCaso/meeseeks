@@ -2,9 +2,10 @@ package meeseek
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -44,7 +45,7 @@ func (m *meeseek) Start(ctx context.Context) {
 		go func(prog program.Program) {
 			done, err := prog.Start(ctx)
 			if err != nil {
-				log.Printf("failed to start program '%s' error '%s'\n", prog.Name(), err)
+				slog.Error("failed to start program", "program", prog.Name(), "error", err.Error())
 			}
 			<-done
 			m.wg.Done()
@@ -99,7 +100,7 @@ func (m *meeseek) Wait(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
-		return fmt.Errorf("context cancelled while waiting for programs to finalize")
+		return errors.New("context cancelled while waiting for programs to finalize")
 	case <-done:
 		m.endTime = time.Now()
 		return nil

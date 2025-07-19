@@ -3,8 +3,10 @@ package program
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
@@ -39,49 +41,49 @@ const (
 
 type Option func(*program)
 
-var Stdout = func(o io.Writer) Option {
+func Stdout(o io.Writer) Option {
 	return func(p *program) {
 		p.customStdout = o
 	}
 }
 
-var Stderr = func(o io.Writer) Option {
+func Stderr(o io.Writer) Option {
 	return func(p *program) {
 		p.customStderr = o
 	}
 }
 
-var Stdin = func(o io.Reader) Option {
+func Stdin(o io.Reader) Option {
 	return func(p *program) {
 		p.customStdin = o
 	}
 }
 
-var Args = func(args ...string) Option {
+func Args(args ...string) Option {
 	return func(p *program) {
 		p.arguments = args
 	}
 }
 
-var Envs = func(envs ...string) Option {
+func Envs(envs ...string) Option {
 	return func(p *program) {
 		p.customEnv = envs
 	}
 }
 
-var KeepStdinOpen = func() Option {
+func KeepStdinOpen() Option {
 	return func(p *program) {
 		p.keepStdinOpen = true
 	}
 }
 
-var Async = func() Option {
+func Async() Option {
 	return func(p *program) {
 		p.async = true
 	}
 }
 
-var Interval = func(interval time.Duration) Option {
+func Interval(interval time.Duration) Option {
 	return func(p *program) {
 		p.interval = interval
 	}
@@ -130,16 +132,36 @@ type pipes struct {
 	inWriter  *io.PipeWriter
 }
 
-func (p *pipes) closeWriters() {
-	p.outWriter.Close()
-	p.errWriter.Close()
-	p.inWriter.Close()
+func (p *pipes) closeWriters() error {
+	err := p.outWriter.Close()
+	if err != nil {
+		return err
+	}
+	err = p.errWriter.Close()
+	if err != nil {
+		return err
+	}
+	err = p.inWriter.Close()
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
-func (p *pipes) closeReaders() {
-	p.outReader.Close()
-	p.errReader.Close()
-	p.inReader.Close()
+func (p *pipes) closeReaders() error {
+	err := p.outReader.Close()
+	if err != nil {
+		return err
+	}
+	err = p.errReader.Close()
+	if err != nil {
+		return err
+	}
+	err = p.inReader.Close()
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
@@ -167,9 +189,9 @@ func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
 		// We return a separate done channel from the program struct, as interval programs are long running ones
 		// We only signal that we are done with an interval program if there is an error executing the program
 		return intervalDone, nil
-	} else {
-		return p.start(ctx)
 	}
+
+	return p.start(ctx)
 }
 
 func (p *program) signalDone() {
@@ -187,7 +209,11 @@ func (p *program) start(ctx context.Context) (<-chan struct{}, error) {
 		}
 	}
 
-	cmd := exec.CommandContext(ctx, p.command, p.arguments...)
+	//nolint:gosec // We accept the arguments the users have manually defined
+	cmd := exec.CommandContext(
+		ctx,
+		p.command,
+		p.arguments...)
 	cmd.Env = append(os.Environ(), p.customEnv...)
 	p.cmd = cmd
 
@@ -228,14 +254,13 @@ func (p *program) start(ctx context.Context) (<-chan struct{}, error) {
 	}
 
 	if !p.keepStdinOpen {
-		inWriter.Close()
+		_ = inWriter.Close()
 	}
 
 	if p.async {
 		return p.done, p.runAsync()
-	} else {
-		return p.done, p.run()
 	}
+	return p.done, p.run()
 }
 
 func (p *program) run() error {
@@ -263,12 +288,28 @@ func (p *program) run() error {
 
 	err := p.cmd.Run()
 
-	p.pipes.closeWriters()
+	writersErr := p.pipes.closeWriters()
+	//nolint:sloglint //currently working on adding support for custom logger
+	slog.Error(
+		"error closing writers",
+		"program",
+		p.name,
+		"error",
+		writersErr.Error(),
+	)
 
 	// Wait for readers to finish processing all data
 	wg.Wait()
 
-	p.pipes.closeReaders()
+	readersErr := p.pipes.closeReaders()
+	//nolint:sloglint //currently working on adding support for custom logger
+	slog.Error(
+		"error closing readers",
+		"program",
+		p.name,
+		"error",
+		readersErr.Error(),
+	)
 
 	if err != nil {
 		p.results[currentIndex].errorBuffer.WriteString(err.Error())
@@ -321,12 +362,28 @@ func (p *program) monitorProcess() {
 
 	err := p.cmd.Wait()
 
-	p.pipes.closeWriters()
+	writersErr := p.pipes.closeWriters()
+	//nolint:sloglint //currently working on adding support for custom logger
+	slog.Error(
+		"error closing writers",
+		"program",
+		p.name,
+		"error",
+		writersErr.Error(),
+	)
 
 	// Wait for readers to finish processing all data
 	wg.Wait()
 
-	p.pipes.closeReaders()
+	readersErr := p.pipes.closeReaders()
+	//nolint:sloglint //currently working on adding support for custom logger
+	slog.Error(
+		"error closing readers",
+		"program",
+		p.name,
+		"error",
+		readersErr.Error(),
+	)
 
 	currentIndex := len(p.results) - 1
 	if err != nil {
@@ -360,7 +417,7 @@ func (p *program) readOutput(reader io.Reader, isError bool) {
 		}
 	}
 
-	if err := scanner.Err(); err != nil && err != io.EOF {
+	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
 		if isError {
 			currentIndex := len(p.results) - 1
 			p.stderrLock.Lock()
@@ -373,11 +430,11 @@ func (p *program) readOutput(reader io.Reader, isError bool) {
 
 func (p *program) Send(data []byte) error {
 	if len(p.results) == 0 || p.results[len(p.results)-1].state != StateRunning {
-		return fmt.Errorf("can not send data to a non-running program")
+		return errors.New("can not send data to a non-running program")
 	}
 
 	if !p.keepStdinOpen {
-		return fmt.Errorf("to send data to a running please use the KeepStdinOpen option when initialazing the program")
+		return errors.New("to send data to a running please use the KeepStdinOpen option when initialazing the program")
 	}
 
 	_, err := p.pipes.inWriter.Write(data)
@@ -386,11 +443,13 @@ func (p *program) Send(data []byte) error {
 
 func (p *program) CloseStdin() error {
 	if len(p.results) == 0 || p.results[len(p.results)-1].state != StateRunning {
-		return fmt.Errorf("closing stdin of non-running process has no effect")
+		return errors.New("closing stdin of non-running process has no effect")
 	}
 
 	if !p.keepStdinOpen {
-		return fmt.Errorf("stding is already closed please KeepStdinOpen option when initialazing the program to have full control over stdin")
+		return errors.New(
+			"stding is already closed please KeepStdinOpen option when initialazing the program to have full control over stdin",
+		)
 	}
 
 	return p.pipes.inWriter.Close()
@@ -409,9 +468,15 @@ func (p *program) Status() string {
 		return fmt.Sprintf("[%s not running] iteration: %d", p.name, p.current)
 	}
 	currentIndex := len(p.results) - 1
-	switch p.results[currentIndex].state {
+	switch p.results[currentIndex].state { //nolint:exhaustive // StateNotRunning is the default branch
 	case StateRunning:
-		return fmt.Sprintf("[%s running] iteration: %d, pid: %d, last line: %s", p.name, p.current, p.cmd.Process.Pid, p.LastLine())
+		return fmt.Sprintf(
+			"[%s running] iteration: %d, pid: %d, last line: %s",
+			p.name,
+			p.current,
+			p.cmd.Process.Pid,
+			p.LastLine(),
+		)
 	case StateFinished:
 		return fmt.Sprintf("[%s finished] iteration: %d, with exit code: %d", p.name, p.current, p.exitCode)
 	case StateError:
@@ -533,7 +598,7 @@ func (p *program) Statistics() Statistics {
 	}
 
 	for i, result := range p.results {
-		switch result.state {
+		switch result.state { //nolint:exhaustive // StateNotRunning is skipped as we do not use in the Statistics struct
 		case StateFinished:
 			stats.Successful++
 			stats.LastSuccessfulRun = i
