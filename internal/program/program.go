@@ -290,26 +290,30 @@ func (p *program) run() error {
 
 	writersErr := p.pipes.closeWriters()
 	//nolint:sloglint //currently working on adding support for custom logger
-	slog.Error(
-		"error closing writers",
-		"program",
-		p.name,
-		"error",
-		writersErr.Error(),
-	)
+	if writersErr != nil {
+		slog.Error(
+			"error closing writers",
+			"program",
+			p.name,
+			"error",
+			writersErr.Error(),
+		)
+	}
 
 	// Wait for readers to finish processing all data
 	wg.Wait()
 
 	readersErr := p.pipes.closeReaders()
 	//nolint:sloglint //currently working on adding support for custom logger
-	slog.Error(
-		"error closing readers",
-		"program",
-		p.name,
-		"error",
-		readersErr.Error(),
-	)
+	if readersErr != nil {
+		slog.Error(
+			"error closing readers",
+			"program",
+			p.name,
+			"error",
+			readersErr.Error(),
+		)
+	}
 
 	if err != nil {
 		p.results[currentIndex].errorBuffer.WriteString(err.Error())
@@ -364,26 +368,30 @@ func (p *program) monitorProcess() {
 
 	writersErr := p.pipes.closeWriters()
 	//nolint:sloglint //currently working on adding support for custom logger
-	slog.Error(
-		"error closing writers",
-		"program",
-		p.name,
-		"error",
-		writersErr.Error(),
-	)
+	if writersErr != nil {
+		slog.Error(
+			"error closing writers",
+			"program",
+			p.name,
+			"error",
+			writersErr.Error(),
+		)
+	}
 
 	// Wait for readers to finish processing all data
 	wg.Wait()
 
 	readersErr := p.pipes.closeReaders()
 	//nolint:sloglint //currently working on adding support for custom logger
-	slog.Error(
-		"error closing readers",
-		"program",
-		p.name,
-		"error",
-		readersErr.Error(),
-	)
+	if readersErr != nil {
+		slog.Error(
+			"error closing readers",
+			"program",
+			p.name,
+			"error",
+			readersErr.Error(),
+		)
+	}
 
 	currentIndex := len(p.results) - 1
 	if err != nil {
