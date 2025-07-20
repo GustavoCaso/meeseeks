@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,8 +15,8 @@ import (
 )
 
 // Helper function to run CLI commands as subprocess.
-func runCLI(_ *testing.T, args []string, timeout time.Duration) (stdout, stderr string, exitCode int) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+func runCLI(t *testing.T, args []string, timeout time.Duration) (string, string, int) {
+	ctx, cancel := context.WithTimeout(t.Context(), timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "go", "run", "main.go")
@@ -28,9 +29,10 @@ func runCLI(_ *testing.T, args []string, timeout time.Duration) (stdout, stderr 
 
 	err := cmd.Run()
 
-	exitCode = 0
+	exitCode := 0
 	if err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) {
 			exitCode = exitError.ExitCode()
 		} else {
 			// Context timeout or other error
@@ -182,7 +184,7 @@ func TestRunCommand_ValidConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), tt.timeout)
+			ctx, cancel := context.WithTimeout(t.Context(), tt.timeout)
 			defer cancel()
 
 			cmd := exec.CommandContext(ctx, "go", "run", "main.go")
@@ -258,7 +260,7 @@ func TestRunCommand_DetachedMode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), tt.timeout)
+			ctx, cancel := context.WithTimeout(t.Context(), tt.timeout)
 			defer cancel()
 
 			cmd := exec.CommandContext(ctx, "go", "run", "main.go")

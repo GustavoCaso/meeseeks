@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -44,14 +45,14 @@ func (d *Daemon) Start(ctx context.Context) error {
 	defer d.mu.Unlock()
 
 	if d.running {
-		return fmt.Errorf("daemon already running")
+		return errors.New("daemon already running")
 	}
 
 	if err := os.RemoveAll(d.sockPath); err != nil {
 		return fmt.Errorf("failed to remove existing socket: %w", err)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(d.sockPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(d.sockPath), 0750); err != nil {
 		return fmt.Errorf("failed to create socket directory: %w", err)
 	}
 

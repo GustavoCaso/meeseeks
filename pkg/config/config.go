@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,14 +17,14 @@ type Config struct {
 }
 
 type ProgramConfig struct {
-	Name          string   `yaml:"name" json:"name"`
-	Command       string   `yaml:"command" json:"command"`
-	Args          []string `yaml:"args,omitempty" json:"args,omitempty"`
-	Env           []string `yaml:"env,omitempty" json:"env,omitempty"`
-	Interval      string   `yaml:"interval,omitempty" json:"interval,omitempty"`
+	Name          string   `yaml:"name"                      json:"name"`
+	Command       string   `yaml:"command"                   json:"command"`
+	Args          []string `yaml:"args,omitempty"            json:"args,omitempty"`
+	Env           []string `yaml:"env,omitempty"             json:"env,omitempty"`
+	Interval      string   `yaml:"interval,omitempty"        json:"interval,omitempty"`
 	KeepStdinOpen bool     `yaml:"keep_stdin_open,omitempty" json:"keep_stdin_open,omitempty"`
-	Stdout        string   `yaml:"stdout,omitempty" json:"stdout,omitempty"`
-	Stderr        string   `yaml:"stderr,omitempty" json:"stderr,omitempty"`
+	Stdout        string   `yaml:"stdout,omitempty"          json:"stdout,omitempty"`
+	Stderr        string   `yaml:"stderr,omitempty"          json:"stderr,omitempty"`
 }
 
 func (pc *ProgramConfig) GetInterval() (time.Duration, error) {
@@ -64,7 +65,7 @@ func LoadConfig(filename string) (*Config, error) {
 
 func (c *Config) Validate() error {
 	if len(c.Programs) == 0 {
-		return fmt.Errorf("no programs defined in config")
+		return errors.New("no programs defined in config")
 	}
 
 	programNames := make(map[string]bool)

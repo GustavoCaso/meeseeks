@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -17,7 +18,7 @@ func NewClient(sockPath string) *Client {
 
 func (c *Client) connect() (net.Conn, error) {
 	if _, err := os.Stat(c.sockPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("meeseeks daemon not running (socket not found)")
+		return nil, errors.New("meeseeks daemon not running (socket not found)")
 	}
 
 	conn, err := net.Dial("unix", c.sockPath)

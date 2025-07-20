@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -48,7 +49,7 @@ func main() {
 			os.Exit(1)
 		}
 	case "version":
-		fmt.Println("meeseeks version 1.0.0")
+		fmt.Fprintln(os.Stdout, "meeseeks version 1.0.0")
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", command)
 		printUsage()
@@ -86,7 +87,7 @@ func runCommand(args []string) error {
 	if *configFile == "" {
 		fmt.Fprintf(os.Stderr, "Error: -config flag is required\n\n")
 		fs.Usage()
-		return fmt.Errorf("config file required")
+		return errors.New("config file required")
 	}
 
 	cfg, err := config.LoadConfig(*configFile)
@@ -113,8 +114,8 @@ func runDetached(cfg *config.Config, sockPath, pidFile string) error {
 			return fmt.Errorf("failed to create program %s: %w", programConfig.Name, err)
 		}
 
-		if err := d.AddProgram(prog); err != nil {
-			return fmt.Errorf("failed to add program %s: %w", programConfig.Name, err)
+		if addErr := d.AddProgram(prog); addErr != nil {
+			return fmt.Errorf("failed to add program %s: %w", programConfig.Name, addErr)
 		}
 	}
 
@@ -159,8 +160,8 @@ func runForeground(cfg *config.Config) error {
 			return fmt.Errorf("failed to create program %s: %w", programConfig.Name, err)
 		}
 
-		if err := m.AddProgram(prog); err != nil {
-			return fmt.Errorf("failed to add program %s: %w", programConfig.Name, err)
+		if addErr := m.AddProgram(prog); addErr != nil {
+			return fmt.Errorf("failed to add program %s: %w", programConfig.Name, addErr)
 		}
 	}
 
@@ -176,16 +177,16 @@ func runForeground(cfg *config.Config) error {
 		cancel()
 	}()
 
-	fmt.Printf("Starting %d programs in foreground mode\n", len(cfg.Programs))
+	fmt.Fprintf(os.Stdout, "Starting %d programs in foreground mode\n", len(cfg.Programs))
 	m.Start(ctx)
 
 	if err := m.Wait(ctx); err != nil {
 		slog.Warn("Wait completed with error", "error", err)
 	}
 
-	fmt.Println("\n=== Program Statistics ===")
+	fmt.Fprintln(os.Stdout, "\n=== Program Statistics ===")
 	for _, stat := range m.Statistics() {
-		fmt.Println(stat.String())
+		fmt.Fprintln(os.Stdout, stat.String())
 	}
 
 	m.Results(os.Stdout)
@@ -219,10 +220,10 @@ func statusCommand(args []string) error {
 	}
 
 	if programName != "" {
-		fmt.Println(resp.Data)
+		fmt.Fprintln(os.Stdout, resp.Data)
 	} else {
 		data, _ := json.MarshalIndent(resp.Data, "", "  ")
-		fmt.Println(string(data))
+		fmt.Fprintln(os.Stdout, string(data))
 	}
 
 	return nil
@@ -241,7 +242,7 @@ func logsCommand(args []string) error {
 
 	if fs.NArg() == 0 {
 		fs.Usage()
-		return fmt.Errorf("program name required")
+		return errors.New("program name required")
 	}
 
 	programName := fs.Arg(0)
@@ -257,7 +258,7 @@ func logsCommand(args []string) error {
 	}
 
 	data, _ := json.MarshalIndent(resp.Data, "", "  ")
-	fmt.Println(string(data))
+	fmt.Fprintln(os.Stdout, string(data))
 
 	return nil
 }
@@ -288,7 +289,7 @@ func stopCommand(args []string) error {
 		return fmt.Errorf("%s", resp.Error)
 	}
 
-	fmt.Println("Stop command executed")
+	fmt.Fprintln(os.Stdout, "Stop command executed")
 	return nil
 }
 
@@ -316,7 +317,7 @@ func createProgramFromConfig(pc config.ProgramConfig) (program.Program, error) {
 	}
 
 	if pc.Stdout != "" {
-		file, err := os.OpenFile(pc.Stdout, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		file, err := os.OpenFile(pc.Stdout, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open stdout file %s: %w", pc.Stdout, err)
 		}
@@ -324,7 +325,7 @@ func createProgramFromConfig(pc config.ProgramConfig) (program.Program, error) {
 	}
 
 	if pc.Stderr != "" {
-		file, err := os.OpenFile(pc.Stderr, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		file, err := os.OpenFile(pc.Stderr, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open stderr file %s: %w", pc.Stderr, err)
 		}
@@ -336,5 +337,5 @@ func createProgramFromConfig(pc config.ProgramConfig) (program.Program, error) {
 
 func writePidFile(pidFile string) error {
 	pid := os.Getpid()
-	return os.WriteFile(pidFile, []byte(strconv.Itoa(pid)), 0644)
+	return os.WriteFile(pidFile, []byte(strconv.Itoa(pid)), 0600)
 }

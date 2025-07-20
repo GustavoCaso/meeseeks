@@ -181,7 +181,7 @@ func TestMeeseek_StartAndWait(t *testing.T) {
 				}
 			}
 
-			ctx, cancel := context.WithTimeout(context.Background(), tt.timeout)
+			ctx, cancel := context.WithTimeout(t.Context(), tt.timeout)
 			defer cancel()
 
 			m.Start(ctx)
@@ -246,7 +246,7 @@ func TestMeeseek_Statistics(t *testing.T) {
 			}
 
 			if tt.runPrograms {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 				defer cancel()
 
 				m.Start(ctx)
@@ -314,7 +314,7 @@ func TestMeeseek_Results(t *testing.T) {
 			}
 
 			if tt.runPrograms {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 				defer cancel()
 
 				m.Start(ctx)
@@ -367,7 +367,7 @@ func TestMeeseek_IntervalPrograms(t *testing.T) {
 				t.Fatalf("Failed to add program: %v", err)
 			}
 
-			ctx, cancel := context.WithTimeout(context.Background(), tt.waitTime+time.Second)
+			ctx, cancel := context.WithTimeout(t.Context(), tt.waitTime+time.Second)
 			defer cancel()
 
 			m.Start(ctx)
@@ -398,7 +398,7 @@ func TestMeeseek_ConcurrentAccess(t *testing.T) {
 	numPrograms := 10
 	results := make(chan error, numPrograms)
 
-	for i := 0; i < numPrograms; i++ {
+	for i := range numPrograms {
 		go func(id int) {
 			progName := "concurrent-" + string(rune('0'+id))
 			prog := program.New(progName, "echo", program.Args("test"))
@@ -408,7 +408,7 @@ func TestMeeseek_ConcurrentAccess(t *testing.T) {
 	}
 
 	// Wait for all programs to be added
-	for i := 0; i < numPrograms; i++ {
+	for i := range numPrograms {
 		err := <-results
 		if err != nil {
 			t.Errorf("Failed to add program %d: %v", i, err)
@@ -423,7 +423,7 @@ func TestMeeseek_ConcurrentAccess(t *testing.T) {
 
 	// Test concurrent status queries
 	statusResults := make(chan error, numPrograms)
-	for i := 0; i < numPrograms; i++ {
+	for i := range numPrograms {
 		go func(id int) {
 			progName := "concurrent-" + string(rune('0'+id))
 			_, err := m.Status(progName)
@@ -432,7 +432,7 @@ func TestMeeseek_ConcurrentAccess(t *testing.T) {
 	}
 
 	// Wait for all status queries
-	for i := 0; i < numPrograms; i++ {
+	for i := range numPrograms {
 		err := <-statusResults
 		if err != nil {
 			t.Errorf("Failed to get status for program %d: %v", i, err)
@@ -449,7 +449,7 @@ func TestMeeseek_ContextCancellation(t *testing.T) {
 		t.Fatalf("Failed to add program: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 
 	m.Start(ctx)
@@ -469,7 +469,7 @@ func TestMeeseek_EmptyMeeseek(t *testing.T) {
 	m := New()
 
 	// Test operations on empty meeseek
-	ctx := context.Background()
+	ctx := t.Context()
 	m.Start(ctx)
 
 	err := m.Wait(ctx)
@@ -495,12 +495,12 @@ func TestMeeseek_EmptyMeeseek(t *testing.T) {
 	}
 }
 
-// Benchmark meeseek operations
+// Benchmark meeseek operations.
 func BenchmarkMeeseek_AddProgram(b *testing.B) {
 	m := New()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := range b.N {
 		progName := "bench-" + string(rune('0'+(i%10)))
 		prog := program.New(progName, "echo", program.Args("benchmark"))
 		m.AddProgram(prog)
@@ -511,14 +511,14 @@ func BenchmarkMeeseek_Statistics(b *testing.B) {
 	m := New()
 
 	// Add some programs
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		progName := "bench-" + string(rune('0'+i))
 		prog := program.New(progName, "echo", program.Args("benchmark"))
 		m.AddProgram(prog)
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		m.Statistics()
 	}
 }
@@ -530,7 +530,7 @@ func BenchmarkMeeseek_Status(b *testing.B) {
 	m.AddProgram(prog)
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		m.Status("bench-status")
 	}
 }

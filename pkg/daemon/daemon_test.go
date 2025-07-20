@@ -50,7 +50,7 @@ func TestDaemon_StartStop(t *testing.T) {
 			sockPath := tt.setup()
 			d := New(sockPath)
 
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
 
 			err := d.Start(ctx)
@@ -110,7 +110,7 @@ func TestDaemon_AddProgramAndStart(t *testing.T) {
 		t.Fatalf("AddProgram() unexpected error = %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
 	err = d.Start(ctx)
@@ -275,7 +275,7 @@ func TestClient_SendRequest(t *testing.T) {
 
 	// Start daemon
 	d := New(sockPath)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
 	err := d.Start(ctx)
@@ -405,7 +405,7 @@ func TestDaemon_IntegrationWithRealSocket(t *testing.T) {
 
 	// Start daemon
 	d := New(sockPath)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
 	err := d.Start(ctx)
@@ -451,7 +451,7 @@ func TestDaemon_IntegrationWithRealSocket(t *testing.T) {
 	}
 }
 
-// Test concurrent client connections
+// Test concurrent client connections.
 func TestDaemon_ConcurrentConnections(t *testing.T) {
 	// Unix sockets have a path length limit (~104-108 characters depending on OS).
 	// Using t.TempDir() creates very long paths that exceed this limit and cause
@@ -462,7 +462,7 @@ func TestDaemon_ConcurrentConnections(t *testing.T) {
 
 	// Start daemon
 	d := New(sockPath)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
 	err := d.Start(ctx)
@@ -482,8 +482,8 @@ func TestDaemon_ConcurrentConnections(t *testing.T) {
 	numClients := 5
 	results := make(chan error, numClients)
 
-	for i := 0; i < numClients; i++ {
-		go func(clientID int) {
+	for i := range numClients {
+		go func(_ int) {
 			client := NewClient(sockPath)
 			resp, err := client.Status("")
 			if err != nil {
@@ -499,7 +499,7 @@ func TestDaemon_ConcurrentConnections(t *testing.T) {
 	}
 
 	// Wait for all clients to complete
-	for i := 0; i < numClients; i++ {
+	for i := range numClients {
 		err := <-results
 		if err != nil {
 			t.Errorf("Client %d failed: %v", i, err)
@@ -526,7 +526,7 @@ func endsWith(s, suffix string) bool {
 	return len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix
 }
 
-// Benchmark daemon request handling
+// Benchmark daemon request handling.
 func BenchmarkDaemon_HandleRequest(b *testing.B) {
 	d := New("/tmp/bench.sock")
 	prog := program.New("bench-program", "echo", program.Args("benchmark"))
@@ -535,7 +535,7 @@ func BenchmarkDaemon_HandleRequest(b *testing.B) {
 	req := Request{Command: "status"}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		d.handleRequest(req)
 	}
 }
