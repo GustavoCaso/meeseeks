@@ -77,9 +77,9 @@ func (d *Daemon) Stop() error {
 
 	d.running = false
 	if d.listener != nil {
-		d.listener.Close()
+		_ = d.listener.Close()
 	}
-	os.RemoveAll(d.sockPath)
+	_ = os.RemoveAll(d.sockPath)
 	return nil
 }
 
@@ -121,7 +121,7 @@ func (d *Daemon) handleConnection(conn net.Conn) {
 
 	var req Request
 	if err := decoder.Decode(&req); err != nil {
-		encoder.Encode(Response{
+		_ = encoder.Encode(Response{
 			Success: false,
 			Error:   fmt.Sprintf("failed to decode request: %v", err),
 		})
@@ -129,7 +129,7 @@ func (d *Daemon) handleConnection(conn net.Conn) {
 	}
 
 	resp := d.handleRequest(req)
-	encoder.Encode(resp)
+	_ = encoder.Encode(resp)
 }
 
 func (d *Daemon) handleRequest(req Request) Response {

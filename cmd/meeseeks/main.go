@@ -135,8 +135,8 @@ func runDetached(cfg *config.Config, sockPath, pidFile string) error {
 	go func() {
 		<-sigChan
 		slog.Info("Received signal, shutting down...")
-		d.Stop()
-		os.Remove(pidFile)
+		_ = d.Stop()
+		_ = os.Remove(pidFile)
 		cancel()
 	}()
 
