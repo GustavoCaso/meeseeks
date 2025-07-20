@@ -2,7 +2,10 @@ module github.com/GustavoCaso/meeseeks
 
 go 1.24.5
 
-require github.com/golangci/golangci-lint/v2 v2.2.2
+require (
+	github.com/golangci/golangci-lint/v2 v2.2.2
+	gopkg.in/yaml.v3 v3.0.1
+)
 
 require (
 	4d63.com/gocheckcompilerdirectives v1.3.0 // indirect

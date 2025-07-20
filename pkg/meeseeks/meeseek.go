@@ -1,4 +1,4 @@
-package meeseek
+package meeseeks
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/GustavoCaso/meeseeks/internal/program"
+	"github.com/GustavoCaso/meeseeks/pkg/program"
 )
 
 type Meeseek interface {
@@ -26,9 +26,13 @@ type meeseek struct {
 	endTime   time.Time
 	programs  map[string]program.Program
 	wg        *sync.WaitGroup
+	mu        sync.RWMutex
 }
 
 func (m *meeseek) AddProgram(p program.Program) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if _, ok := m.programs[p.Name()]; ok {
 		return fmt.Errorf("duplicated %s program", p.Name())
 	}
@@ -38,6 +42,9 @@ func (m *meeseek) AddProgram(p program.Program) error {
 }
 
 func (m *meeseek) Start(ctx context.Context) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	m.startTime = time.Now()
 	m.wg.Add(len(m.programs))
 
@@ -54,6 +61,9 @@ func (m *meeseek) Start(ctx context.Context) {
 }
 
 func (m *meeseek) Results(w io.Writer) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	fmt.Fprintln(w, "=== Meeseeks Execution Summary ===")
 
 	if m.endTime.IsZero() {
@@ -74,6 +84,9 @@ func (m *meeseek) Results(w io.Writer) {
 }
 
 func (m *meeseek) Statistics() []program.Statistics {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	statistics := []program.Statistics{}
 
 	for _, p := range m.programs {
@@ -84,6 +97,9 @@ func (m *meeseek) Statistics() []program.Statistics {
 }
 
 func (m *meeseek) Status(program string) (string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	if _, ok := m.programs[program]; !ok {
 		return "", fmt.Errorf("program %s not present", program)
 	}
