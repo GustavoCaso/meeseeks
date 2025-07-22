@@ -368,30 +368,6 @@ func TestClient_ConnectToNonExistentDaemon(t *testing.T) {
 	}
 }
 
-func TestGetSocketPath(t *testing.T) {
-	path := GetSocketPath()
-	if path == "" {
-		t.Errorf("GetSocketPath() returned empty string")
-	}
-
-	expectedSuffix := "meeseeks.sock"
-	if !endsWith(path, expectedSuffix) {
-		t.Errorf("GetSocketPath() = %q, expected to end with %q", path, expectedSuffix)
-	}
-}
-
-func TestGetPidFile(t *testing.T) {
-	path := GetPidFile()
-	if path == "" {
-		t.Errorf("GetPidFile() returned empty string")
-	}
-
-	expectedSuffix := "meeseeks.pid"
-	if !endsWith(path, expectedSuffix) {
-		t.Errorf("GetPidFile() = %q, expected to end with %q", path, expectedSuffix)
-	}
-}
-
 func TestDaemon_IntegrationWithRealSocket(t *testing.T) {
 	// Unix sockets have a path length limit (~104-108 characters depending on OS).
 	// Using t.TempDir() creates very long paths that exceed this limit and cause

@@ -169,13 +169,3 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	resp := Response{Success: false, Error: "stop command not yet implemented"}
 	json.NewEncoder(w).Encode(resp)
 }
-
-func GetSocketPath() string {
-	homeDir, _ := os.UserHomeDir()
-	return filepath.Join(homeDir, ".meeseeks", "meeseeks.sock")
-}
-
-func GetPidFile() string {
-	homeDir, _ := os.UserHomeDir()
-	return filepath.Join(homeDir, ".meeseeks", "meeseeks.pid")
-}

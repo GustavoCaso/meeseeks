@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 
@@ -101,8 +102,8 @@ func runCommand(args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	sockPath := server.GetSocketPath()
-	pidFile := server.GetPidFile()
+	sockPath := getSocketPath()
+	pidFile := getPidFile()
 
 	if *daemonChild {
 		return runDaemonChild(cfg, sockPath, pidFile)
@@ -262,7 +263,7 @@ func statusCommand(args []string) error {
 		programName = fs.Arg(0)
 	}
 
-	client := server.NewClient(server.GetSocketPath())
+	client := server.NewClient(getSocketPath())
 	resp, err := client.Status(programName)
 	if err != nil {
 		return err
@@ -300,7 +301,7 @@ func logsCommand(args []string) error {
 
 	programName := fs.Arg(0)
 
-	client := server.NewClient(server.GetSocketPath())
+	client := server.NewClient(getSocketPath())
 	resp, err := client.Logs(programName)
 	if err != nil {
 		return err
@@ -332,7 +333,7 @@ func stopCommand(args []string) error {
 		programName = fs.Arg(0)
 	}
 
-	client := server.NewClient(server.GetSocketPath())
+	client := server.NewClient(getSocketPath())
 	resp, err := client.Stop(programName)
 	if err != nil {
 		return err
@@ -357,7 +358,7 @@ func exitCommand(args []string) error {
 		return err
 	}
 
-	pidFile := server.GetPidFile()
+	pidFile := getPidFile()
 
 	pid, err := os.ReadFile(pidFile)
 
@@ -428,4 +429,14 @@ func createProgramFromConfig(pc config.ProgramConfig) (program.Program, error) {
 
 func writePidFile(pidFile string, pid int) error {
 	return os.WriteFile(pidFile, []byte(strconv.Itoa(pid)), 0600)
+}
+
+func getSocketPath() string {
+	homeDir, _ := os.UserHomeDir()
+	return filepath.Join(homeDir, ".meeseeks", "meeseeks.sock")
+}
+
+func getPidFile() string {
+	homeDir, _ := os.UserHomeDir()
+	return filepath.Join(homeDir, ".meeseeks", "meeseeks.pid")
 }
