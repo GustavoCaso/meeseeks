@@ -126,8 +126,7 @@ func TestMain(t *testing.T) {
     args: ["30"]
 `
 
-				err := os.WriteFile(configFile, []byte(configContent), 0644)
-				if err != nil {
+				if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
 					t.Fatalf("Failed to create test config file: %v", err)
 				}
 
@@ -141,8 +140,7 @@ func TestMain(t *testing.T) {
 
 				// Create .meeseeks directory in test home
 				meeseeksDir := filepath.Join(testHome, ".meeseeks")
-				err = os.MkdirAll(meeseeksDir, 0755)
-				if err != nil {
+				if err := os.MkdirAll(meeseeksDir, 0755); err != nil {
 					t.Fatalf("Failed to create .meeseeks directory: %v", err)
 				}
 
@@ -158,22 +156,19 @@ func TestMain(t *testing.T) {
 				}()
 
 				// Start daemon in detached mode
-				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-				defer cancel()
-
-				cmd := exec.CommandContext(ctx, "go", "run", "main.go")
-				cmd.Args = append(cmd.Args, "run", "-d", "-config", configFile)
-				cmd.Dir = "/Users/gustavocaso/src/github.com/GustavoCaso/meeseeks/cmd/meeseeks"
-
 				var stdout, stderr bytes.Buffer
-				cmd.Stdout = &stdout
-				cmd.Stderr = &stderr
+				exitCode := runCLICommand(
+					t,
+					[]string{"run", "-d", "-config", configFile},
+					&stdout,
+					&stderr,
+					15*time.Second,
+				)
 
-				err = cmd.Run()
-				if err != nil {
+				if exitCode != 0 {
 					t.Fatalf(
-						"Failed to start daemon: %v\nStdout: %s\nStderr: %s",
-						err,
+						"Failed to start daemon: exit code %d\nStdout: %s\nStderr: %s",
+						exitCode,
 						stdout.String(),
 						stderr.String(),
 					)
@@ -199,7 +194,7 @@ func TestMain(t *testing.T) {
 
 				// Test status command works
 				var stdoutBuf, stderrBuf bytes.Buffer
-				exitCode := runCLICommand(
+				exitCode = runCLICommand(
 					t,
 					[]string{"status"},
 					&stdoutBuf,
@@ -211,7 +206,7 @@ func TestMain(t *testing.T) {
 				}
 				statusOutput := stdoutBuf.String() + stderrBuf.String()
 
-				if strings.Contains(statusOutput, "failed to connect to daemon") {
+				if strings.Contains(statusOutput, "failed to send request") {
 					t.Errorf("Status command could not connect to daemon: %q", statusOutput)
 				}
 
@@ -382,13 +377,13 @@ func TestStatusCommand_Validation(t *testing.T) {
 			name:         "status with no daemon running",
 			args:         []string{"status"},
 			expectedExit: 1,
-			errorMessage: "failed to connect to daemon",
+			errorMessage: "failed to send request",
 		},
 		{
 			name:         "status specific program with no daemon",
 			args:         []string{"status", "test-program"},
 			expectedExit: 1,
-			errorMessage: "failed to connect to daemon",
+			errorMessage: "failed to send request",
 		},
 	}
 
@@ -447,7 +442,7 @@ func TestLogsCommand_Validation(t *testing.T) {
 			name:         "logs with no daemon running",
 			args:         []string{"logs", "test-program"},
 			expectedExit: 1,
-			errorMessage: "failed to connect to daemon",
+			errorMessage: "failed to send request",
 		},
 	}
 
@@ -500,13 +495,13 @@ func TestStopCommand_Validation(t *testing.T) {
 			name:         "stop with no daemon running",
 			args:         []string{"stop"},
 			expectedExit: 1,
-			errorMessage: "failed to connect to daemon",
+			errorMessage: "failed to send request",
 		},
 		{
 			name:         "stop specific program with no daemon",
 			args:         []string{"stop", "test-program"},
 			expectedExit: 1,
-			errorMessage: "failed to connect to daemon",
+			errorMessage: "failed to send request",
 		},
 	}
 

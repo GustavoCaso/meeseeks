@@ -14,8 +14,8 @@ import (
 	"syscall"
 
 	"github.com/GustavoCaso/meeseeks/pkg/config"
-	"github.com/GustavoCaso/meeseeks/pkg/daemon"
 	"github.com/GustavoCaso/meeseeks/pkg/program"
+	"github.com/GustavoCaso/meeseeks/pkg/server"
 )
 
 func main() {
@@ -101,8 +101,8 @@ func runCommand(args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	sockPath := daemon.GetSocketPath()
-	pidFile := daemon.GetPidFile()
+	sockPath := server.GetSocketPath()
+	pidFile := server.GetPidFile()
 
 	if *daemonChild {
 		return runDaemonChild(cfg, sockPath, pidFile)
@@ -166,7 +166,7 @@ func runDaemonChild(cfg *config.Config, sockPath, pidFile string) error {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	d, err := startDaemon(ctx, cfg, sockPath)
+	s, err := startServer(ctx, cfg, sockPath)
 	if err != nil {
 		return err
 	}
@@ -177,12 +177,18 @@ func runDaemonChild(cfg *config.Config, sockPath, pidFile string) error {
 	go func() {
 		<-sigChan
 		slog.Info("Received signal, shutting down...")
-		_ = d.Stop()
-		_ = os.Remove(pidFile)
+		err := s.Stop()
+		if err != nil {
+			slog.Warn("Error stopping the server.", "error", err.Error())
+		}
+		err = os.Remove(pidFile)
+		if err != nil {
+			slog.Warn("Error removing the pid File.", "error", err.Error())
+		}
 		cancel()
 	}()
 
-	if err := d.Wait(ctx); err != nil {
+	if err := s.Wait(ctx); err != nil {
 		slog.Warn("Wait completed with error", "error", err)
 	}
 
@@ -193,7 +199,7 @@ func runForeground(cfg *config.Config, sockPath string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	d, err := startDaemon(ctx, cfg, sockPath)
+	s, err := startServer(ctx, cfg, sockPath)
 	if err != nil {
 		return err
 	}
@@ -204,21 +210,21 @@ func runForeground(cfg *config.Config, sockPath string) error {
 	go func() {
 		<-sigChan
 		slog.Info("Received signal, shutting down...")
-		_ = d.Stop()
+		_ = s.Stop()
 		cancel()
 	}()
 
 	fmt.Fprintf(os.Stdout, "Starting %d programs in foreground mode\n", len(cfg.Programs))
 
-	if err := d.Wait(ctx); err != nil {
+	if err := s.Wait(ctx); err != nil {
 		slog.Warn("Wait completed with error", "error", err)
 	}
 
 	return nil
 }
 
-func startDaemon(ctx context.Context, cfg *config.Config, sockPath string) (*daemon.Daemon, error) {
-	d := daemon.New(sockPath)
+func startServer(ctx context.Context, cfg *config.Config, sockPath string) (*server.Server, error) {
+	s := server.New(sockPath)
 
 	for _, programConfig := range cfg.Programs {
 		prog, err := createProgramFromConfig(programConfig)
@@ -226,18 +232,18 @@ func startDaemon(ctx context.Context, cfg *config.Config, sockPath string) (*dae
 			return nil, fmt.Errorf("failed to create program %s: %w", programConfig.Name, err)
 		}
 
-		if addErr := d.AddProgram(prog); addErr != nil {
+		if addErr := s.AddProgram(prog); addErr != nil {
 			return nil, fmt.Errorf("failed to add program %s: %w", programConfig.Name, addErr)
 		}
 	}
 
-	if err := d.Start(ctx); err != nil {
+	if err := s.Start(ctx); err != nil {
 		return nil, fmt.Errorf("failed to start daemon: %w", err)
 	}
 
-	d.StartPrograms(ctx)
+	s.StartPrograms(ctx)
 
-	return d, nil
+	return s, nil
 }
 
 func statusCommand(args []string) error {
@@ -256,7 +262,7 @@ func statusCommand(args []string) error {
 		programName = fs.Arg(0)
 	}
 
-	client := daemon.NewClient(daemon.GetSocketPath())
+	client := server.NewClient(server.GetSocketPath())
 	resp, err := client.Status(programName)
 	if err != nil {
 		return err
@@ -294,7 +300,7 @@ func logsCommand(args []string) error {
 
 	programName := fs.Arg(0)
 
-	client := daemon.NewClient(daemon.GetSocketPath())
+	client := server.NewClient(server.GetSocketPath())
 	resp, err := client.Logs(programName)
 	if err != nil {
 		return err
@@ -326,7 +332,7 @@ func stopCommand(args []string) error {
 		programName = fs.Arg(0)
 	}
 
-	client := daemon.NewClient(daemon.GetSocketPath())
+	client := server.NewClient(server.GetSocketPath())
 	resp, err := client.Stop(programName)
 	if err != nil {
 		return err
@@ -351,17 +357,30 @@ func exitCommand(args []string) error {
 		return err
 	}
 
-	client := daemon.NewClient(daemon.GetSocketPath())
-	resp, err := client.Exit()
+	pidFile := server.GetPidFile()
+
+	pid, err := os.ReadFile(pidFile)
+
 	if err != nil {
 		return err
 	}
 
-	if !resp.Success {
-		return fmt.Errorf("%s", resp.Error)
+	pidInt, err := strconv.Atoi(string(pid))
+	if err != nil {
+		return err
 	}
 
-	fmt.Fprintln(os.Stdout, "Exit command executed")
+	serverProcess, err := os.FindProcess(pidInt)
+	if err != nil {
+		return err
+	}
+	err = serverProcess.Signal(syscall.SIGTERM)
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintln(os.Stdout, "Exiting meeseeks")
+
 	return nil
 }
 

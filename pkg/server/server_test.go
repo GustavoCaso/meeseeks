@@ -1,4 +1,4 @@
-package daemon
+package server
 
 import (
 	"context"
@@ -126,29 +126,49 @@ func TestDaemon_AddProgramAndStart(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 }
 
-func TestDaemon_HandleRequest(t *testing.T) {
-	tmpDir := t.TempDir()
-	sockPath := filepath.Join(tmpDir, "test.sock")
-	d := New(sockPath)
+func TestServer_HTTPHandlers(t *testing.T) {
+	// Unix sockets have a path length limit (~104-108 characters depending on OS).
+	// Using t.TempDir() creates very long paths that exceed this limit and cause
+	// "bind: invalid argument" errors. We use /tmp directly with short names instead.
+	sockPath := "/tmp/meeseeks-test-handlers.sock"
+	// Clean up any existing socket
+	os.Remove(sockPath)
+	defer os.Remove(sockPath)
+
+	s := New(sockPath)
 
 	// Add test programs
 	prog1 := program.New("test-program1", "echo", program.Args("hello"))
 	prog2 := program.New("test-program2", "echo", program.Args("world"))
-	d.AddProgram(prog1)
-	d.AddProgram(prog2)
+	s.AddProgram(prog1)
+	s.AddProgram(prog2)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	err := s.Start(ctx)
+	if err != nil {
+		t.Fatalf("Failed to start server: %v", err)
+	}
+	defer s.Stop()
+
+	// Give server time to start
+	time.Sleep(100 * time.Millisecond)
+
+	client := NewClient(sockPath)
 
 	tests := []struct {
-		name    string
-		request Request
-		wantErr bool
-		checkFn func(t *testing.T, resp Response)
+		name   string
+		testFn func(t *testing.T, client *Client)
 	}{
 		{
 			name: "status all programs",
-			request: Request{
-				Command: "status",
-			},
-			checkFn: func(t *testing.T, resp Response) {
+			testFn: func(t *testing.T, client *Client) {
+				resp, err := client.Status("")
+				if err != nil {
+					t.Errorf("Status() unexpected error = %v", err)
+					return
+				}
 				if !resp.Success {
 					t.Errorf("Expected success=true, got %v", resp.Success)
 				}
@@ -159,11 +179,12 @@ func TestDaemon_HandleRequest(t *testing.T) {
 		},
 		{
 			name: "status specific program",
-			request: Request{
-				Command: "status",
-				Args:    map[string]interface{}{"program": "test-program1"},
-			},
-			checkFn: func(t *testing.T, resp Response) {
+			testFn: func(t *testing.T, client *Client) {
+				resp, err := client.Status("test-program1")
+				if err != nil {
+					t.Errorf("Status() unexpected error = %v", err)
+					return
+				}
 				if !resp.Success {
 					t.Errorf("Expected success=true, got %v", resp.Success)
 				}
@@ -174,11 +195,12 @@ func TestDaemon_HandleRequest(t *testing.T) {
 		},
 		{
 			name: "status nonexistent program",
-			request: Request{
-				Command: "status",
-				Args:    map[string]interface{}{"program": "nonexistent"},
-			},
-			checkFn: func(t *testing.T, resp Response) {
+			testFn: func(t *testing.T, client *Client) {
+				resp, err := client.Status("nonexistent")
+				if err != nil {
+					t.Errorf("Status() unexpected error = %v", err)
+					return
+				}
 				if resp.Success {
 					t.Errorf("Expected success=false, got %v", resp.Success)
 				}
@@ -189,11 +211,12 @@ func TestDaemon_HandleRequest(t *testing.T) {
 		},
 		{
 			name: "logs with program name",
-			request: Request{
-				Command: "logs",
-				Args:    map[string]interface{}{"program": "test-program1"},
-			},
-			checkFn: func(t *testing.T, resp Response) {
+			testFn: func(t *testing.T, client *Client) {
+				resp, err := client.Logs("test-program1")
+				if err != nil {
+					t.Errorf("Logs() unexpected error = %v", err)
+					return
+				}
 				if !resp.Success {
 					t.Errorf("Expected success=true, got %v", resp.Success)
 				}
@@ -203,26 +226,13 @@ func TestDaemon_HandleRequest(t *testing.T) {
 			},
 		},
 		{
-			name: "logs without program name",
-			request: Request{
-				Command: "logs",
-			},
-			checkFn: func(t *testing.T, resp Response) {
-				if resp.Success {
-					t.Errorf("Expected success=false, got %v", resp.Success)
-				}
-				if resp.Error == "" {
-					t.Errorf("Expected error message to be non-empty")
-				}
-			},
-		},
-		{
 			name: "logs nonexistent program",
-			request: Request{
-				Command: "logs",
-				Args:    map[string]interface{}{"program": "nonexistent"},
-			},
-			checkFn: func(t *testing.T, resp Response) {
+			testFn: func(t *testing.T, client *Client) {
+				resp, err := client.Logs("nonexistent")
+				if err != nil {
+					t.Errorf("Logs() unexpected error = %v", err)
+					return
+				}
 				if resp.Success {
 					t.Errorf("Expected success=false, got %v", resp.Success)
 				}
@@ -233,10 +243,12 @@ func TestDaemon_HandleRequest(t *testing.T) {
 		},
 		{
 			name: "stop command",
-			request: Request{
-				Command: "stop",
-			},
-			checkFn: func(t *testing.T, resp Response) {
+			testFn: func(t *testing.T, client *Client) {
+				resp, err := client.Stop("")
+				if err != nil {
+					t.Errorf("Stop() unexpected error = %v", err)
+					return
+				}
 				if resp.Success {
 					t.Errorf("Expected success=false for unimplemented stop, got %v", resp.Success)
 				}
@@ -245,26 +257,11 @@ func TestDaemon_HandleRequest(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "unknown command",
-			request: Request{
-				Command: "unknown",
-			},
-			checkFn: func(t *testing.T, resp Response) {
-				if resp.Success {
-					t.Errorf("Expected success=false, got %v", resp.Success)
-				}
-				if resp.Error == "" {
-					t.Errorf("Expected error message to be non-empty")
-				}
-			},
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp := d.handleRequest(tt.request)
-			tt.checkFn(t, resp)
+			tt.testFn(t, client)
 		})
 	}
 }
@@ -365,7 +362,7 @@ func TestClient_ConnectToNonExistentDaemon(t *testing.T) {
 		t.Errorf("Expected error when connecting to non-existent daemon")
 	}
 
-	expectedMsg := "daemon not running"
+	expectedMsg := "meeseeks server not running (socket not found)"
 	if !containsString(err.Error(), expectedMsg) {
 		t.Errorf("Error should contain %q, got %q", expectedMsg, err.Error())
 	}
@@ -526,16 +523,32 @@ func endsWith(s, suffix string) bool {
 	return len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix
 }
 
-// Benchmark daemon request handling.
-func BenchmarkDaemon_HandleRequest(b *testing.B) {
-	d := New("/tmp/bench.sock")
-	prog := program.New("bench-program", "echo", program.Args("benchmark"))
-	d.AddProgram(prog)
+// Benchmark server request handling.
+func BenchmarkServer_HandleRequest(b *testing.B) {
+	// Unix sockets have a path length limit (~104-108 characters depending on OS).
+	sockPath := "/tmp/bench.sock"
+	os.Remove(sockPath)
+	defer os.Remove(sockPath)
 
-	req := Request{Command: "status"}
+	s := New(sockPath)
+	prog := program.New("bench-program", "echo", program.Args("benchmark"))
+	s.AddProgram(prog)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	err := s.Start(ctx)
+	if err != nil {
+		b.Fatalf("Failed to start server: %v", err)
+	}
+	defer s.Stop()
+
+	time.Sleep(100 * time.Millisecond) // Give server time to start
+
+	client := NewClient(sockPath)
 
 	b.ResetTimer()
 	for range b.N {
-		d.handleRequest(req)
+		_, _ = client.Status("")
 	}
 }
