@@ -8,13 +8,13 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strconv"
 	"syscall"
 
 	"github.com/GustavoCaso/meeseeks/pkg/config"
 	"github.com/GustavoCaso/meeseeks/pkg/daemon"
-	"github.com/GustavoCaso/meeseeks/pkg/meeseeks"
 	"github.com/GustavoCaso/meeseeks/pkg/program"
 )
 
@@ -48,6 +48,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
+	case "exit":
+		if err := exitCommand(args); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
 	case "version":
 		fmt.Fprintln(os.Stdout, "meeseeks version 1.0.0")
 	default:
@@ -72,6 +77,7 @@ func runCommand(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	configFile := fs.String("config", "", "Path to configuration file (required)")
 	detach := fs.Bool("d", false, "Run in detached mode")
+	daemonChild := fs.Bool("daemon-child", false, "Internal flag for daemon child process")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: meeseeks run [options]\n\n")
@@ -98,36 +104,71 @@ func runCommand(args []string) error {
 	sockPath := daemon.GetSocketPath()
 	pidFile := daemon.GetPidFile()
 
-	if *detach {
-		return runDetached(cfg, sockPath, pidFile)
+	if *daemonChild {
+		return runDaemonChild(cfg, sockPath, pidFile)
 	}
 
-	return runForeground(cfg)
+	if *detach {
+		return runDetached(cfg, pidFile)
+	}
+
+	return runForeground(cfg, sockPath)
 }
 
-func runDetached(cfg *config.Config, sockPath, pidFile string) error {
-	d := daemon.New(sockPath)
+func runDetached(cfg *config.Config, pidFile string) error {
+	// Prepare arguments for the daemon child process
+	args := append(os.Args[1:], "--daemon-child") // Skip os.Args[0] (program name)
 
-	for _, programConfig := range cfg.Programs {
-		prog, err := createProgramFromConfig(programConfig)
-		if err != nil {
-			return fmt.Errorf("failed to create program %s: %w", programConfig.Name, err)
-		}
-
-		if addErr := d.AddProgram(prog); addErr != nil {
-			return fmt.Errorf("failed to add program %s: %w", programConfig.Name, addErr)
-		}
+	// Create the command to start the daemon
+	cmd := exec.Command(os.Args[0], args...)
+	cmd.Env = os.Environ()
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setsid: true, // Create new session to properly detach
 	}
 
+	// Redirect all I/O to /dev/null for true daemon behavior
+	cmd.Stdin = nil
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+
+	// Start the daemon process
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start daemon process: %w", err)
+	}
+
+	// Write the child PID to the PID file
+	if err := writePidFile(pidFile, cmd.Process.Pid); err != nil {
+		return fmt.Errorf("failed to write PID file: %w", err)
+	}
+
+	slog.Info("Started meeseeks daemon", "pid", cmd.Process.Pid, "program_count", len(cfg.Programs))
+
+	// Release the process reference so we don't hold onto it
+	_ = cmd.Process.Release()
+
+	// Parent process exits, returning control to the terminal
+	return nil
+}
+
+func runDaemonChild(cfg *config.Config, sockPath, pidFile string) error {
+	// Close stdin, redirect stdout and stderr to /dev/null for true daemon behavior
+	if err := syscall.Close(0); err != nil {
+		slog.Warn("Failed to close stdin", "error", err)
+	}
+
+	devNull, err := os.OpenFile("/dev/null", os.O_RDWR, 0)
+	if err != nil {
+		slog.Warn("Failed to open /dev/null", "error", err)
+	} else {
+		defer devNull.Close()
+		syscall.Dup2(int(devNull.Fd()), 1) // stdout
+		syscall.Dup2(int(devNull.Fd()), 2) // stderr
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
-	if err := d.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start daemon: %w", err)
-	}
-
-	if err := writePidFile(pidFile); err != nil {
-		return fmt.Errorf("failed to write PID file: %w", err)
+	d, err := startDaemon(ctx, cfg, sockPath)
+	if err != nil {
+		return err
 	}
 
 	sigChan := make(chan os.Signal, 1)
@@ -141,8 +182,33 @@ func runDetached(cfg *config.Config, sockPath, pidFile string) error {
 		cancel()
 	}()
 
-	slog.Info("Starting meeseeks daemon", "program_count", len(cfg.Programs))
-	d.StartPrograms(ctx)
+	if err := d.Wait(ctx); err != nil {
+		slog.Warn("Wait completed with error", "error", err)
+	}
+
+	return nil
+}
+
+func runForeground(cfg *config.Config, sockPath string) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	d, err := startDaemon(ctx, cfg, sockPath)
+	if err != nil {
+		return err
+	}
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		<-sigChan
+		slog.Info("Received signal, shutting down...")
+		_ = d.Stop()
+		cancel()
+	}()
+
+	fmt.Fprintf(os.Stdout, "Starting %d programs in foreground mode\n", len(cfg.Programs))
 
 	if err := d.Wait(ctx); err != nil {
 		slog.Warn("Wait completed with error", "error", err)
@@ -151,46 +217,27 @@ func runDetached(cfg *config.Config, sockPath, pidFile string) error {
 	return nil
 }
 
-func runForeground(cfg *config.Config) error {
-	m := meeseeks.New()
+func startDaemon(ctx context.Context, cfg *config.Config, sockPath string) (*daemon.Daemon, error) {
+	d := daemon.New(sockPath)
 
 	for _, programConfig := range cfg.Programs {
 		prog, err := createProgramFromConfig(programConfig)
 		if err != nil {
-			return fmt.Errorf("failed to create program %s: %w", programConfig.Name, err)
+			return nil, fmt.Errorf("failed to create program %s: %w", programConfig.Name, err)
 		}
 
-		if addErr := m.AddProgram(prog); addErr != nil {
-			return fmt.Errorf("failed to add program %s: %w", programConfig.Name, addErr)
+		if addErr := d.AddProgram(prog); addErr != nil {
+			return nil, fmt.Errorf("failed to add program %s: %w", programConfig.Name, addErr)
 		}
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		<-sigChan
-		slog.Info("Received signal, shutting down...")
-		cancel()
-	}()
-
-	fmt.Fprintf(os.Stdout, "Starting %d programs in foreground mode\n", len(cfg.Programs))
-	m.Start(ctx)
-
-	if err := m.Wait(ctx); err != nil {
-		slog.Warn("Wait completed with error", "error", err)
+	if err := d.Start(ctx); err != nil {
+		return nil, fmt.Errorf("failed to start daemon: %w", err)
 	}
 
-	fmt.Fprintln(os.Stdout, "\n=== Program Statistics ===")
-	for _, stat := range m.Statistics() {
-		fmt.Fprintln(os.Stdout, stat.String())
-	}
+	d.StartPrograms(ctx)
 
-	m.Results(os.Stdout)
-	return nil
+	return d, nil
 }
 
 func statusCommand(args []string) error {
@@ -293,6 +340,31 @@ func stopCommand(args []string) error {
 	return nil
 }
 
+func exitCommand(args []string) error {
+	fs := flag.NewFlagSet("exit", flag.ExitOnError)
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: meeseeks exit\n\n")
+		fmt.Fprintf(os.Stderr, "Kills meeseeks process\n")
+	}
+
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	client := daemon.NewClient(daemon.GetSocketPath())
+	resp, err := client.Exit()
+	if err != nil {
+		return err
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("%s", resp.Error)
+	}
+
+	fmt.Fprintln(os.Stdout, "Exit command executed")
+	return nil
+}
+
 func createProgramFromConfig(pc config.ProgramConfig) (program.Program, error) {
 	var opts []program.Option
 
@@ -335,7 +407,6 @@ func createProgramFromConfig(pc config.ProgramConfig) (program.Program, error) {
 	return program.New(pc.Name, pc.Command, opts...), nil
 }
 
-func writePidFile(pidFile string) error {
-	pid := os.Getpid()
+func writePidFile(pidFile string, pid int) error {
 	return os.WriteFile(pidFile, []byte(strconv.Itoa(pid)), 0600)
 }

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/GustavoCaso/meeseeks/pkg/meeseeks"
 	"github.com/GustavoCaso/meeseeks/pkg/program"
@@ -76,12 +77,18 @@ func (d *Daemon) Stop() error {
 		return nil
 	}
 
+	errs := []error{}
+
 	d.running = false
+
 	if d.listener != nil {
-		_ = d.listener.Close()
+		err := d.listener.Close()
+		errs = append(errs, err)
 	}
-	_ = os.RemoveAll(d.sockPath)
-	return nil
+
+	errs = append(errs, os.RemoveAll(d.sockPath))
+	errs = append(errs, d.meeseeks.Kill())
+	return errors.Join(errs...)
 }
 
 func (d *Daemon) AddProgram(prog program.Program) error {
@@ -167,6 +174,17 @@ func (d *Daemon) handleRequest(req Request) Response {
 
 	case "stop":
 		return Response{Success: false, Error: "stop command not yet implemented"}
+
+	case "exit":
+		err := d.Stop()
+		if err != nil {
+			return Response{Success: false, Error: err.Error()}
+		}
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			os.Exit(0)
+		}()
+		return Response{Success: true}
 
 	default:
 		return Response{Success: false, Error: "unknown command"}

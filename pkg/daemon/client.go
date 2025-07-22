@@ -83,3 +83,10 @@ func (c *Client) Stop(programName string) (*Response, error) {
 	}
 	return c.sendRequest(req)
 }
+
+func (c *Client) Exit() (*Response, error) {
+	req := Request{
+		Command: "exit",
+	}
+	return c.sendRequest(req)
+}

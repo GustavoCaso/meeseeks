@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,7 +16,13 @@ import (
 )
 
 // Helper function to run CLI commands as subprocess.
-func runCLI(t *testing.T, args []string, timeout time.Duration) (string, string, int) {
+func runCLICommand(
+	t *testing.T,
+	args []string,
+	stdoutBuf io.Writer,
+	stderrBuf io.Writer,
+	timeout time.Duration,
+) int {
 	ctx, cancel := context.WithTimeout(t.Context(), timeout)
 	defer cancel()
 
@@ -23,9 +30,8 @@ func runCLI(t *testing.T, args []string, timeout time.Duration) (string, string,
 	cmd.Args = append(cmd.Args, args...)
 	cmd.Dir = "/Users/gustavocaso/src/github.com/GustavoCaso/meeseeks/cmd/meeseeks"
 
-	var stdoutBuf, stderrBuf bytes.Buffer
-	cmd.Stdout = &stdoutBuf
-	cmd.Stderr = &stderrBuf
+	cmd.Stdout = stdoutBuf
+	cmd.Stderr = stderrBuf
 
 	err := cmd.Run()
 
@@ -40,74 +46,190 @@ func runCLI(t *testing.T, args []string, timeout time.Duration) (string, string,
 		}
 	}
 
-	return stdoutBuf.String(), stderrBuf.String(), exitCode
+	return exitCode
 }
 
-func TestMain_VersionCommand(t *testing.T) {
+func TestMain(t *testing.T) {
 	tests := []struct {
-		name           string
-		args           []string
-		expectedOutput string
-		expectedExit   int
+		name string
+		test func(t *testing.T)
 	}{
 		{
-			name:           "version command",
-			args:           []string{"version"},
-			expectedOutput: "meeseeks version 1.0.0",
-			expectedExit:   0,
+			name: "no command",
+			test: func(t *testing.T) {
+				var stdoutBuf, stderrBuf bytes.Buffer
+				exitCode := runCLICommand(t, []string{}, &stdoutBuf, &stderrBuf, 5*time.Second)
+				output := stdoutBuf.String() + stderrBuf.String()
+
+				if exitCode != 1 {
+					t.Errorf("Expected exit code 1, got %d", exitCode)
+				}
+
+				expectedMessages := []string{
+					"Usage: meeseeks <command>",
+					"run     Start programs from config file",
+					"status  Show status of running programs",
+					"logs    Show logs for a specific program",
+					"stop    Stop running programs",
+					"version Show version information",
+				}
+
+				for _, msg := range expectedMessages {
+					if !strings.Contains(output, msg) {
+						t.Errorf("Expected output to contain %q, got %q", msg, output)
+					}
+				}
+			},
+		},
+		{
+			name: "unknown command",
+			test: func(t *testing.T) {
+				var stdoutBuf, stderrBuf bytes.Buffer
+				exitCode := runCLICommand(t, []string{"unknown"}, &stdoutBuf, &stderrBuf, 5*time.Second)
+				output := stdoutBuf.String() + stderrBuf.String()
+
+				if exitCode != 1 {
+					t.Errorf("Expected exit code 1, got %d", exitCode)
+				}
+
+				if !strings.Contains(output, "Unknown command: unknown") {
+					t.Errorf("Expected unknown command error, got %q", output)
+				}
+			},
+		},
+		{
+			name: "version command",
+			test: func(t *testing.T) {
+				var stdoutBuf, stderrBuf bytes.Buffer
+				exitCode := runCLICommand(t, []string{"version"}, &stdoutBuf, &stderrBuf, 5*time.Second)
+				output := stdoutBuf.String() + stderrBuf.String()
+
+				if exitCode != 0 {
+					t.Errorf("Expected exit code %d, got %d", 0, exitCode)
+				}
+
+				if !strings.Contains(output, "meeseeks version 1.0.0") {
+					t.Errorf("Expected output to contain %q, got %q", "meeseeks version 1.0.0", output)
+				}
+			},
+		},
+		{
+			name: "run command (detached)",
+			test: func(t *testing.T) {
+				// Create a temporary config file
+				tmpDir := t.TempDir()
+				configFile := filepath.Join(tmpDir, "test-detached-config.yaml")
+
+				configContent := `programs:
+  - name: "test-echo-detached"
+    command: "sleep"
+    args: ["30"]
+`
+
+				err := os.WriteFile(configFile, []byte(configContent), 0644)
+				if err != nil {
+					t.Fatalf("Failed to create test config file: %v", err)
+				}
+
+				// Unix sockets have a path length limit (~104-108 characters depending on OS).
+				// Using t.TempDir() creates very long paths that exceed this limit and cause
+				// "bind: invalid argument" errors. We use /tmp directly with short names instead.
+				testHome := "/tmp"
+				originalHome := os.Getenv("HOME")
+				os.Setenv("HOME", testHome)
+				defer os.Setenv("HOME", originalHome)
+
+				// Create .meeseeks directory in test home
+				meeseeksDir := filepath.Join(testHome, ".meeseeks")
+				err = os.MkdirAll(meeseeksDir, 0755)
+				if err != nil {
+					t.Fatalf("Failed to create .meeseeks directory: %v", err)
+				}
+
+				expectedPidFile := filepath.Join(meeseeksDir, "meeseeks.pid")
+				expectedSocketPath := filepath.Join(meeseeksDir, "meeseeks.sock")
+
+				// Clean up any existing files from previous tests
+				os.Remove(expectedPidFile)
+				os.Remove(expectedSocketPath)
+				defer func() {
+					os.Remove(expectedPidFile)
+					os.Remove(expectedSocketPath)
+				}()
+
+				// Start daemon in detached mode
+				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+				defer cancel()
+
+				cmd := exec.CommandContext(ctx, "go", "run", "main.go")
+				cmd.Args = append(cmd.Args, "run", "-d", "-config", configFile)
+				cmd.Dir = "/Users/gustavocaso/src/github.com/GustavoCaso/meeseeks/cmd/meeseeks"
+
+				var stdout, stderr bytes.Buffer
+				cmd.Stdout = &stdout
+				cmd.Stderr = &stderr
+
+				err = cmd.Run()
+				if err != nil {
+					t.Fatalf(
+						"Failed to start daemon: %v\nStdout: %s\nStderr: %s",
+						err,
+						stdout.String(),
+						stderr.String(),
+					)
+				}
+
+				output := stdout.String() + stderr.String()
+				if !strings.Contains(output, "Started meeseeks daemon") {
+					t.Errorf("Expected daemon start message, got: %q", output)
+				}
+
+				// Verify PID file was created
+				if _, err := os.Stat(expectedPidFile); os.IsNotExist(err) {
+					t.Errorf("PID file was not created at %s", expectedPidFile)
+				}
+
+				// Wait a moment for daemon to fully start and check socket
+				time.Sleep(1 * time.Second)
+
+				// Debug: check if socket file exists
+				if _, err := os.Stat(expectedSocketPath); os.IsNotExist(err) {
+					t.Errorf("Socket file was not created at %s", expectedSocketPath)
+				}
+
+				// Test status command works
+				var stdoutBuf, stderrBuf bytes.Buffer
+				exitCode := runCLICommand(
+					t,
+					[]string{"status"},
+					&stdoutBuf,
+					&stderrBuf,
+					5*time.Second,
+				)
+				if exitCode != 0 {
+					t.Errorf("Expected exit code %d, got %d", 0, exitCode)
+				}
+				statusOutput := stdoutBuf.String() + stderrBuf.String()
+
+				if strings.Contains(statusOutput, "failed to connect to daemon") {
+					t.Errorf("Status command could not connect to daemon: %q", statusOutput)
+				}
+
+				// Cleanup: Stop the daemon
+				defer func() {
+					exitCode := runCLICommand(t, []string{"exit"}, nil, nil, 5*time.Second)
+					if exitCode != 0 {
+						t.Errorf("Expected exit code %d, got %d", 0, exitCode)
+					}
+				}()
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			stdout, stderr, exitCode := runCLI(t, tt.args, 5*time.Second)
-			output := stdout + stderr
-
-			if exitCode != tt.expectedExit {
-				t.Errorf("Expected exit code %d, got %d", tt.expectedExit, exitCode)
-			}
-
-			if !strings.Contains(output, tt.expectedOutput) {
-				t.Errorf("Expected output to contain %q, got %q", tt.expectedOutput, output)
-			}
+			tt.test(t)
 		})
-	}
-}
-
-func TestMain_NoCommand(t *testing.T) {
-	stdout, stderr, exitCode := runCLI(t, []string{}, 5*time.Second)
-	output := stdout + stderr
-
-	if exitCode != 1 {
-		t.Errorf("Expected exit code 1, got %d", exitCode)
-	}
-
-	expectedMessages := []string{
-		"Usage: meeseeks <command>",
-		"run     Start programs from config file",
-		"status  Show status of running programs",
-		"logs    Show logs for a specific program",
-		"stop    Stop running programs",
-		"version Show version information",
-	}
-
-	for _, msg := range expectedMessages {
-		if !strings.Contains(output, msg) {
-			t.Errorf("Expected output to contain %q, got %q", msg, output)
-		}
-	}
-}
-
-func TestMain_UnknownCommand(t *testing.T) {
-	stdout, stderr, exitCode := runCLI(t, []string{"unknown"}, 5*time.Second)
-	output := stdout + stderr
-
-	if exitCode != 1 {
-		t.Errorf("Expected exit code 1, got %d", exitCode)
-	}
-
-	if !strings.Contains(output, "Unknown command: unknown") {
-		t.Errorf("Expected unknown command error, got %q", output)
 	}
 }
 
@@ -134,8 +256,9 @@ func TestRunCommand_ConfigValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			stdout, stderr, exitCode := runCLI(t, tt.args, 5*time.Second)
-			output := stdout + stderr
+			var stdoutBuf, stderrBuf bytes.Buffer
+			exitCode := runCLICommand(t, tt.args, &stdoutBuf, &stderrBuf, 5*time.Second)
+			output := stdoutBuf.String() + stderrBuf.String()
 
 			if exitCode != tt.expectedExit {
 				t.Errorf("Expected exit code %d, got %d", tt.expectedExit, exitCode)
@@ -225,83 +348,10 @@ func TestRunCommand_ValidConfig(t *testing.T) {
 		})
 	}
 }
-
-func TestRunCommand_DetachedMode(t *testing.T) {
-	// Create a temporary config file
-	tmpDir := t.TempDir()
-	configFile := filepath.Join(tmpDir, "test-detached-config.yaml")
-
-	configContent := `programs:
-  - name: "test-echo-detached"
-    command: "echo"
-    args: ["detached", "test"]
-`
-
-	err := os.WriteFile(configFile, []byte(configContent), 0644)
-	if err != nil {
-		t.Fatalf("Failed to create test config file: %v", err)
-	}
-
-	tests := []struct {
-		name           string
-		args           []string
-		expectedOutput []string
-		timeout        time.Duration
-	}{
-		{
-			name: "detached run",
-			args: []string{"run", "-d", "-config", configFile},
-			expectedOutput: []string{
-				"Starting meeseeks daemon",
-			},
-			timeout: 3 * time.Second,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(t.Context(), tt.timeout)
-			defer cancel()
-
-			cmd := exec.CommandContext(ctx, "go", "run", "main.go")
-			cmd.Args = append(cmd.Args, tt.args...)
-			cmd.Dir = "/Users/gustavocaso/src/github.com/GustavoCaso/meeseeks/cmd/meeseeks"
-
-			var stdout, stderr bytes.Buffer
-			cmd.Stdout = &stdout
-			cmd.Stderr = &stderr
-
-			// Send interrupt after a short delay to stop the daemon
-			go func() {
-				time.Sleep(500 * time.Millisecond)
-				if cmd.Process != nil {
-					cmd.Process.Signal(os.Interrupt)
-				}
-			}()
-
-			err := cmd.Run()
-
-			output := stdout.String() + stderr.String()
-
-			for _, expected := range tt.expectedOutput {
-				if !strings.Contains(output, expected) {
-					t.Errorf("Expected output to contain %q, got %q", expected, output)
-				}
-			}
-
-			// Ignore interrupt signals and timeouts
-			if err != nil && !strings.Contains(err.Error(), "signal") &&
-				!strings.Contains(err.Error(), "interrupt") &&
-				!strings.Contains(err.Error(), "context deadline") {
-				t.Errorf("Unexpected error (ignoring interrupt/timeout): %v", err)
-			}
-		})
-	}
-}
-
 func TestRunCommand_Help(t *testing.T) {
-	stdout, stderr, exitCode := runCLI(t, []string{"run", "-h"}, 5*time.Second)
-	output := stdout + stderr
+	var stdoutBuf, stderrBuf bytes.Buffer
+	exitCode := runCLICommand(t, []string{"run", "-h"}, &stdoutBuf, &stderrBuf, 5*time.Second)
+	output := stdoutBuf.String() + stderrBuf.String()
 
 	if exitCode != 0 {
 		t.Errorf("Expected exit code 0 for help, got %d", exitCode)
@@ -344,8 +394,9 @@ func TestStatusCommand_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			stdout, stderr, exitCode := runCLI(t, tt.args, 5*time.Second)
-			output := stdout + stderr
+			var stdoutBuf, stderrBuf bytes.Buffer
+			exitCode := runCLICommand(t, tt.args, &stdoutBuf, &stderrBuf, 5*time.Second)
+			output := stdoutBuf.String() + stderrBuf.String()
 
 			if exitCode != tt.expectedExit {
 				t.Errorf("Expected exit code %d, got %d", tt.expectedExit, exitCode)
@@ -359,8 +410,9 @@ func TestStatusCommand_Validation(t *testing.T) {
 }
 
 func TestStatusCommand_Help(t *testing.T) {
-	stdout, stderr, exitCode := runCLI(t, []string{"status", "-h"}, 5*time.Second)
-	output := stdout + stderr
+	var stdoutBuf, stderrBuf bytes.Buffer
+	exitCode := runCLICommand(t, []string{"status", "-h"}, &stdoutBuf, &stderrBuf, 5*time.Second)
+	output := stdoutBuf.String() + stderrBuf.String()
 
 	if exitCode != 0 {
 		t.Errorf("Expected exit code 0 for help, got %d", exitCode)
@@ -401,8 +453,9 @@ func TestLogsCommand_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			stdout, stderr, exitCode := runCLI(t, tt.args, 5*time.Second)
-			output := stdout + stderr
+			var stdoutBuf, stderrBuf bytes.Buffer
+			exitCode := runCLICommand(t, tt.args, &stdoutBuf, &stderrBuf, 5*time.Second)
+			output := stdoutBuf.String() + stderrBuf.String()
 
 			if exitCode != tt.expectedExit {
 				t.Errorf("Expected exit code %d, got %d", tt.expectedExit, exitCode)
@@ -416,8 +469,9 @@ func TestLogsCommand_Validation(t *testing.T) {
 }
 
 func TestLogsCommand_Help(t *testing.T) {
-	stdout, stderr, exitCode := runCLI(t, []string{"logs", "-h"}, 5*time.Second)
-	output := stdout + stderr
+	var stdoutBuf, stderrBuf bytes.Buffer
+	exitCode := runCLICommand(t, []string{"logs", "-h"}, &stdoutBuf, &stderrBuf, 5*time.Second)
+	output := stdoutBuf.String() + stderrBuf.String()
 
 	if exitCode != 0 {
 		t.Errorf("Expected exit code 0 for help, got %d", exitCode)
@@ -458,8 +512,9 @@ func TestStopCommand_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			stdout, stderr, exitCode := runCLI(t, tt.args, 5*time.Second)
-			output := stdout + stderr
+			var stdoutBuf, stderrBuf bytes.Buffer
+			exitCode := runCLICommand(t, tt.args, &stdoutBuf, &stderrBuf, 5*time.Second)
+			output := stdoutBuf.String() + stderrBuf.String()
 
 			if exitCode != tt.expectedExit {
 				t.Errorf("Expected exit code %d, got %d", tt.expectedExit, exitCode)
@@ -473,8 +528,9 @@ func TestStopCommand_Validation(t *testing.T) {
 }
 
 func TestStopCommand_Help(t *testing.T) {
-	stdout, stderr, exitCode := runCLI(t, []string{"stop", "-h"}, 5*time.Second)
-	output := stdout + stderr
+	var stdoutBuf, stderrBuf bytes.Buffer
+	exitCode := runCLICommand(t, []string{"stop", "-h"}, &stdoutBuf, &stderrBuf, 5*time.Second)
+	output := stdoutBuf.String() + stderrBuf.String()
 
 	if exitCode != 0 {
 		t.Errorf("Expected exit code 0 for help, got %d", exitCode)

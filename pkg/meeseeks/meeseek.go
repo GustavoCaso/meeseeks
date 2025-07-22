@@ -19,6 +19,7 @@ type Meeseek interface {
 	Status(program string) (string, error)
 	Wait(ctx context.Context) error
 	Statistics() []program.Statistics
+	Kill() error
 }
 
 type meeseek struct {
@@ -121,6 +122,16 @@ func (m *meeseek) Wait(ctx context.Context) error {
 		m.endTime = time.Now()
 		return nil
 	}
+}
+
+func (m *meeseek) Kill() error {
+	errs := []error{}
+
+	for _, p := range m.programs {
+		errs = append(errs, p.Kill())
+	}
+
+	return errors.Join(errs...)
 }
 
 func New() Meeseek {

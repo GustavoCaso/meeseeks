@@ -28,6 +28,7 @@ type Program interface {
 	Interval() time.Duration
 	Runs() int
 	Statistics() Statistics
+	Kill() error
 }
 
 type ProcessState int
@@ -540,6 +541,21 @@ func (p *program) Interval() time.Duration {
 
 func (p *program) Runs() int {
 	return p.current
+}
+
+func (p *program) Kill() error {
+	defer close(p.done)
+
+	if p.cmd == nil {
+		return nil
+	}
+
+	err := p.cmd.Process.Kill()
+	if err != nil && errors.Is(err, os.ErrProcessDone) {
+		// Process already terminated, ignore this error
+		return nil
+	}
+	return err
 }
 
 type Statistics struct {
