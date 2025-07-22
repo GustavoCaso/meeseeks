@@ -78,7 +78,6 @@ func runCommand(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	configFile := fs.String("config", "", "Path to configuration file (required)")
 	detach := fs.Bool("d", false, "Run in detached mode")
-	daemonChild := fs.Bool("daemon-child", false, "Internal flag for daemon child process")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: meeseeks run [options]\n\n")
@@ -105,23 +104,16 @@ func runCommand(args []string) error {
 	sockPath := getSocketPath()
 	pidFile := getPidFile()
 
-	if *daemonChild {
-		return runDaemonChild(cfg, sockPath, pidFile)
-	}
-
 	if *detach {
-		return runDetached(cfg, pidFile)
+		return runDetached(pidFile, *configFile, cfg)
 	}
 
-	return runForeground(cfg, sockPath)
+	return runForeground(cfg, sockPath, pidFile)
 }
 
-func runDetached(cfg *config.Config, pidFile string) error {
-	// Prepare arguments for the daemon child process
-	args := append(os.Args[1:], "--daemon-child") // Skip os.Args[0] (program name)
-
+func runDetached(pidFile, configFile string, cfg *config.Config) error {
 	// Create the command to start the daemon
-	cmd := exec.Command(os.Args[0], args...)
+	cmd := exec.Command(os.Args[0], "run", "-config", configFile)
 	cmd.Env = os.Environ()
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setsid: true, // Create new session to properly detach
@@ -132,9 +124,9 @@ func runDetached(cfg *config.Config, pidFile string) error {
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 
-	// Start the daemon process
+	// Start the run process
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start daemon process: %w", err)
+		return fmt.Errorf("failed to start meeseeks process: %w", err)
 	}
 
 	// Write the child PID to the PID file
@@ -142,7 +134,7 @@ func runDetached(cfg *config.Config, pidFile string) error {
 		return fmt.Errorf("failed to write PID file: %w", err)
 	}
 
-	slog.Info("Started meeseeks daemon", "pid", cmd.Process.Pid, "program_count", len(cfg.Programs))
+	slog.Info("Started meeseeks (detached)", "pid", cmd.Process.Pid, "program_count", len(cfg.Programs))
 
 	// Release the process reference so we don't hold onto it
 	_ = cmd.Process.Release()
@@ -151,22 +143,10 @@ func runDetached(cfg *config.Config, pidFile string) error {
 	return nil
 }
 
-func runDaemonChild(cfg *config.Config, sockPath, pidFile string) error {
-	// Close stdin, redirect stdout and stderr to /dev/null for true daemon behavior
-	if err := syscall.Close(0); err != nil {
-		slog.Warn("Failed to close stdin", "error", err)
-	}
-
-	devNull, err := os.OpenFile("/dev/null", os.O_RDWR, 0)
-	if err != nil {
-		slog.Warn("Failed to open /dev/null", "error", err)
-	} else {
-		defer devNull.Close()
-		syscall.Dup2(int(devNull.Fd()), 1) // stdout
-		syscall.Dup2(int(devNull.Fd()), 2) // stderr
-	}
+func runForeground(cfg *config.Config, sockPath, pidFile string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
 	s, err := startServer(ctx, cfg, sockPath)
 	if err != nil {
 		return err
@@ -182,40 +162,11 @@ func runDaemonChild(cfg *config.Config, sockPath, pidFile string) error {
 		if err != nil {
 			slog.Warn("Error stopping the server.", "error", err.Error())
 		}
-		err = os.Remove(pidFile)
-		if err != nil {
-			slog.Warn("Error removing the pid File.", "error", err.Error())
-		}
+		_ = os.Remove(pidFile)
 		cancel()
 	}()
 
-	if err := s.Wait(ctx); err != nil {
-		slog.Warn("Wait completed with error", "error", err)
-	}
-
-	return nil
-}
-
-func runForeground(cfg *config.Config, sockPath string) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	s, err := startServer(ctx, cfg, sockPath)
-	if err != nil {
-		return err
-	}
-
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		<-sigChan
-		slog.Info("Received signal, shutting down...")
-		_ = s.Stop()
-		cancel()
-	}()
-
-	fmt.Fprintf(os.Stdout, "Starting %d programs in foreground mode\n", len(cfg.Programs))
+	slog.Info("Started meeseeks", "program_count", len(cfg.Programs))
 
 	if err := s.Wait(ctx); err != nil {
 		slog.Warn("Wait completed with error", "error", err)
@@ -380,7 +331,7 @@ func exitCommand(args []string) error {
 		return err
 	}
 
-	fmt.Fprintln(os.Stdout, "Exiting meeseeks")
+	slog.Info("Exiting meeseeks")
 
 	return nil
 }

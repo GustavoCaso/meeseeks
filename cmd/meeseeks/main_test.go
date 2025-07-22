@@ -114,6 +114,60 @@ func TestMain(t *testing.T) {
 			},
 		},
 		{
+			name: "run command",
+			test: func(t *testing.T) {
+				// Create a temporary config file
+				tmpDir := t.TempDir()
+				configFile := filepath.Join(tmpDir, "test-config.yaml")
+
+				configContent := `programs:
+  - name: "test-echo"
+    command: "echo"
+    args: ["hello", "from", "test"]
+`
+
+				err := os.WriteFile(configFile, []byte(configContent), 0644)
+				if err != nil {
+					t.Fatalf("Failed to create test config file: %v", err)
+				}
+
+				ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+				defer cancel()
+
+				cmd := exec.CommandContext(ctx, "go", "run", "main.go")
+				cmd.Args = append(cmd.Args, []string{"run", "-config", configFile}...)
+				cmd.Dir = "/Users/gustavocaso/src/github.com/GustavoCaso/meeseeks/cmd/meeseeks"
+
+				var stdout, stderr bytes.Buffer
+				cmd.Stdout = &stdout
+				cmd.Stderr = &stderr
+
+				// Send interrupt signal after a short delay to simulate Ctrl+C
+				go func() {
+					time.Sleep(500 * time.Millisecond)
+					if cmd.Process != nil {
+						cmd.Process.Signal(os.Interrupt)
+					}
+				}()
+
+				err = cmd.Run()
+
+				// For foreground mode, we expect interrupt signal or completion
+				output := stdout.String() + stderr.String()
+				expected := "Started meeseeks program_count=1"
+				if !strings.Contains(output, expected) {
+					t.Errorf("Expected output to contain %q, got %q", expected, output)
+				}
+
+				// Check that no severe error occurred (ignoring interrupt signals)
+				if err != nil && !strings.Contains(err.Error(), "signal") &&
+					!strings.Contains(err.Error(), "interrupt") &&
+					!strings.Contains(err.Error(), "context deadline") {
+					t.Errorf("Unexpected error (ignoring interrupt/timeout): %v", err)
+				}
+			},
+		},
+		{
 			name: "run command (detached)",
 			test: func(t *testing.T) {
 				// Create a temporary config file
@@ -175,8 +229,8 @@ func TestMain(t *testing.T) {
 				}
 
 				output := stdout.String() + stderr.String()
-				if !strings.Contains(output, "Started meeseeks daemon") {
-					t.Errorf("Expected daemon start message, got: %q", output)
+				if !strings.Contains(output, "Started meeseeks (detached)") {
+					t.Errorf("Expected `Started meeseeks (detached)`, got: %q", output)
 				}
 
 				// Verify PID file was created
@@ -266,83 +320,6 @@ func TestRunCommand_ConfigValidation(t *testing.T) {
 	}
 }
 
-func TestRunCommand_ValidConfig(t *testing.T) {
-	// Create a temporary config file
-	tmpDir := t.TempDir()
-	configFile := filepath.Join(tmpDir, "test-config.yaml")
-
-	configContent := `programs:
-  - name: "test-echo"
-    command: "echo"
-    args: ["hello", "from", "test"]
-`
-
-	err := os.WriteFile(configFile, []byte(configContent), 0644)
-	if err != nil {
-		t.Fatalf("Failed to create test config file: %v", err)
-	}
-
-	tests := []struct {
-		name           string
-		args           []string
-		expectedOutput []string
-		timeout        time.Duration
-		sendInterrupt  bool
-	}{
-		{
-			name: "foreground run with interrupt",
-			args: []string{"run", "-config", configFile},
-			expectedOutput: []string{
-				"Starting 1 programs in foreground mode",
-			},
-			timeout:       3 * time.Second,
-			sendInterrupt: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(t.Context(), tt.timeout)
-			defer cancel()
-
-			cmd := exec.CommandContext(ctx, "go", "run", "main.go")
-			cmd.Args = append(cmd.Args, tt.args...)
-			cmd.Dir = "/Users/gustavocaso/src/github.com/GustavoCaso/meeseeks/cmd/meeseeks"
-
-			var stdout, stderr bytes.Buffer
-			cmd.Stdout = &stdout
-			cmd.Stderr = &stderr
-
-			// Send interrupt signal after a short delay to simulate Ctrl+C
-			if tt.sendInterrupt {
-				go func() {
-					time.Sleep(500 * time.Millisecond)
-					if cmd.Process != nil {
-						cmd.Process.Signal(os.Interrupt)
-					}
-				}()
-			}
-
-			err := cmd.Run()
-
-			// For foreground mode, we expect interrupt signal or completion
-			output := stdout.String() + stderr.String()
-
-			for _, expected := range tt.expectedOutput {
-				if !strings.Contains(output, expected) {
-					t.Errorf("Expected output to contain %q, got %q", expected, output)
-				}
-			}
-
-			// Check that no severe error occurred (ignoring interrupt signals)
-			if err != nil && !strings.Contains(err.Error(), "signal") &&
-				!strings.Contains(err.Error(), "interrupt") &&
-				!strings.Contains(err.Error(), "context deadline") {
-				t.Errorf("Unexpected error (ignoring interrupt/timeout): %v", err)
-			}
-		})
-	}
-}
 func TestRunCommand_Help(t *testing.T) {
 	var stdoutBuf, stderrBuf bytes.Buffer
 	exitCode := runCLICommand(t, []string{"run", "-h"}, &stdoutBuf, &stderrBuf, 5*time.Second)
