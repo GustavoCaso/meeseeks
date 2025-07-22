@@ -53,7 +53,7 @@ func (s *Server) Start(ctx context.Context) error {
 	defer s.mu.Unlock()
 
 	if s.running {
-		return errors.New("daemon already running")
+		return errors.New("server already running")
 	}
 
 	if err := os.RemoveAll(s.sockPath); err != nil {

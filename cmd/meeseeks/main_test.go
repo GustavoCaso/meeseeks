@@ -188,9 +188,7 @@ func TestMain(t *testing.T) {
 				// Using t.TempDir() creates very long paths that exceed this limit and cause
 				// "bind: invalid argument" errors. We use /tmp directly with short names instead.
 				testHome := "/tmp"
-				originalHome := os.Getenv("HOME")
-				os.Setenv("HOME", testHome)
-				defer os.Setenv("HOME", originalHome)
+				t.Setenv("HOME", testHome)
 
 				// Create .meeseeks directory in test home
 				meeseeksDir := filepath.Join(testHome, ".meeseeks")
@@ -266,7 +264,7 @@ func TestMain(t *testing.T) {
 
 				// Cleanup: Stop the daemon
 				defer func() {
-					exitCode := runCLICommand(t, []string{"exit"}, nil, nil, 5*time.Second)
+					exitCode = runCLICommand(t, []string{"exit"}, nil, nil, 5*time.Second)
 					if exitCode != 0 {
 						t.Errorf("Expected exit code %d, got %d", 0, exitCode)
 					}

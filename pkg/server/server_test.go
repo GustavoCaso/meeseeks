@@ -495,10 +495,6 @@ func containsString(s, substr string) bool {
 			}())
 }
 
-func endsWith(s, suffix string) bool {
-	return len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix
-}
-
 // Benchmark server request handling.
 func BenchmarkServer_HandleRequest(b *testing.B) {
 	// Unix sockets have a path length limit (~104-108 characters depending on OS).
@@ -510,7 +506,7 @@ func BenchmarkServer_HandleRequest(b *testing.B) {
 	prog := program.New("bench-program", "echo", program.Args("benchmark"))
 	s.AddProgram(prog)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(b.Context(), 30*time.Second)
 	defer cancel()
 
 	err := s.Start(ctx)
