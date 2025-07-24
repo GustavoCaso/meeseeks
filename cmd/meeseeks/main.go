@@ -119,10 +119,17 @@ func runDetached(pidFile, configFile string, cfg *config.Config) error {
 		Setsid: true, // Create new session to properly detach
 	}
 
-	// Redirect all I/O to /dev/null for true daemon behavior
+	// Redirect all Stdin to /dev/null
 	cmd.Stdin = nil
-	cmd.Stdout = nil
-	cmd.Stderr = nil
+	// Stdout and Stderr use a custom file to have some traceability when running in detached mode
+	stdoutFile, stdoutErr := getInternalStdoutFile()
+	if stdoutErr != nil {
+		slog.Warn("Failed to create log file for meeseeks, using /dev/null", "error", stdoutErr.Error())
+		cmd.Stdout = nil
+		cmd.Stderr = nil
+	}
+	cmd.Stdout = stdoutFile
+	cmd.Stderr = stdoutFile
 
 	// Start the run process
 	if err := cmd.Start(); err != nil {
@@ -390,4 +397,14 @@ func getSocketPath() string {
 func getPidFile() string {
 	homeDir, _ := os.UserHomeDir()
 	return filepath.Join(homeDir, ".meeseeks", "meeseeks.pid")
+}
+
+func getInternalStdoutFile() (*os.File, error) {
+	homeDir, _ := os.UserHomeDir()
+	filepath := filepath.Join(homeDir, ".meeseeks", "meeseeks.log")
+	file, err := os.OpenFile(filepath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		return nil, err
+	}
+	return file, nil
 }
