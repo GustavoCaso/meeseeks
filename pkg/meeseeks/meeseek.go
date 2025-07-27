@@ -115,11 +115,14 @@ func (m *meeseek) Wait(ctx context.Context) error {
 		close(done)
 	}()
 
+	defer func() {
+		m.endTime = time.Now()
+	}()
+
 	select {
 	case <-ctx.Done():
 		return errors.New("context cancelled while waiting for programs to finalize")
 	case <-done:
-		m.endTime = time.Now()
 		return nil
 	}
 }
@@ -128,7 +131,7 @@ func (m *meeseek) Kill() error {
 	errs := []error{}
 
 	for _, p := range m.programs {
-		errs = append(errs, p.Kill())
+		errs = append(errs, p.ForceKill())
 	}
 
 	return errors.Join(errs...)

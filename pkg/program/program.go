@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -28,7 +29,8 @@ type Program interface {
 	Interval() time.Duration
 	Runs() int
 	Statistics() Statistics
-	Kill() error
+	GracefulShutdown(timeout time.Duration) error
+	ForceKill() error
 }
 
 type ProcessState int
@@ -97,6 +99,8 @@ type program struct {
 	arguments []string
 	async     bool
 	done      chan struct{}
+	stop      chan struct{} // For stopping interval programs
+	doneOnce  sync.Once     // Ensure done is only close once
 
 	customStdout  io.Writer
 	customStderr  io.Writer
@@ -168,17 +172,23 @@ func (p *pipes) closeReaders() error {
 func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
 	p.current = 0
 	if p.interval > 0 {
+
 		ticker := time.NewTicker(p.interval)
 		intervalDone := make(chan struct{}, 1)
 		go func() {
+			defer func() {
+				intervalDone <- struct{}{}
+				ticker.Stop()
+			}()
 			for {
 				select {
 				case <-ctx.Done():
 					return
+				case <-p.stop:
+					return
 				case <-ticker.C:
 					done, err := p.start(ctx)
 					if err != nil {
-						intervalDone <- struct{}{}
 						return
 					}
 					<-done
@@ -188,7 +198,7 @@ func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
 			}
 		}()
 		// We return a separate done channel from the program struct, as interval programs are long running ones
-		// We only signal that we are done with an interval program if there is an error executing the program
+		// We only signal that we are done with an interval program if there is an error executing the program or the program was terminated
 		return intervalDone, nil
 	}
 
@@ -196,7 +206,9 @@ func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
 }
 
 func (p *program) signalDone() {
-	p.done <- struct{}{}
+	p.doneOnce.Do(func() {
+		close(p.done)
+	})
 }
 
 func (p *program) start(ctx context.Context) (<-chan struct{}, error) {
@@ -543,18 +555,63 @@ func (p *program) Runs() int {
 	return p.current
 }
 
-func (p *program) Kill() error {
-	defer close(p.done)
+func (p *program) GracefulShutdown(timeout time.Duration) error {
+	// Stop interval loop if this is an interval program
+	if p.interval > 0 {
+		select {
+		case p.stop <- struct{}{}:
+		default:
+			// Channel might be full or closed, continue
+		}
+	}
 
-	if p.cmd == nil {
+	if p.cmd == nil || p.cmd.Process == nil {
+		p.signalDone()
+		return nil
+	}
+
+	// Send SIGTERM for graceful shutdown
+	err := p.cmd.Process.Signal(syscall.SIGTERM)
+	if err != nil {
+		if errors.Is(err, os.ErrProcessDone) {
+			return nil
+		}
+		// If SIGTERM fails, fall back to force kill
+		return p.ForceKill()
+	}
+
+	// Wait for the existing monitoring to handle process exit
+	select {
+	case <-p.done:
+		return nil
+	case <-time.After(timeout):
+		// Timeout exceeded, force kill
+		return p.ForceKill()
+	}
+}
+
+func (p *program) ForceKill() error {
+	// Stop interval loop if this is an interval program
+	if p.interval > 0 {
+		select {
+		case p.stop <- struct{}{}:
+		default:
+			// Channel might be full or closed, continue
+		}
+	}
+
+	if p.cmd == nil || p.cmd.Process == nil {
+		p.signalDone()
 		return nil
 	}
 
 	err := p.cmd.Process.Kill()
 	if err != nil && errors.Is(err, os.ErrProcessDone) {
 		// Process already terminated, ignore this error
+		p.signalDone()
 		return nil
 	}
+	// Don't signal done here - let the monitoring goroutine handle it
 	return err
 }
 
@@ -664,6 +721,7 @@ func New(name, command string, opts ...Option) Program {
 		command: command,
 		results: []result{},
 		done:    make(chan struct{}, 1),
+		stop:    make(chan struct{}, 1),
 	}
 
 	for _, opt := range opts {

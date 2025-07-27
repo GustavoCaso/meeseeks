@@ -668,3 +668,337 @@ func TestStatistics(t *testing.T) {
 		}
 	})
 }
+
+func TestGracefulShutdown(t *testing.T) {
+	t.Run("graceful shutdown of running process", func(t *testing.T) {
+		p := New("sleep-test", "sleep", Args("10"), Async())
+
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
+		}
+
+		// Give process time to start
+		time.Sleep(100 * time.Millisecond)
+
+		if p.State() != StateRunning {
+			t.Fatalf("Expected process to be running, got: %v", p.State())
+		}
+
+		// Test graceful shutdown
+		start := time.Now()
+		err = p.GracefulShutdown(2 * time.Second)
+		duration := time.Since(start)
+
+		if err != nil {
+			t.Errorf("GracefulShutdown failed: %v", err)
+		}
+
+		// Should terminate quickly (much less than timeout)
+		if duration > 1*time.Second {
+			t.Errorf("Expected quick termination, took %v", duration)
+		}
+
+		// Wait for done channel
+		select {
+		case <-done:
+			// Expected
+		case <-time.After(1 * time.Second):
+			t.Error("Process should have signaled done after graceful shutdown")
+		}
+	})
+
+	t.Run("graceful shutdown with timeout fallback", func(t *testing.T) {
+		// Create a process that ignores SIGTERM
+		p := New("ignore-sigterm", "bash", Args("-c",
+			"trap '' TERM; echo 'started'; while true; do sleep 0.1; done"), Async())
+
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
+		}
+
+		// Wait for process to start and install signal handler
+		time.Sleep(200 * time.Millisecond)
+
+		if p.State() != StateRunning {
+			t.Fatalf("Expected process to be running, got: %v", p.State())
+		}
+
+		// Test graceful shutdown with short timeout - should fall back to force kill
+		start := time.Now()
+		err = p.GracefulShutdown(300 * time.Millisecond)
+		duration := time.Since(start)
+
+		if err != nil {
+			t.Errorf("GracefulShutdown failed: %v", err)
+		}
+
+		// Should timeout and force kill (duration should be close to timeout)
+		if duration < 250*time.Millisecond || duration > 500*time.Millisecond {
+			t.Errorf("Expected timeout around 300ms, took %v", duration)
+		}
+
+		// Wait for done channel
+		select {
+		case <-done:
+			// Expected
+		case <-time.After(1 * time.Second):
+			t.Error("Process should have signaled done after force kill")
+		}
+	})
+
+	t.Run("graceful shutdown of already finished process", func(t *testing.T) {
+		p := New("echo-test", "echo", Args("hello"))
+
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
+		}
+		<-done
+
+		if p.State() != StateFinished {
+			t.Fatalf("Expected process to be finished, got: %v", p.State())
+		}
+
+		// Graceful shutdown of finished process should be no-op
+		err = p.GracefulShutdown(1 * time.Second)
+		if err != nil {
+			t.Errorf("GracefulShutdown of finished process should not error: %v", err)
+		}
+	})
+}
+
+func TestForceKill(t *testing.T) {
+	t.Run("force kill running process", func(t *testing.T) {
+		p := New("sleep-test", "sleep", Args("10"), Async())
+
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
+		}
+
+		time.Sleep(100 * time.Millisecond)
+
+		if p.State() != StateRunning {
+			t.Fatalf("Expected process to be running, got: %v", p.State())
+		}
+
+		// Test force kill - should be immediate
+		start := time.Now()
+		err = p.ForceKill()
+		duration := time.Since(start)
+
+		if err != nil {
+			t.Errorf("ForceKill failed: %v", err)
+		}
+
+		// Should be very fast
+		if duration > 100*time.Millisecond {
+			t.Errorf("Expected immediate termination, took %v", duration)
+		}
+
+		select {
+		case <-done:
+			// Expected
+		case <-time.After(1 * time.Second):
+			t.Error("Process should have signaled done after force kill")
+		}
+	})
+
+	t.Run("force kill ignores signal traps", func(t *testing.T) {
+		// Create a process that ignores SIGTERM but cannot ignore SIGKILL
+		p := New("ignore-signals", "bash", Args("-c",
+			"trap '' TERM INT; echo 'started'; while true; do sleep 0.1; done"), Async())
+
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
+		}
+
+		time.Sleep(200 * time.Millisecond)
+
+		// Force kill should work immediately regardless of signal handling
+		start := time.Now()
+		err = p.ForceKill()
+		duration := time.Since(start)
+
+		if err != nil {
+			t.Errorf("ForceKill failed: %v", err)
+		}
+
+		if duration > 100*time.Millisecond {
+			t.Errorf("Expected immediate termination, took %v", duration)
+		}
+
+		select {
+		case <-done:
+			// Expected
+		case <-time.After(1 * time.Second):
+			t.Error("Process should have signaled done after force kill")
+		}
+
+		if p.State() != StateError {
+			t.Error("Process state must be correct. After forcekill the last state should be StateError")
+		}
+	})
+
+	t.Run("force kill of finished process", func(t *testing.T) {
+		p := New("echo-test", "echo", Args("hello"))
+
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
+		}
+		<-done
+
+		// Force kill of finished process should be no-op
+		err = p.ForceKill()
+		if err != nil {
+			t.Errorf("ForceKill of finished process should not error: %v", err)
+		}
+	})
+}
+
+func TestIntervalGracefulShutdown(t *testing.T) {
+	t.Run("graceful shutdown stops interval loop", func(t *testing.T) {
+		p := New("echo-interval", "echo", Args("tick"), Interval(100*time.Millisecond))
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+
+		done, err := p.Start(ctx)
+		if err != nil {
+			t.Fatalf("Failed to start interval program: %v", err)
+		}
+
+		// Let it run a few iterations
+		time.Sleep(350 * time.Millisecond)
+		initialRuns := p.Runs()
+
+		if initialRuns < 2 {
+			t.Fatalf("Expected at least 2 runs, got %d", initialRuns)
+		}
+
+		// Graceful shutdown should stop the interval
+		err = p.GracefulShutdown(1 * time.Second)
+		if err != nil {
+			t.Errorf("GracefulShutdown failed: %v", err)
+		}
+
+		// Wait for done signal
+		select {
+		case <-done:
+			// Expected
+		case <-time.After(2 * time.Second):
+			t.Error("Interval program should have signaled done after graceful shutdown")
+		}
+
+		// No more runs should happen
+		finalRuns := p.Runs()
+		time.Sleep(300 * time.Millisecond)
+		afterWaitRuns := p.Runs()
+
+		if afterWaitRuns != finalRuns {
+			t.Errorf("Expected no more runs after shutdown, but runs increased from %d to %d",
+				finalRuns, afterWaitRuns)
+		}
+	})
+
+	t.Run("force kill stops interval loop", func(t *testing.T) {
+		p := New("echo-interval", "echo", Args("tick"), Interval(100*time.Millisecond))
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+
+		done, err := p.Start(ctx)
+		if err != nil {
+			t.Fatalf("Failed to start interval program: %v", err)
+		}
+
+		// Let it run a few iterations
+		time.Sleep(350 * time.Millisecond)
+		initialRuns := p.Runs()
+
+		if initialRuns < 2 {
+			t.Fatalf("Expected at least 2 runs, got %d", initialRuns)
+		}
+
+		// Force kill should stop the interval immediately
+		err = p.ForceKill()
+		if err != nil {
+			t.Errorf("ForceKill failed: %v", err)
+		}
+
+		// Wait for done signal
+		select {
+		case <-done:
+			// Expected
+		case <-time.After(1 * time.Second):
+			t.Error("Interval program should have signaled done after force kill")
+		}
+
+		// No more runs should happen
+		finalRuns := p.Runs()
+		time.Sleep(300 * time.Millisecond)
+		afterWaitRuns := p.Runs()
+
+		if afterWaitRuns != finalRuns {
+			t.Errorf("Expected no more runs after force kill, but runs increased from %d to %d",
+				finalRuns, afterWaitRuns)
+		}
+	})
+
+	t.Run("interval with long-running async command graceful shutdown", func(t *testing.T) {
+		// Interval program where each iteration is a long-running async command
+		// Use a shorter interval so the first run starts quickly
+		p := New("sleep-interval", "sleep", Args("1"), Async(), Interval(200*time.Millisecond))
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+
+		done, err := p.Start(ctx)
+		if err != nil {
+			t.Fatalf("Failed to start interval program: %v", err)
+		}
+
+		// Wait for first interval tick + time for command to start
+		time.Sleep(400 * time.Millisecond)
+
+		// Check if a process is running (which means it started)
+		if p.State() != StateRunning {
+			t.Fatalf("Expected current iteration to be running, got: %v (runs: %d)", p.State(), p.Runs())
+		}
+
+		// Graceful shutdown should stop interval and current process
+		start := time.Now()
+		err = p.GracefulShutdown(500 * time.Millisecond)
+		duration := time.Since(start)
+
+		if err != nil {
+			t.Errorf("GracefulShutdown failed: %v", err)
+		}
+
+		// Should terminate current sleep process quickly
+		if duration > 400*time.Millisecond {
+			t.Errorf("Expected quick termination, took %v", duration)
+		}
+
+		select {
+		case <-done:
+			// Expected
+		case <-time.After(1 * time.Second):
+			t.Error("Interval program should have signaled done")
+		}
+
+		// Should not start new iterations
+		finalRuns := p.Runs()
+		time.Sleep(500 * time.Millisecond) // Wait longer than interval
+		afterWaitRuns := p.Runs()
+
+		if afterWaitRuns != finalRuns {
+			t.Errorf("Expected no new iterations after shutdown, but runs increased from %d to %d",
+				finalRuns, afterWaitRuns)
+		}
+	})
+}
