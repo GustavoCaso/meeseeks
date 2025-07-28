@@ -256,7 +256,6 @@ func (p *program) start(ctx context.Context) (<-chan struct{}, error) {
 
 	p.pipes = pipes
 
-	p.cmdLock.Lock()
 	if p.customStdout != nil {
 		cmd.Stdout = io.MultiWriter(p.customStdout, outWriter)
 	} else {
@@ -274,6 +273,8 @@ func (p *program) start(ctx context.Context) (<-chan struct{}, error) {
 	} else {
 		cmd.Stdin = inReader
 	}
+
+	p.cmdLock.Lock()
 	p.cmd = cmd
 	p.cmdLock.Unlock()
 
