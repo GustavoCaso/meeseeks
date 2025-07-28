@@ -39,10 +39,11 @@ func TestOneShot(t *testing.T) {
 	t.Run("exit code handling", func(t *testing.T) {
 		p := New("failure-test", "bash", Args("-c", "exit 2"))
 
-		_, err := p.Start(t.Context())
-		if err == nil {
-			t.Fatal("Expected error for non-zero exit code but got nil")
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
 		}
+		<-done
 
 		status := p.Status()
 		if !strings.Contains(status, "code: 2") {
@@ -53,10 +54,11 @@ func TestOneShot(t *testing.T) {
 	t.Run("stderr output", func(t *testing.T) {
 		p := New("stderr-test", "bash", Args("-c", "echo 'error message' >&2; exit 1"))
 
-		_, err := p.Start(t.Context())
-		if err == nil {
-			t.Fatal("Expected error but got nil")
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
 		}
+		<-done
 
 		if errOutput := p.Error(); !strings.Contains(errOutput, "error message") {
 			t.Errorf("Expected stderr to contain 'error message', got: %q", errOutput)
@@ -616,10 +618,11 @@ func TestStatistics(t *testing.T) {
 	t.Run("statistics for failed program", func(t *testing.T) {
 		p := New("failure-test", "bash", Args("-c", "echo 'before error'; exit 1"))
 
-		_, err := p.Start(t.Context())
-		if err == nil {
-			t.Fatal("Expected error for failing command")
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
 		}
+		<-done
 
 		stats := p.Statistics()
 

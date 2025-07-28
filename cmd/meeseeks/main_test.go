@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -143,14 +144,21 @@ func TestMain(t *testing.T) {
 				cmd.Stderr = &stderr
 
 				// Send interrupt signal after a short delay to simulate Ctrl+C
+				var processReady sync.WaitGroup
+				processReady.Add(1)
 				go func() {
+					processReady.Wait()
 					time.Sleep(500 * time.Millisecond)
 					if cmd.Process != nil {
 						cmd.Process.Signal(os.Interrupt)
 					}
 				}()
 
-				err = cmd.Run()
+				err = cmd.Start()
+				if err == nil {
+					processReady.Done()
+					err = cmd.Wait()
+				}
 
 				// For foreground mode, we expect interrupt signal or completion
 				output := stdout.String() + stderr.String()
@@ -168,7 +176,7 @@ func TestMain(t *testing.T) {
 			},
 		},
 		{
-			name: "run command (detached)",
+			name: "run command detached",
 			test: func(t *testing.T) {
 				// Create a temporary config file
 				tmpDir := t.TempDir()
@@ -184,20 +192,8 @@ func TestMain(t *testing.T) {
 					t.Fatalf("Failed to create test config file: %v", err)
 				}
 
-				// Unix sockets have a path length limit (~104-108 characters depending on OS).
-				// Using t.TempDir() creates very long paths that exceed this limit and cause
-				// "bind: invalid argument" errors. We use /tmp directly with short names instead.
-				testHome := "/tmp"
-				t.Setenv("HOME", testHome)
-
-				// Create .meeseeks directory in test home
-				meeseeksDir := filepath.Join(testHome, ".meeseeks")
-				if err := os.MkdirAll(meeseeksDir, 0755); err != nil {
-					t.Fatalf("Failed to create .meeseeks directory: %v", err)
-				}
-
-				expectedPidFile := filepath.Join(meeseeksDir, "meeseeks.pid")
-				expectedSocketPath := filepath.Join(meeseeksDir, "meeseeks.sock")
+				expectedPidFile := getPidFile()
+				expectedSocketPath := getSocketPath()
 
 				// Clean up any existing files from previous tests
 				os.Remove(expectedPidFile)
@@ -258,7 +254,7 @@ func TestMain(t *testing.T) {
 				}
 				statusOutput := stdoutBuf.String() + stderrBuf.String()
 
-				if strings.Contains(statusOutput, "failed to send request") {
+				if strings.Contains(statusOutput, "meeseeks server not running") {
 					t.Errorf("Status command could not connect to daemon: %q", statusOutput)
 				}
 
@@ -352,13 +348,13 @@ func TestStatusCommand_Validation(t *testing.T) {
 			name:         "status with no daemon running",
 			args:         []string{"status"},
 			expectedExit: 1,
-			errorMessage: "failed to send request",
+			errorMessage: "meeseeks server not running",
 		},
 		{
 			name:         "status specific program with no daemon",
 			args:         []string{"status", "test-program"},
 			expectedExit: 1,
-			errorMessage: "failed to send request",
+			errorMessage: "meeseeks server not running",
 		},
 	}
 
@@ -417,7 +413,7 @@ func TestLogsCommand_Validation(t *testing.T) {
 			name:         "logs with no daemon running",
 			args:         []string{"logs", "test-program"},
 			expectedExit: 1,
-			errorMessage: "failed to send request",
+			errorMessage: "meeseeks server not running",
 		},
 	}
 
@@ -470,13 +466,13 @@ func TestStopCommand_Validation(t *testing.T) {
 			name:         "stop with no daemon running",
 			args:         []string{"stop"},
 			expectedExit: 1,
-			errorMessage: "failed to send request",
+			errorMessage: "meeseeks server not running",
 		},
 		{
 			name:         "stop specific program with no daemon",
 			args:         []string{"stop", "test-program"},
 			expectedExit: 1,
-			errorMessage: "failed to send request",
+			errorMessage: "meeseeks server not running",
 		},
 	}
 
