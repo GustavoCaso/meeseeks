@@ -29,8 +29,7 @@ type Program interface {
 	Interval() time.Duration
 	Runs() int
 	Statistics() Statistics
-	GracefulShutdown(timeout time.Duration) error
-	ForceKill() error
+	Shutdown(timeout time.Duration) error
 }
 
 type ProcessState int
@@ -564,7 +563,7 @@ func (p *program) Runs() int {
 	return p.current
 }
 
-func (p *program) GracefulShutdown(timeout time.Duration) error {
+func (p *program) Shutdown(timeout time.Duration) error {
 	// Stop interval loop if this is an interval program
 	if p.interval > 0 {
 		select {
@@ -589,7 +588,7 @@ func (p *program) GracefulShutdown(timeout time.Duration) error {
 			return nil
 		}
 		// If SIGTERM fails, fall back to force kill
-		return p.ForceKill()
+		return p.forcekill()
 	}
 
 	// Wait for the existing monitoring to handle process exit
@@ -598,20 +597,11 @@ func (p *program) GracefulShutdown(timeout time.Duration) error {
 		return nil
 	case <-time.After(timeout):
 		// Timeout exceeded, force kill
-		return p.ForceKill()
+		return p.forcekill()
 	}
 }
 
-func (p *program) ForceKill() error {
-	// Stop interval loop if this is an interval program
-	if p.interval > 0 {
-		select {
-		case p.stop <- struct{}{}:
-		default:
-			// Channel might be full or closed, continue
-		}
-	}
-
+func (p *program) forcekill() error {
 	p.cmdLock.Lock()
 	if p.cmd == nil || p.cmd.Process == nil {
 		p.cmdLock.Unlock()

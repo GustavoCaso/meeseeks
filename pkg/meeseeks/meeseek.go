@@ -19,7 +19,7 @@ type Meeseek interface {
 	Status(program string) (string, error)
 	Wait(ctx context.Context) error
 	Statistics() []program.Statistics
-	Kill() error
+	Shutdown(timeout time.Duration) error
 }
 
 type meeseek struct {
@@ -127,11 +127,11 @@ func (m *meeseek) Wait(ctx context.Context) error {
 	}
 }
 
-func (m *meeseek) Kill() error {
+func (m *meeseek) Shutdown(timeout time.Duration) error {
 	errs := []error{}
 
 	for _, p := range m.programs {
-		errs = append(errs, p.ForceKill())
+		errs = append(errs, p.Shutdown(timeout))
 	}
 
 	return errors.Join(errs...)

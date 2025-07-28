@@ -101,7 +101,7 @@ func (s *Server) Stop() error {
 	}
 
 	errs = append(errs, os.RemoveAll(s.sockPath))
-	errs = append(errs, s.meeseeks.Kill())
+	errs = append(errs, s.meeseeks.Shutdown(5*time.Second))
 	return errors.Join(errs...)
 }
 
