@@ -30,10 +30,6 @@ func TestOneShot(t *testing.T) {
 		if p.Error() != "" {
 			t.Errorf("Expected no error output, got: %q", p.Error())
 		}
-
-		if status := p.Status(); !strings.Contains(status, "finished") {
-			t.Errorf("Expected status to indicate successful completion, got: %q", status)
-		}
 	})
 
 	t.Run("exit code handling", func(t *testing.T) {
@@ -45,9 +41,9 @@ func TestOneShot(t *testing.T) {
 		}
 		<-done
 
-		status := p.Status()
-		if !strings.Contains(status, "code: 2") {
-			t.Errorf("Expected status to contain 'error code: 2', got: %q", status)
+		errorMessage := p.Error()
+		if !strings.Contains(errorMessage, "exit status 2") {
+			t.Errorf("Expected errors to contain 'exit status 2', got: %q", errorMessage)
 		}
 	})
 
@@ -198,10 +194,10 @@ func TestAsync(t *testing.T) {
 			t.Fatal("Process was not in the valid state")
 		}
 
-		status := p.Status()
+		errorMessage := p.Error()
 		// Context cancellation can result in either error or finished status depending on timing
-		if !strings.Contains(status, "error") && !strings.Contains(status, "finished") {
-			t.Errorf("Expected status to indicate error or finished after cancellation, got: %q", status)
+		if !strings.Contains(errorMessage, "signal: killed") {
+			t.Errorf("Expected errorMessage to indicate error or finished after cancellation, got: %q", errorMessage)
 		}
 	})
 
@@ -272,9 +268,9 @@ func TestEdgeCases(t *testing.T) {
 			t.Fatal("Expected error for non-existent command but got nil")
 		}
 
-		status := p.Status()
-		if !strings.Contains(status, "error") {
-			t.Errorf("Expected status to indicate error, got: %q", status)
+		errorMessage := p.Error()
+		if !strings.Contains(errorMessage, "executable file not found in $PATH") {
+			t.Errorf("Expected errorMessage to indicate error, got: %q", errorMessage)
 		}
 	})
 
@@ -329,7 +325,6 @@ func TestEdgeCases(t *testing.T) {
 					_ = p.Output()
 					_ = p.Error()
 					_ = p.LastLine()
-					_ = p.Status()
 					time.Sleep(30 * time.Millisecond)
 				}
 			}()

@@ -1,7 +1,6 @@
 package meeseeks
 
 import (
-	"bytes"
 	"context"
 	"strings"
 	"testing"
@@ -76,7 +75,7 @@ func TestMeeseek_AddProgram(t *testing.T) {
 	}
 }
 
-func TestMeeseek_Status(t *testing.T) {
+func TestMeeseek_Statistic(t *testing.T) {
 	tests := []struct {
 		name        string
 		programs    []program.Program
@@ -85,14 +84,14 @@ func TestMeeseek_Status(t *testing.T) {
 		errMsg      string
 	}{
 		{
-			name: "status of existing program",
+			name: "statistic of existing program",
 			programs: []program.Program{
 				program.New("test1", "echo", program.Args("hello")),
 			},
 			statusQuery: "test1",
 		},
 		{
-			name: "status of nonexistent program",
+			name: "statistic of nonexistent program",
 			programs: []program.Program{
 				program.New("test1", "echo", program.Args("hello")),
 			},
@@ -113,7 +112,7 @@ func TestMeeseek_Status(t *testing.T) {
 				}
 			}
 
-			status, err := m.Status(tt.statusQuery)
+			statistic, err := m.Statistic(tt.statusQuery)
 
 			if tt.wantErr {
 				if err == nil {
@@ -121,18 +120,18 @@ func TestMeeseek_Status(t *testing.T) {
 					return
 				}
 				if !strings.Contains(err.Error(), tt.errMsg) {
-					t.Errorf("Status() error = %q, want error containing %q", err.Error(), tt.errMsg)
+					t.Errorf("Statistic() error = %q, want error containing %q", err.Error(), tt.errMsg)
 				}
 				return
 			}
 
 			if err != nil {
-				t.Errorf("Status() unexpected error = %v", err)
+				t.Errorf("Statistic() unexpected error = %v", err)
 				return
 			}
 
-			if status == "" {
-				t.Errorf("Status() returned empty string")
+			if statistic.ProgramName != tt.statusQuery {
+				t.Errorf("Statistic() returned incorrect statistic")
 			}
 		})
 	}
@@ -277,66 +276,6 @@ func TestMeeseek_Statistics(t *testing.T) {
 	}
 }
 
-func TestMeeseek_Results(t *testing.T) {
-	tests := []struct {
-		name         string
-		programs     []program.Program
-		runPrograms  bool
-		expectedText []string
-	}{
-		{
-			name: "results without running",
-			programs: []program.Program{
-				program.New("test1", "echo", program.Args("hello")),
-			},
-			runPrograms:  false,
-			expectedText: []string{"Execution still in progress", "test1"},
-		},
-		{
-			name: "results after running",
-			programs: []program.Program{
-				program.New("test1", "echo", program.Args("hello")),
-			},
-			runPrograms:  true,
-			expectedText: []string{"Total Execution Time", "test1"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			m := New()
-
-			for _, prog := range tt.programs {
-				err := m.AddProgram(prog)
-				if err != nil {
-					t.Fatalf("Failed to add program: %v", err)
-				}
-			}
-
-			if tt.runPrograms {
-				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-				defer cancel()
-
-				m.Start(ctx)
-				err := m.Wait(ctx)
-				if err != nil {
-					t.Fatalf("Failed to wait for programs: %v", err)
-				}
-			}
-
-			var buf bytes.Buffer
-			m.Results(&buf)
-			output := buf.String()
-
-			for _, expectedText := range tt.expectedText {
-				if !strings.Contains(output, expectedText) {
-					t.Errorf("Results() output missing expected text %q. Full output:\n%s", expectedText, output)
-				}
-			}
-		})
-	}
-}
-
 func TestMeeseek_IntervalPrograms(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -421,12 +360,12 @@ func TestMeeseek_ConcurrentAccess(t *testing.T) {
 		t.Errorf("Expected %d programs, got %d", numPrograms, len(stats))
 	}
 
-	// Test concurrent status queries
+	// Test concurrent statisitics queries
 	statusResults := make(chan error, numPrograms)
 	for i := range numPrograms {
 		go func(id int) {
 			progName := "concurrent-" + string(rune('0'+id))
-			_, err := m.Status(progName)
+			_, err := m.Statistic(progName)
 			statusResults <- err
 		}(i)
 	}
@@ -435,7 +374,7 @@ func TestMeeseek_ConcurrentAccess(t *testing.T) {
 	for i := range numPrograms {
 		err := <-statusResults
 		if err != nil {
-			t.Errorf("Failed to get status for program %d: %v", i, err)
+			t.Errorf("Failed to get statictics for program %d: %v", i, err)
 		}
 	}
 }
@@ -462,36 +401,6 @@ func TestMeeseek_ContextCancellation(t *testing.T) {
 	expectedMsg := "context cancelled"
 	if !strings.Contains(err.Error(), expectedMsg) {
 		t.Errorf("Wait() error should contain %q, got %q", expectedMsg, err.Error())
-	}
-}
-
-func TestMeeseek_EmptyMeeseek(t *testing.T) {
-	m := New()
-
-	// Test operations on empty meeseek
-	ctx := t.Context()
-	m.Start(ctx)
-
-	err := m.Wait(ctx)
-	if err != nil {
-		t.Errorf("Wait() on empty meeseek should not error, got %v", err)
-	}
-
-	stats := m.Statistics()
-	if len(stats) != 0 {
-		t.Errorf("Statistics() on empty meeseek should return empty slice, got %d items", len(stats))
-	}
-
-	_, err = m.Status("nonexistent")
-	if err == nil {
-		t.Errorf("Status() on empty meeseek should return error")
-	}
-
-	var buf bytes.Buffer
-	m.Results(&buf)
-	output := buf.String()
-	if !strings.Contains(output, "Meeseeks Execution Summary") {
-		t.Errorf("Results() should contain header even for empty meeseek")
 	}
 }
 
@@ -523,14 +432,14 @@ func BenchmarkMeeseek_Statistics(b *testing.B) {
 	}
 }
 
-func BenchmarkMeeseek_Status(b *testing.B) {
+func BenchmarkMeeseek_Statistic(b *testing.B) {
 	m := New()
 
-	prog := program.New("bench-status", "echo", program.Args("benchmark"))
+	prog := program.New("bench-statistic", "echo", program.Args("benchmark"))
 	m.AddProgram(prog)
 
 	b.ResetTimer()
 	for range b.N {
-		m.Status("bench-status")
+		m.Statistic("bench-status")
 	}
 }

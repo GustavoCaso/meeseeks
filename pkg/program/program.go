@@ -19,7 +19,6 @@ type Program interface {
 	Async() bool
 	Name() string
 	Start(ctx context.Context) (<-chan struct{}, error)
-	Status() string
 	Send([]byte) error
 	CloseStdin() error
 	LastLine() string
@@ -463,43 +462,6 @@ func (p *program) Async() bool {
 
 func (p *program) Name() string {
 	return p.name
-}
-
-func (p *program) Status() string {
-	p.resultsLock.RLock()
-	defer p.resultsLock.RUnlock()
-
-	p.stateLock.RLock()
-	current := p.current
-	exitCode := p.exitCode
-	p.stateLock.RUnlock()
-
-	if len(p.results) == 0 {
-		return fmt.Sprintf("[%s not running] iteration: %d", p.name, current)
-	}
-	currentIndex := len(p.results) - 1
-	switch p.results[currentIndex].state { //nolint:exhaustive // StateNotRunning is the default branch
-	case StateRunning:
-		p.cmdLock.Lock()
-		var pid int
-		if p.cmd != nil && p.cmd.Process != nil {
-			pid = p.cmd.Process.Pid
-		}
-		p.cmdLock.Unlock()
-		return fmt.Sprintf(
-			"[%s running] iteration: %d, pid: %d, last line: %s",
-			p.name,
-			current,
-			pid,
-			p.LastLine(),
-		)
-	case StateFinished:
-		return fmt.Sprintf("[%s finished] iteration: %d, with exit code: %d", p.name, current, exitCode)
-	case StateError:
-		return fmt.Sprintf("[%s error] iteration: %d, code: %d", p.name, current, exitCode)
-	default:
-		return fmt.Sprintf("[%s not running] iteration: %d", p.name, current)
-	}
 }
 
 func (p *program) Output() string {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"sync"
 	"time"
@@ -15,9 +14,8 @@ import (
 type Meeseek interface {
 	AddProgram(program.Program) error
 	Start(ctx context.Context)
-	Results(w io.Writer)
-	Status(program string) (string, error)
 	Wait(ctx context.Context) error
+	Statistic(program string) (program.Statistics, error)
 	Statistics() []program.Statistics
 	Shutdown(timeout time.Duration) error
 }
@@ -61,27 +59,15 @@ func (m *meeseek) Start(ctx context.Context) {
 	}
 }
 
-func (m *meeseek) Results(w io.Writer) {
+func (m *meeseek) Statistic(programName string) (program.Statistics, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	fmt.Fprintln(w, "=== Meeseeks Execution Summary ===")
-
-	if m.endTime.IsZero() {
-		fmt.Fprintln(w, "Execution still in progress")
-		fmt.Fprintln(w, "Program Statuses (may still be running):")
-	} else {
-		executionTime := m.endTime.Sub(m.startTime)
-		fmt.Fprintf(w, "Total Execution Time: %s\n", executionTime)
-		fmt.Fprintln(w, "Program Statuses:")
+	if _, ok := m.programs[programName]; !ok {
+		return program.Statistics{}, fmt.Errorf("program %s not present", programName)
 	}
 
-	for _, p := range m.programs {
-		fmt.Fprintf(w, "  - %s\n", p.Status())
-		if errMsg := p.Error(); errMsg != "" {
-			fmt.Fprintf(w, "    Error: %s\n", errMsg)
-		}
-	}
+	return m.programs[programName].Statistics(), nil
 }
 
 func (m *meeseek) Statistics() []program.Statistics {
@@ -95,17 +81,6 @@ func (m *meeseek) Statistics() []program.Statistics {
 	}
 
 	return statistics
-}
-
-func (m *meeseek) Status(program string) (string, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if _, ok := m.programs[program]; !ok {
-		return "", fmt.Errorf("program %s not present", program)
-	}
-
-	return m.programs[program].Status(), nil
 }
 
 func (m *meeseek) Wait(ctx context.Context) error {

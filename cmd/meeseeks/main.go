@@ -35,7 +35,7 @@ func main() {
 			os.Exit(1)
 		}
 	case "status":
-		if err := statusCommand(args); err != nil {
+		if err := statisticsCommand(args); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
@@ -205,7 +205,7 @@ func startServer(ctx context.Context, cfg *config.Config, sockPath string) (*ser
 	return s, nil
 }
 
-func statusCommand(args []string) error {
+func statisticsCommand(args []string) error {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: meeseeks status [program_name]\n\n")
@@ -222,7 +222,7 @@ func statusCommand(args []string) error {
 	}
 
 	client := server.NewClient(getSocketPath())
-	resp, err := client.Status(programName)
+	resp, err := client.Statistics(programName)
 	if err != nil {
 		return err
 	}

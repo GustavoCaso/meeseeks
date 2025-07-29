@@ -62,12 +62,12 @@ func (c *Client) sendRequest(endpoint string, params map[string]string) (*Respon
 	return &response, nil
 }
 
-func (c *Client) Status(programName string) (*Response, error) {
+func (c *Client) Statistics(programName string) (*Response, error) {
 	params := make(map[string]string)
 	if programName != "" {
 		params["program"] = programName
 	}
-	return c.sendRequest("/status", params)
+	return c.sendRequest("/statistics", params)
 }
 
 func (c *Client) Logs(programName string) (*Response, error) {

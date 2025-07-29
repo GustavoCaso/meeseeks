@@ -162,11 +162,11 @@ func TestServer_HTTPHandlers(t *testing.T) {
 		testFn func(t *testing.T, client *Client)
 	}{
 		{
-			name: "status all programs",
+			name: "statistics all programs",
 			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.Status("")
+				resp, err := client.Statistics("")
 				if err != nil {
-					t.Errorf("Status() unexpected error = %v", err)
+					t.Errorf("Statistics() unexpected error = %v", err)
 					return
 				}
 				if !resp.Success {
@@ -178,11 +178,11 @@ func TestServer_HTTPHandlers(t *testing.T) {
 			},
 		},
 		{
-			name: "status specific program",
+			name: "statistics specific program",
 			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.Status("test-program1")
+				resp, err := client.Statistics("test-program1")
 				if err != nil {
-					t.Errorf("Status() unexpected error = %v", err)
+					t.Errorf("Statistics() unexpected error = %v", err)
 					return
 				}
 				if !resp.Success {
@@ -194,11 +194,11 @@ func TestServer_HTTPHandlers(t *testing.T) {
 			},
 		},
 		{
-			name: "status nonexistent program",
+			name: "statistics nonexistent program",
 			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.Status("nonexistent")
+				resp, err := client.Statistics("nonexistent")
 				if err != nil {
-					t.Errorf("Status() unexpected error = %v", err)
+					t.Errorf("Statistics() unexpected error = %v", err)
 					return
 				}
 				if resp.Success {
@@ -293,28 +293,28 @@ func TestClient_SendRequest(t *testing.T) {
 		testFn func(t *testing.T, client *Client)
 	}{
 		{
-			name: "status request",
+			name: "statistics request",
 			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.Status("")
+				resp, err := client.Statistics("")
 				if err != nil {
-					t.Errorf("Status() unexpected error = %v", err)
+					t.Errorf("Statistics() unexpected error = %v", err)
 					return
 				}
 				if !resp.Success {
-					t.Errorf("Status() expected success=true, got %v", resp.Success)
+					t.Errorf("Statistics() expected success=true, got %v", resp.Success)
 				}
 			},
 		},
 		{
-			name: "status specific program",
+			name: "statistics specific program",
 			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.Status("test-program")
+				resp, err := client.Statistics("test-program")
 				if err != nil {
-					t.Errorf("Status() unexpected error = %v", err)
+					t.Errorf("Statistics() unexpected error = %v", err)
 					return
 				}
 				if !resp.Success {
-					t.Errorf("Status() expected success=true, got %v", resp.Success)
+					t.Errorf("Statistics() expected success=true, got %v", resp.Success)
 				}
 			},
 		},
@@ -357,7 +357,7 @@ func TestClient_SendRequest(t *testing.T) {
 func TestClient_ConnectToNonExistentDaemon(t *testing.T) {
 	client := NewClient("/nonexistent/path.sock")
 
-	_, err := client.Status("")
+	_, err := client.Statistics("")
 	if err == nil {
 		t.Errorf("Expected error when connecting to non-existent daemon")
 	}
@@ -405,13 +405,13 @@ func TestDaemon_IntegrationWithRealSocket(t *testing.T) {
 	// Test client communication
 	client := NewClient(sockPath)
 
-	// Test status
-	resp, err := client.Status("")
+	// Test statistics
+	resp, err := client.Statistics("")
 	if err != nil {
-		t.Fatalf("Client Status() error: %v", err)
+		t.Fatalf("Client Statistics() error: %v", err)
 	}
 	if !resp.Success {
-		t.Errorf("Status() expected success=true, got %v", resp.Success)
+		t.Errorf("Statistics() expected success=true, got %v", resp.Success)
 	}
 
 	// Test logs
@@ -458,7 +458,7 @@ func TestDaemon_ConcurrentConnections(t *testing.T) {
 	for i := range numClients {
 		go func(_ int) {
 			client := NewClient(sockPath)
-			resp, err := client.Status("")
+			resp, err := client.Statistics("")
 			if err != nil {
 				results <- err
 				return
@@ -521,6 +521,6 @@ func BenchmarkServer_HandleRequest(b *testing.B) {
 
 	b.ResetTimer()
 	for range b.N {
-		_, _ = client.Status("")
+		_, _ = client.Statistics("")
 	}
 }

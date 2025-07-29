@@ -37,7 +37,7 @@ func New(sockPath string) *Server {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/status", s.handleStatus)
+	mux.HandleFunc("/statistics", s.handleStatistics)
 	mux.HandleFunc("/logs", s.handleLogs)
 	mux.HandleFunc("/stop", s.handleStop)
 
@@ -117,7 +117,7 @@ func (s *Server) Wait(ctx context.Context) error {
 	return s.meeseeks.Wait(ctx)
 }
 
-func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleStatistics(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	programName := r.URL.Query().Get("program")
@@ -127,11 +127,11 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		stats := s.meeseeks.Statistics()
 		resp = Response{Success: true, Data: stats}
 	} else {
-		status, err := s.meeseeks.Status(programName)
+		stats, err := s.meeseeks.Statistic(programName)
 		if err != nil {
 			resp = Response{Success: false, Error: err.Error()}
 		} else {
-			resp = Response{Success: true, Data: status}
+			resp = Response{Success: true, Data: stats}
 		}
 	}
 
