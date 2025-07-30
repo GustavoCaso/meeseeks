@@ -110,7 +110,8 @@ func main() {
     
     // Print statistics
     for _, stat := range m.Statistics() {
-        fmt.Println(stat.String())
+        fmt.Printf("Program: %s, Runs: %d, Successful: %d, Failed: %d\n", 
+            stat.ProgramName, stat.TotalRuns, stat.Successful, stat.Failed)
     }
 }
 ```
@@ -249,7 +250,7 @@ Meeseeks follows a modular architecture with clear separation of concerns:
 - **`pkg/program`**: Individual process execution and management
 - **`pkg/meeseeks`**: Central process manager coordinating multiple programs
 - **`pkg/config`**: Configuration file parsing and validation
-- **`pkg/daemon`**: Daemon mode with Unix socket IPC for CLI communication
+- **`pkg/server`**: Server mode with Unix socket IPC for CLI communication
 - **`cmd/meeseeks`**: CLI application entry point
 
 ## Use Cases
