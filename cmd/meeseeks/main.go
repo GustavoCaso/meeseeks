@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"syscall"
+	"text/tabwriter"
+	"time"
 
 	"github.com/GustavoCaso/meeseeks/pkg/config"
 	"github.com/GustavoCaso/meeseeks/pkg/program"
@@ -207,9 +209,13 @@ func startServer(ctx context.Context, cfg *config.Config, sockPath string) (*ser
 
 func statisticsCommand(args []string) error {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
+	format := fs.String("format", "table", "Output format: table, json")
+	fs.StringVar(format, "f", "table", "Output format: table, json (shorthand)")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: meeseeks status [program_name]\n\n")
-		fmt.Fprintf(os.Stderr, "Show status of running programs\n")
+		fmt.Fprintf(os.Stderr, "Usage: meeseeks status [options] [program_name]\n\n")
+		fmt.Fprintf(os.Stderr, "Show status of running programs\n\n")
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		fs.PrintDefaults()
 	}
 
 	if err := fs.Parse(args); err != nil {
@@ -219,6 +225,10 @@ func statisticsCommand(args []string) error {
 	programName := ""
 	if fs.NArg() > 0 {
 		programName = fs.Arg(0)
+	}
+
+	if *format != "table" && *format != "json" {
+		return fmt.Errorf("invalid format: %s. Valid formats: table, json", *format)
 	}
 
 	client := server.NewClient(getSocketPath())
@@ -231,11 +241,17 @@ func statisticsCommand(args []string) error {
 		return fmt.Errorf("%s", resp.Error)
 	}
 
-	if programName != "" {
-		fmt.Fprintln(os.Stdout, resp.Data)
+	if *format == "json" {
+		if programName != "" {
+			fmt.Fprintln(os.Stdout, resp.Data)
+		} else {
+			data, _ := json.MarshalIndent(resp.Data, "", "  ")
+			fmt.Fprintln(os.Stdout, string(data))
+		}
 	} else {
-		data, _ := json.MarshalIndent(resp.Data, "", "  ")
-		fmt.Fprintln(os.Stdout, string(data))
+		if err := formatStatisticsAsTable(resp.Data, programName); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -407,4 +423,73 @@ func getInternalStdoutFile() (*os.File, error) {
 		return nil, err
 	}
 	return file, nil
+}
+
+func formatStatisticsAsTable(data any, programName string) error {
+	jsonBytes, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal data: %w", err)
+	}
+	programStatistics := []program.Statistics{}
+	if programName != "" {
+		var programStatistic = program.Statistics{}
+
+		err := json.Unmarshal(jsonBytes, &programStatistic)
+		if err != nil {
+			return err
+		}
+
+		programStatistics = append(programStatistics, programStatistic)
+	} else {
+		var programsStatistic = []program.Statistics{}
+
+		err := json.Unmarshal(jsonBytes, &programsStatistic)
+		if err != nil {
+			return err
+		}
+
+		programStatistics = append(programStatistics, programsStatistic...)
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintf(w, "NAME\tRUNS\tSUCCESS\tFAILED\tRUNNING\tINTERVAL\tSTATUS\n")
+	fmt.Fprintf(w, "----\t----\t-------\t------\t-------\t--------\t------\n")
+
+	for _, stats := range programStatistics {
+		name := stats.ProgramName
+		totalRuns := stats.TotalRuns
+		successful := stats.Successful
+		failed := stats.Failed
+		running := stats.Running
+		interval := "no"
+		if stats.HasInterval {
+			interval = time.Duration(stats.Interval).String()
+		}
+		status := "idle"
+		if running > 0 {
+			status = "running"
+		} else if failed > 0 && successful == 0 {
+			status = "failed"
+		} else if successful > 0 {
+			status = "completed"
+		}
+
+		fmt.Fprintf(w, "%s\t%d\t%d\t%d\t%d\t%s\t%s\n",
+			truncateString(name, 20),
+			totalRuns,
+			successful,
+			failed,
+			running,
+			truncateString(interval, 10),
+			status)
+	}
+
+	return w.Flush()
+}
+
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
 }

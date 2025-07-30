@@ -198,9 +198,15 @@ meeseeks run -d -config config.yaml     # Run in daemon mode (detached)
 Show status of running programs.
 
 ```bash
-meeseeks status                 # Show all programs
-meeseeks status web-server      # Show specific program
+meeseeks status                          # Show all programs (table format)
+meeseeks status web-server               # Show specific program (table format)
+meeseeks status -format json             # Show all programs in JSON format
+meeseeks status -f json web-server       # Show specific program in JSON format
 ```
+
+**Options:**
+- `-format <format>`: Output format: table (default), json
+- `-f <format>`: Output format shorthand
 
 ### `meeseeks logs`
 

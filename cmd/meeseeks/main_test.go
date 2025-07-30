@@ -356,6 +356,18 @@ func TestStatusCommand_Validation(t *testing.T) {
 			expectedExit: 1,
 			errorMessage: "meeseeks server not running",
 		},
+		{
+			name:         "status with invalid format",
+			args:         []string{"status", "-format", "invalid"},
+			expectedExit: 1,
+			errorMessage: "invalid format: invalid. Valid formats: table, json",
+		},
+		{
+			name:         "status with invalid format shorthand",
+			args:         []string{"status", "-f", "xml"},
+			expectedExit: 1,
+			errorMessage: "invalid format: xml. Valid formats: table, json",
+		},
 	}
 
 	for _, tt := range tests {
@@ -385,8 +397,10 @@ func TestStatusCommand_Help(t *testing.T) {
 	}
 
 	expectedMessages := []string{
-		"Usage: meeseeks status [program_name]",
+		"Usage: meeseeks status [options] [program_name]",
 		"Show status of running programs",
+		"-format",
+		"-f",
 	}
 
 	for _, msg := range expectedMessages {
