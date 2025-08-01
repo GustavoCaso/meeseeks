@@ -138,16 +138,7 @@ func (s *Server) handleStatistics(w http.ResponseWriter, r *http.Request) {
 			resp = Response{Success: true, Data: stats}
 		}
 	}
-
-	err := json.NewEncoder(w).Encode(resp)
-	if err != nil {
-		resp = Response{Success: false, Error: err.Error()}
-		nestedError := json.NewEncoder(w).Encode(resp)
-		if nestedError != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = fmt.Fprintf(w, "500 - %s", nestedError.Error())
-		}
-	}
+	handleResponse(w, resp)
 }
 
 func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
@@ -156,15 +147,7 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	programName := r.URL.Query().Get("program")
 	if programName == "" {
 		resp := Response{Success: false, Error: "program name required"}
-		err := json.NewEncoder(w).Encode(resp)
-		if err != nil {
-			resp = Response{Success: false, Error: err.Error()}
-			nestedError := json.NewEncoder(w).Encode(resp)
-			if nestedError != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				_, _ = fmt.Fprintf(w, "500 - %s", nestedError.Error())
-			}
-		}
+		handleResponse(w, resp)
 	}
 
 	stats := s.meeseeks.Statistics()
@@ -174,33 +157,23 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 				"last_output": stat.LastOutput,
 				"last_error":  stat.LastError,
 			}}
-			err := json.NewEncoder(w).Encode(resp)
-			if err != nil {
-				resp = Response{Success: false, Error: err.Error()}
-				nestedError := json.NewEncoder(w).Encode(resp)
-				if nestedError != nil {
-					w.WriteHeader(http.StatusInternalServerError)
-					_, _ = fmt.Fprintf(w, "500 - %s", nestedError.Error())
-				}
-			}
+
+			handleResponse(w, resp)
+			return
 		}
 	}
 
 	resp := Response{Success: false, Error: "program not found"}
-	err := json.NewEncoder(w).Encode(resp)
-	if err != nil {
-		resp = Response{Success: false, Error: err.Error()}
-		nestedError := json.NewEncoder(w).Encode(resp)
-		if nestedError != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = fmt.Fprintf(w, "500 - %s", nestedError.Error())
-		}
-	}
+	handleResponse(w, resp)
 }
 
 func (s *Server) handleStop(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	resp := Response{Success: false, Error: "stop command not yet implemented"}
+	handleResponse(w, resp)
+}
+
+func handleResponse(w http.ResponseWriter, resp Response) {
 	err := json.NewEncoder(w).Encode(resp)
 	if err != nil {
 		resp = Response{Success: false, Error: err.Error()}
