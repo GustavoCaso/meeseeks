@@ -167,9 +167,27 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	handleResponse(w, resp)
 }
 
-func (s *Server) handleStop(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	resp := Response{Success: false, Error: "stop command not yet implemented"}
+	programName := r.URL.Query().Get("program")
+	timeoutString := r.URL.Query().Get("timeout")
+	if programName == "" {
+		resp := Response{Success: false, Error: "program name required"}
+		handleResponse(w, resp)
+	}
+
+	duration, err := time.ParseDuration(timeoutString)
+	if err != nil {
+		resp := Response{Success: false, Error: fmt.Sprintf("error parsing timeout %s. %s", timeoutString, err.Error())}
+		handleResponse(w, resp)
+	}
+
+	err = s.meeseeks.Stop(programName, duration)
+	if err != nil {
+		resp := Response{Success: false, Error: err.Error()}
+		handleResponse(w, resp)
+	}
+	resp := Response{Success: true, Data: fmt.Sprintf("%s stopped", programName)}
 	handleResponse(w, resp)
 }
 

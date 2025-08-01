@@ -93,10 +93,11 @@ func (c *Client) Logs(programName string) (*Response, error) {
 	return c.sendRequest("/logs", params)
 }
 
-func (c *Client) Stop(programName string) (*Response, error) {
-	params := make(map[string]string)
-	if programName != "" {
-		params["program"] = programName
+func (c *Client) Stop(programName, timeout string) (*Response, error) {
+	params := map[string]string{
+		"program": programName,
+		"timeout": timeout,
 	}
+
 	return c.sendRequest("/stop", params)
 }

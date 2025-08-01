@@ -14,6 +14,7 @@ import (
 type Meeseek interface {
 	AddProgram(program.Program) error
 	Start(ctx context.Context)
+	Stop(programName string, timeout time.Duration) error
 	Wait(ctx context.Context) error
 	Statistic(program string) (program.Statistics, error)
 	Statistics() []program.Statistics
@@ -100,6 +101,14 @@ func (m *meeseek) Wait(ctx context.Context) error {
 	case <-done:
 		return nil
 	}
+}
+
+func (m *meeseek) Stop(programName string, timeout time.Duration) error {
+	if _, ok := m.programs[programName]; !ok {
+		return fmt.Errorf("program %s not present", programName)
+	}
+
+	return m.programs[programName].Shutdown(timeout)
 }
 
 func (m *meeseek) Shutdown(timeout time.Duration) error {

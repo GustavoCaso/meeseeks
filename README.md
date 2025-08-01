@@ -221,8 +221,16 @@ meeseeks logs web-server
 Stop running programs.
 
 ```bash
-meeseeks stop web-server        # Stop specific program
-meeseeks stop                   # Stop all programs and daemon
+meeseeks stop web-server               # Stop specific program
+meeseeks stop web-server -timeout 10s  # Stop specifc program with custom timeout
+```
+
+### `meeseeks exit`
+
+Stop and programs and meeseks process. Useful to stop meeseeks when running in detached mode
+
+```bash
+meeseeks exit
 ```
 
 ### `meeseeks version`

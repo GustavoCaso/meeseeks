@@ -432,6 +432,101 @@ func BenchmarkMeeseek_Statistics(b *testing.B) {
 	}
 }
 
+func TestMeeseek_Stop(t *testing.T) {
+	tests := []struct {
+		name        string
+		programs    []program.Program
+		stopProgram string
+		timeout     time.Duration
+		wantErr     bool
+		errMsg      string
+	}{
+		{
+			name: "stop existing program",
+			programs: []program.Program{
+				program.New("test-stop-1", "sleep", program.Args("10")),
+				program.New("test-stop-2", "sleep", program.Args("10")),
+			},
+			stopProgram: "test-stop-1",
+			timeout:     5 * time.Second,
+		},
+		{
+			name: "stop non-existing program",
+			programs: []program.Program{
+				program.New("test-stop-1", "sleep", program.Args("10")),
+			},
+			stopProgram: "non-existent",
+			timeout:     5 * time.Second,
+			wantErr:     true,
+			errMsg:      "program non-existent not present",
+		},
+		{
+			name: "stop with short timeout",
+			programs: []program.Program{
+				program.New("test-stop-3", "sleep", program.Args("10")),
+			},
+			stopProgram: "test-stop-3",
+			timeout:     1 * time.Millisecond,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := New()
+
+			for _, prog := range tt.programs {
+				err := m.AddProgram(prog)
+				if err != nil {
+					t.Fatalf("Failed to add program: %v", err)
+				}
+			}
+
+			// Start programs
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+			defer cancel()
+			m.Start(ctx)
+
+			// Give programs time to start
+			time.Sleep(100 * time.Millisecond)
+
+			// Test Stop method
+			err := m.Stop(tt.stopProgram, tt.timeout)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("Stop() expected error but got none")
+					return
+				}
+				if !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("Stop() error = %q, want error containing %q", err.Error(), tt.errMsg)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Stop() unexpected error = %v", err)
+			}
+
+			// Verify the program is stopped by checking its status
+			if !tt.wantErr {
+				stat, err := m.Statistic(tt.stopProgram)
+				if err != nil {
+					t.Errorf("Failed to get statistic after stop: %v", err)
+					return
+				}
+				// The program should have terminated
+				if stat.Running > 0 {
+					t.Errorf(
+						"Program %s should be stopped but %d instances are still running",
+						tt.stopProgram,
+						stat.Running,
+					)
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkMeeseek_Statistic(b *testing.B) {
 	m := New()
 

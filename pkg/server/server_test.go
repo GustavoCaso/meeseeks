@@ -244,16 +244,16 @@ func TestServer_HTTPHandlers(t *testing.T) {
 		{
 			name: "stop command",
 			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.Stop("")
+				resp, err := client.Stop("", "5s")
 				if err != nil {
 					t.Errorf("Stop() unexpected error = %v", err)
 					return
 				}
 				if resp.Success {
-					t.Errorf("Expected success=false for unimplemented stop, got %v", resp.Success)
+					t.Errorf("Expected success=false for empty program name, got %v", resp.Success)
 				}
 				if resp.Error == "" {
-					t.Errorf("Expected error message for unimplemented command")
+					t.Errorf("Expected error message for empty program name")
 				}
 			},
 		},
@@ -334,14 +334,13 @@ func TestClient_SendRequest(t *testing.T) {
 		{
 			name: "stop request",
 			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.Stop("")
+				resp, err := client.Stop("test-program", "5s")
 				if err != nil {
 					t.Errorf("Stop() unexpected error = %v", err)
 					return
 				}
-				// Stop is not implemented yet, so expect failure
-				if resp.Success {
-					t.Errorf("Stop() expected success=false (unimplemented), got %v", resp.Success)
+				if !resp.Success {
+					t.Errorf("Stop() expected success=true, got %v", resp.Success)
 				}
 			},
 		},

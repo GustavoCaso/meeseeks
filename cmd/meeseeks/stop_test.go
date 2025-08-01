@@ -9,23 +9,17 @@ func TestStopCommand_Validation(t *testing.T) {
 
 	tests := []commandTestCase{
 		{
-			name:          "stop with no daemon running",
+			name:          "stop without program",
 			args:          []string{"stop"},
 			expectedExit:  1,
-			shouldContain: "meeseeks server not running",
-		},
-		{
-			name:          "stop specific program with no daemon",
-			args:          []string{"stop", "test-program"},
-			expectedExit:  1,
-			shouldContain: "meeseeks server not running",
+			shouldContain: "program name required",
 		},
 	}
 
 	runCommandTests(t, tests)
 }
 
-func TestStopCommand(t *testing.T) {
+func TestStopCommand_MissingProgramName(t *testing.T) {
 	configContent := `programs:
   - name: "test-stop-program1"
     command: "sleep"
@@ -39,22 +33,28 @@ func TestStopCommand(t *testing.T) {
 
 	tests := []commandTestCase{
 		{
-			name:          "stop specific program - not implemented",
-			args:          []string{"stop", "test-stop-program1"},
+			name:          "stop with invalid timeout",
+			args:          []string{"stop", "-timeout", "invalid", "test-stop-program1"},
 			expectedExit:  1,
-			shouldContain: "stop command not yet implemented",
+			shouldContain: "invalid duration",
 		},
 		{
-			name:          "stop non-existing program - not implemented",
+			name:          "stop non-existing program",
 			args:          []string{"stop", "fake-program"},
 			expectedExit:  1,
-			shouldContain: "stop command not yet implemented",
+			shouldContain: "program fake-program not present",
 		},
 		{
-			name:          "stop all programs - not implemented",
-			args:          []string{"stop"},
-			expectedExit:  1,
-			shouldContain: "stop command not yet implemented",
+			name:          "stop existing program",
+			args:          []string{"stop", "test-stop-program1"},
+			expectedExit:  0,
+			shouldContain: "test-stop-program1 stopped",
+		},
+		{
+			name:          "stop with custom timeout",
+			args:          []string{"stop", "-timeout", "10s", "test-stop-program2"},
+			expectedExit:  0,
+			shouldContain: "test-stop-program2 stopped",
 		},
 	}
 
@@ -63,7 +63,8 @@ func TestStopCommand(t *testing.T) {
 
 func TestStopCommand_Help(t *testing.T) {
 	testCommandHelp(t, "stop", []string{
-		"Usage: meeseeks stop [program_name]",
+		"Usage: meeseeks stop [options] [program_name]",
 		"Stop running programs",
+		"-timeout",
 	})
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -10,22 +11,30 @@ import (
 
 func stopCommand(args []string) error {
 	fs := flag.NewFlagSet("stop", flag.ExitOnError)
+	timeout := fs.String(
+		"timeout",
+		"5s",
+		"Timeout to wait for program to exit. If exceeded and error is trigerred and the program is force kill",
+	)
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: meeseeks stop [program_name]\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: meeseeks stop [options] [program_name]\n\n")
 		fmt.Fprintf(os.Stderr, "Stop running programs\n")
+		fs.PrintDefaults()
 	}
 
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	programName := ""
-	if fs.NArg() > 0 {
-		programName = fs.Arg(0)
+	if fs.NArg() == 0 {
+		fs.Usage()
+		return errors.New("program name required")
 	}
 
+	programName := fs.Arg(0)
+
 	client := server.NewClient(getSocketPath())
-	resp, err := client.Stop(programName)
+	resp, err := client.Stop(programName, *timeout)
 	if err != nil {
 		return err
 	}
@@ -34,6 +43,6 @@ func stopCommand(args []string) error {
 		return fmt.Errorf("%s", resp.Error)
 	}
 
-	fmt.Fprintln(os.Stdout, "Stop command executed")
+	fmt.Fprintln(os.Stdout, resp.Data)
 	return nil
 }
