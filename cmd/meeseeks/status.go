@@ -44,12 +44,8 @@ func statusCommand(args []string) error {
 	}
 
 	if *format == "json" {
-		if programName != "" {
-			fmt.Fprintln(os.Stdout, resp.Data)
-		} else {
-			data, _ := json.MarshalIndent(resp.Data, "", "  ")
-			fmt.Fprintln(os.Stdout, string(data))
-		}
+		data, _ := json.MarshalIndent(resp.Data, "", "  ")
+		fmt.Fprintln(os.Stdout, string(data))
 	} else {
 		if err := formatStatisticsAsTable(resp.Data, programName); err != nil {
 			return err

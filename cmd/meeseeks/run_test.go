@@ -207,7 +207,7 @@ func TestRunCommand_Detached(t *testing.T) {
 		t.Errorf("PID file was not created at %s", expectedPidFile)
 	}
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(500 * time.Millisecond)
 
 	if _, err := os.Stat(expectedSocketPath); os.IsNotExist(err) {
 		t.Errorf("Socket file was not created at %s", expectedSocketPath)

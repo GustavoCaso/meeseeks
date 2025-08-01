@@ -2,47 +2,11 @@ package main
 
 import (
 	"bytes"
-	"context"
-	"errors"
-	"io"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
 )
 
-// Helper function to run CLI commands as subprocess.
-func runCLICommand(
-	t *testing.T,
-	args []string,
-	stdoutBuf io.Writer,
-	stderrBuf io.Writer,
-	timeout time.Duration,
-) int {
-	ctx, cancel := context.WithTimeout(t.Context(), timeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "go", "run", ".")
-	cmd.Args = append(cmd.Args, args...)
-	cmd.Dir = "/Users/gustavocaso/src/github.com/GustavoCaso/meeseeks/cmd/meeseeks"
-
-	cmd.Stdout = stdoutBuf
-	cmd.Stderr = stderrBuf
-
-	err := cmd.Run()
-
-	exitCode := 0
-	if err != nil {
-		var exitError *exec.ExitError
-		if errors.As(err, &exitError) {
-			exitCode = exitError.ExitCode()
-		} else {
-			exitCode = 1
-		}
-	}
-
-	return exitCode
-}
 
 func TestMainCommands(t *testing.T) {
 	tests := []struct {
