@@ -26,6 +26,9 @@ func getPidFile() string {
 func getInternalStdoutFile() (*os.File, error) {
 	homeDir, _ := os.UserHomeDir()
 	filePath := filepath.Join(homeDir, ".meeseeks", "meeseeks.log")
+	if err := os.MkdirAll(filepath.Dir(filePath), 0750); err != nil {
+		return nil, fmt.Errorf("failed to create log directory: %w", err)
+	}
 	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		return nil, err
@@ -34,6 +37,9 @@ func getInternalStdoutFile() (*os.File, error) {
 }
 
 func writePidFile(pidFile string, pid int) error {
+	if err := os.MkdirAll(filepath.Dir(pidFile), 0750); err != nil {
+		return fmt.Errorf("failed to create PID directory: %w", err)
+	}
 	return os.WriteFile(pidFile, []byte(strconv.Itoa(pid)), 0600)
 }
 
