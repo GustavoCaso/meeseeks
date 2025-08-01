@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/GustavoCaso/meeseeks/pkg/server"
+	"github.com/GustavoCaso/meeseeks/internal/server"
 )
 
 func logsCommand(args []string) error {

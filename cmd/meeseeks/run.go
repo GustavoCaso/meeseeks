@@ -11,8 +11,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/GustavoCaso/meeseeks/pkg/config"
-	"github.com/GustavoCaso/meeseeks/pkg/server"
+	"github.com/GustavoCaso/meeseeks/internal/config"
+	"github.com/GustavoCaso/meeseeks/internal/server"
 )
 
 func runCommand(args []string) error {

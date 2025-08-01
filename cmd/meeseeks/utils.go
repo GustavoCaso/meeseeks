@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"text/tabwriter"
 
-	"github.com/GustavoCaso/meeseeks/pkg/config"
+	"github.com/GustavoCaso/meeseeks/internal/config"
 	"github.com/GustavoCaso/meeseeks/pkg/program"
 )
 

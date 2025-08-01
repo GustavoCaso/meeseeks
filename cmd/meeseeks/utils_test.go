@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/GustavoCaso/meeseeks/pkg/config"
+	"github.com/GustavoCaso/meeseeks/internal/config"
 )
 
 func TestCreateProgramFromConfig(t *testing.T) {
