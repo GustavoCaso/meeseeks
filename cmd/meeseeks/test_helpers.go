@@ -26,7 +26,6 @@ func runCLICommand(
 
 	cmd := exec.CommandContext(ctx, "go", "run", ".")
 	cmd.Args = append(cmd.Args, args...)
-	cmd.Dir = "/Users/gustavocaso/src/github.com/GustavoCaso/meeseeks/cmd/meeseeks"
 
 	cmd.Stdout = stdoutBuf
 	cmd.Stderr = stderrBuf
@@ -93,10 +92,13 @@ func (d *testDetachedDaemon) start() {
 
 	if exitCode != 0 {
 		d.t.Fatalf(
-			"Failed to start daemon: exit code %d\nStdout: %s\nStderr: %s",
+			"Failed to start daemon: exit code %d\nStdout: %s\nStderr: %s\nConfig: %s\nPID file: %s\nSocket: %s",
 			exitCode,
 			stdout.String(),
 			stderr.String(),
+			d.configFile,
+			getPidFile(),
+			getSocketPath(),
 		)
 	}
 

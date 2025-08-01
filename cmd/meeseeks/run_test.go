@@ -94,7 +94,6 @@ func TestRunCommand_Foreground(t *testing.T) {
 
 	cmd := exec.CommandContext(ctx, "go", "run", ".")
 	cmd.Args = append(cmd.Args, []string{"run", "-config", configFile}...)
-	cmd.Dir = "/Users/gustavocaso/src/github.com/GustavoCaso/meeseeks/cmd/meeseeks"
 
 	// Use pipes instead of bytes.Buffer to avoid deadlock.
 	// When using bytes.Buffer directly with cmd.Stdout/Stderr, the process can block
