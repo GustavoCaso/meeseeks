@@ -1,5 +1,9 @@
 # Meeseeks
 
+<div align="center">
+  <img src="./images/logo_transparent.png" alt="Meeseeks Logo" width="400">
+</div>
+
 A simple and lightweight process manager for Go applications. Meeseeks can be used both as a standalone CLI tool for managing processes and as a reusable Go package for embedding process management into your applications.
 
 ## Features
