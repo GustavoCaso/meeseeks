@@ -41,7 +41,7 @@ func exitCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-
+	//nolint:sloglint //currently working on adding support for custom logger
 	slog.Info("Exiting meeseeks")
 
 	return nil

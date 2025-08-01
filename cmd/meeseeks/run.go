@@ -53,6 +53,7 @@ func runCommand(args []string) error {
 }
 
 func runDetached(pidFile, configFile string, cfg *config.Config) error {
+	//nolint:gosec // the arguments are provided by the user
 	cmd := exec.Command(os.Args[0], "run", "-config", configFile)
 	cmd.Env = os.Environ()
 	cmd.SysProcAttr = &syscall.SysProcAttr{
@@ -62,6 +63,7 @@ func runDetached(pidFile, configFile string, cfg *config.Config) error {
 	cmd.Stdin = nil
 	stdoutFile, stdoutErr := getInternalStdoutFile()
 	if stdoutErr != nil {
+		//nolint:sloglint //currently working on adding support for custom logger
 		slog.Warn("Failed to create log file for meeseeks, using /dev/null", "error", stdoutErr.Error())
 		cmd.Stdout = nil
 		cmd.Stderr = nil
@@ -77,6 +79,7 @@ func runDetached(pidFile, configFile string, cfg *config.Config) error {
 		return fmt.Errorf("failed to write PID file: %w", err)
 	}
 
+	//nolint:sloglint //currently working on adding support for custom logger
 	slog.Info("Started meeseeks (detached)", "pid", cmd.Process.Pid, "program_count", len(cfg.Programs))
 
 	_ = cmd.Process.Release()
@@ -96,8 +99,8 @@ func runForeground(cfg *config.Config, sockPath, pidFile string) error {
 	go func() {
 		slog.Info("Started meeseeks", "program_count", len(cfg.Programs))
 
-		if err := s.Wait(ctx); err != nil {
-			slog.Warn("Wait completed with error", "error", err)
+		if waitErr := s.Wait(ctx); waitErr != nil {
+			slog.Warn("Wait completed with error", "error", waitErr)
 		}
 	}()
 
@@ -105,9 +108,11 @@ func runForeground(cfg *config.Config, sockPath, pidFile string) error {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	<-sigChan
+	//nolint:sloglint //currently working on adding support for custom logger
 	slog.Info("Received signal, shutting down...")
 	err = s.Stop()
 	if err != nil {
+		//nolint:sloglint //currently working on adding support for custom logger
 		slog.Warn("Error stopping the server.", "error", err.Error())
 	}
 	_ = os.Remove(pidFile)

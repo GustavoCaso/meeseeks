@@ -47,7 +47,7 @@ func statusCommand(args []string) error {
 		data, _ := json.MarshalIndent(resp.Data, "", "  ")
 		fmt.Fprintln(os.Stdout, string(data))
 	} else {
-		if err := formatStatisticsAsTable(resp.Data, programName); err != nil {
+		if err = formatStatisticsAsTable(resp.Data, programName); err != nil {
 			return err
 		}
 	}

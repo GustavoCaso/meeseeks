@@ -242,18 +242,18 @@ func TestRunCommand_Detached(t *testing.T) {
 		t.Error("Socket file still exists. Stoping meeseeks should remove the Socket file")
 	}
 
-	var stdoutBuf_2, stderrBuf_2 bytes.Buffer
+	var stdoutBuf2, stderrBuf2 bytes.Buffer
 	exitCode = runCLICommand(
 		t,
 		[]string{"status"},
-		&stdoutBuf_2,
-		&stderrBuf_2,
+		&stdoutBuf2,
+		&stderrBuf2,
 		5*time.Second,
 	)
 	if exitCode != 1 {
 		t.Errorf("Expected exit code %d, got %d", 1, exitCode)
 	}
-	statusOutput = stdoutBuf_2.String() + stderrBuf_2.String()
+	statusOutput = stdoutBuf2.String() + stderrBuf2.String()
 
 	if !strings.Contains(statusOutput, "meeseeks server not running") {
 		t.Error("Status command should not work after exiting meeseeks")

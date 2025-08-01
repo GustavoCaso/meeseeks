@@ -57,7 +57,7 @@ func newTestDetachedDaemon(t *testing.T, configContent string) {
 	tmpDir := t.TempDir()
 	configFile := filepath.Join(tmpDir, "test-config.yaml")
 
-	if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
+	if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
 		t.Fatalf("Failed to create test config file: %v", err)
 	}
 

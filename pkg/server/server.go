@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -42,13 +43,17 @@ func New(sockPath string) *Server {
 	mux.HandleFunc("/stop", s.handleStop)
 
 	s.server = &http.Server{
-		Handler: mux,
+		Handler:           mux,
+		ReadHeaderTimeout: 15 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       30 * time.Second,
 	}
 
 	return s
 }
 
-func (s *Server) Start(ctx context.Context) error {
+func (s *Server) Start(_ context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -72,9 +77,8 @@ func (s *Server) Start(ctx context.Context) error {
 	s.running = true
 
 	go func() {
-		err := s.server.Serve(listener)
-		if err != nil && err != http.ErrServerClosed {
-			// Log error but don't fail startup
+		if err = s.server.Serve(listener); err != nil {
+			slog.Error("Failed to start server", "error", err)
 		}
 	}()
 
@@ -135,7 +139,15 @@ func (s *Server) handleStatistics(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	json.NewEncoder(w).Encode(resp)
+	err := json.NewEncoder(w).Encode(resp)
+	if err != nil {
+		resp = Response{Success: false, Error: err.Error()}
+		nestedError := json.NewEncoder(w).Encode(resp)
+		if nestedError != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = fmt.Fprintf(w, "500 - %s", nestedError.Error())
+		}
+	}
 }
 
 func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
@@ -144,8 +156,15 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	programName := r.URL.Query().Get("program")
 	if programName == "" {
 		resp := Response{Success: false, Error: "program name required"}
-		json.NewEncoder(w).Encode(resp)
-		return
+		err := json.NewEncoder(w).Encode(resp)
+		if err != nil {
+			resp = Response{Success: false, Error: err.Error()}
+			nestedError := json.NewEncoder(w).Encode(resp)
+			if nestedError != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = fmt.Fprintf(w, "500 - %s", nestedError.Error())
+			}
+		}
 	}
 
 	stats := s.meeseeks.Statistics()
@@ -155,17 +174,40 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 				"last_output": stat.LastOutput,
 				"last_error":  stat.LastError,
 			}}
-			json.NewEncoder(w).Encode(resp)
-			return
+			err := json.NewEncoder(w).Encode(resp)
+			if err != nil {
+				resp = Response{Success: false, Error: err.Error()}
+				nestedError := json.NewEncoder(w).Encode(resp)
+				if nestedError != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					_, _ = fmt.Fprintf(w, "500 - %s", nestedError.Error())
+				}
+			}
 		}
 	}
 
 	resp := Response{Success: false, Error: "program not found"}
-	json.NewEncoder(w).Encode(resp)
+	err := json.NewEncoder(w).Encode(resp)
+	if err != nil {
+		resp = Response{Success: false, Error: err.Error()}
+		nestedError := json.NewEncoder(w).Encode(resp)
+		if nestedError != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = fmt.Fprintf(w, "500 - %s", nestedError.Error())
+		}
+	}
 }
 
-func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleStop(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	resp := Response{Success: false, Error: "stop command not yet implemented"}
-	json.NewEncoder(w).Encode(resp)
+	err := json.NewEncoder(w).Encode(resp)
+	if err != nil {
+		resp = Response{Success: false, Error: err.Error()}
+		nestedError := json.NewEncoder(w).Encode(resp)
+		if nestedError != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = fmt.Fprintf(w, "500 - %s", nestedError.Error())
+		}
+	}
 }

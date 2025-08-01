@@ -26,7 +26,6 @@ func TestStopCommand_Validation(t *testing.T) {
 }
 
 func TestStopCommand(t *testing.T) {
-
 	configContent := `programs:
   - name: "test-stop-program1"
     command: "sleep"

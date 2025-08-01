@@ -584,17 +584,17 @@ func (p *program) forcekill() error {
 }
 
 type Statistics struct {
-	ProgramName       string
-	TotalRuns         int
-	Successful        int
-	Failed            int
-	Running           int
-	TotalOutputLines  int
-	LastSuccessfulRun int
-	LastError         string
-	LastOutput        string
-	Interval          time.Duration
-	HasInterval       bool
+	ProgramName       string        `json:"program_name"`
+	TotalRuns         int           `json:"total_runs"`
+	Successful        int           `json:"successful_runs"`
+	Failed            int           `json:"failed_runs"`
+	Running           int           `json:"running"`
+	TotalOutputLines  int           `json:"total_output_lines"`
+	LastSuccessfulRun int           `json:"last_successful_run"`
+	LastError         string        `json:"last_error"`
+	LastOutput        string        `json:"last_output"`
+	Interval          time.Duration `json:"interval"`
+	HasInterval       bool          `json:"has_interval"`
 }
 
 func (s Statistics) String() string {

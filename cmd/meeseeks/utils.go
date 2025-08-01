@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"text/tabwriter"
-	"time"
 
 	"github.com/GustavoCaso/meeseeks/pkg/config"
 	"github.com/GustavoCaso/meeseeks/pkg/program"
@@ -94,7 +93,7 @@ func formatStatisticsAsTable(data any, programName string) error {
 	if programName != "" {
 		var programStatistic = program.Statistics{}
 
-		err := json.Unmarshal(jsonBytes, &programStatistic)
+		err = json.Unmarshal(jsonBytes, &programStatistic)
 		if err != nil {
 			return err
 		}
@@ -103,7 +102,7 @@ func formatStatisticsAsTable(data any, programName string) error {
 	} else {
 		var programsStatistic = []program.Statistics{}
 
-		err := json.Unmarshal(jsonBytes, &programsStatistic)
+		err = json.Unmarshal(jsonBytes, &programsStatistic)
 		if err != nil {
 			return err
 		}
@@ -123,9 +122,10 @@ func formatStatisticsAsTable(data any, programName string) error {
 		running := stats.Running
 		interval := "no"
 		if stats.HasInterval {
-			interval = time.Duration(stats.Interval).String()
+			interval = stats.Interval.String()
 		}
 		status := "idle"
+		//nolint:gocritic // using switch would not improve readbility
 		if running > 0 {
 			status = "running"
 		} else if failed > 0 && successful == 0 {

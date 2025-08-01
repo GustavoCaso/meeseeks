@@ -1,9 +1,11 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -48,14 +50,28 @@ func (c *Client) sendRequest(endpoint string, params map[string]string) (*Respon
 		reqURL.RawQuery = q.Encode()
 	}
 
-	resp, err := c.client.Get(reqURL.String())
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, reqURL.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return nil, readErr
+		}
+
+		return nil, fmt.Errorf("response failed: %s", bodyBytes)
+	}
+
 	var response Response
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+	if err = json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 

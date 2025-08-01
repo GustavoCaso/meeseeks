@@ -62,7 +62,6 @@ linters:
     - exptostd # detects functions from golang.org/x/exp/ that can be replaced by std functions
     - fatcontext # detects nested contexts in loops
     - forbidigo # forbids identifiers
-    - funcorder # checks the order of functions, methods, and constructors
     - funlen # tool for detection of long functions
     - gocheckcompilerdirectives # validates go compiler directive comments (//go:)
     - gochecknoglobals # checks that no global variables exist
@@ -258,11 +257,6 @@ linters:
         - ^google.golang.org/protobuf/.+Options$
         - ^gopkg.in/yaml.v3.Node$
 
-    funcorder:
-      # Checks if the exported methods of a structure are placed before the non-exported ones.
-      # Default: true
-      struct-method: false
-
     funlen:
       # Checks the number of lines in a function.
       # If lower than 0, disable the check.
@@ -434,7 +428,7 @@ linters:
       - text: 'comment on exported \S+ \S+ should be of the form ".+"'
         source: '// ?(nolint|TODO)'
         linters: [ revive, staticcheck ]
-      - path: '_test\.go'
+      - path: '(_test\.go|test_helpers\.go)'
         linters:
           - bodyclose
           - dupl
@@ -442,6 +436,7 @@ linters:
           - funlen
           - goconst
           - gosec
+          - govet
           - noctx
           - wrapcheck
           - gocognit

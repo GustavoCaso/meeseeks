@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-
 func TestMainCommands(t *testing.T) {
 	tests := []struct {
 		name string

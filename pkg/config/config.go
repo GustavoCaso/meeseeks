@@ -45,18 +45,18 @@ func LoadConfig(filename string) (*Config, error) {
 
 	switch ext {
 	case ".yaml", ".yml":
-		if err := yaml.Unmarshal(data, &config); err != nil {
+		if err = yaml.Unmarshal(data, &config); err != nil {
 			return nil, fmt.Errorf("failed to parse YAML config: %w", err)
 		}
 	case ".json":
-		if err := json.Unmarshal(data, &config); err != nil {
+		if err = json.Unmarshal(data, &config); err != nil {
 			return nil, fmt.Errorf("failed to parse JSON config: %w", err)
 		}
 	default:
 		return nil, fmt.Errorf("unsupported config file format: %s (supported: .yaml, .yml, .json)", ext)
 	}
 
-	if err := config.Validate(); err != nil {
+	if err = config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
