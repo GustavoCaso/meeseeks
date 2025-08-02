@@ -21,12 +21,6 @@ func TestRunCommand_ConfigValidation(t *testing.T) {
 		errorMessage string
 	}{
 		{
-			name:         "missing config flag",
-			args:         []string{"run"},
-			expectedExit: 1,
-			errorMessage: "-config flag is required",
-		},
-		{
 			name:         "nonexistent config file",
 			args:         []string{"run", "-config", "/nonexistent/file.yaml"},
 			expectedExit: 1,
@@ -52,26 +46,12 @@ func TestRunCommand_ConfigValidation(t *testing.T) {
 }
 
 func TestRunCommand_Help(t *testing.T) {
-	var stdoutBuf, stderrBuf bytes.Buffer
-	exitCode := runCLICommand(t, []string{"run", "-h"}, &stdoutBuf, &stderrBuf, 5*time.Second)
-	output := stdoutBuf.String() + stderrBuf.String()
-
-	if exitCode != 0 {
-		t.Errorf("Expected exit code 0 for help, got %d", exitCode)
-	}
-
-	expectedMessages := []string{
+	testCommandHelp(t, "run", []string{
 		"Usage: meeseeks run [options]",
 		"Start programs from configuration file",
 		"-config",
 		"-d",
-	}
-
-	for _, msg := range expectedMessages {
-		if !strings.Contains(output, msg) {
-			t.Errorf("Expected help output to contain %q, got %q", msg, output)
-		}
-	}
+	})
 }
 
 func TestRunCommand_Foreground(t *testing.T) {

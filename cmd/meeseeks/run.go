@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -17,7 +16,11 @@ import (
 
 func runCommand(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
-	configFile := fs.String("config", "", "Path to configuration file (required)")
+	configFile := fs.String(
+		"config",
+		"",
+		"Path to configuration file (defaults to $MEESEEKS_CONFIG_DIR/config.yaml or ~/.meeseeks/config.yaml)",
+	)
 	detach := fs.Bool("d", false, "Run in detached mode")
 
 	fs.Usage = func() {
@@ -32,9 +35,7 @@ func runCommand(args []string) error {
 	}
 
 	if *configFile == "" {
-		fmt.Fprintf(os.Stderr, "Error: -config flag is required\n\n")
-		fs.Usage()
-		return errors.New("config file required")
+		*configFile = getDefaultConfigPath()
 	}
 
 	cfg, err := config.LoadConfig(*configFile)

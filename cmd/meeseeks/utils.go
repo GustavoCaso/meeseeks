@@ -12,19 +12,32 @@ import (
 	"github.com/GustavoCaso/meeseeks/pkg/program"
 )
 
-func getSocketPath() string {
+func getMeeseeksDir() string {
+	if dir := os.Getenv("MEESEEKS_CONFIG_DIR"); dir != "" {
+		return dir
+	}
 	homeDir, _ := os.UserHomeDir()
-	return filepath.Join(homeDir, ".meeseeks", "meeseeks.sock")
+	return filepath.Join(homeDir, ".meeseeks")
+}
+
+func getSocketPath() string {
+	return filepath.Join(getMeeseeksDir(), "meeseeks.sock")
 }
 
 func getPidFile() string {
-	homeDir, _ := os.UserHomeDir()
-	return filepath.Join(homeDir, ".meeseeks", "meeseeks.pid")
+	return filepath.Join(getMeeseeksDir(), "meeseeks.pid")
+}
+
+func getDefaultConfigPath() string {
+	return filepath.Join(getMeeseeksDir(), "config.yaml")
+}
+
+func getLogFilePath() string {
+	return filepath.Join(getMeeseeksDir(), "meeseeks.log")
 }
 
 func getInternalStdoutFile() (*os.File, error) {
-	homeDir, _ := os.UserHomeDir()
-	filePath := filepath.Join(homeDir, ".meeseeks", "meeseeks.log")
+	filePath := getLogFilePath()
 	if err := os.MkdirAll(filepath.Dir(filePath), 0750); err != nil {
 		return nil, fmt.Errorf("failed to create log directory: %w", err)
 	}
