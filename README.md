@@ -182,6 +182,31 @@ programs:
     args: ["run", "--rm", "-p", "5432:5432", "postgres:13"]
 ```
 
+## Environment Variables
+
+Meeseeks uses a single environment variable to simplify configuration:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MEESEEKS_CONFIG_DIR` | `~/.meeseeks` | Base directory for all configuration and runtime files |
+
+When `MEESEEKS_CONFIG_DIR` is set, all meeseeks files are placed in this directory:
+- `config.yaml` - Default configuration file
+- `meeseeks.sock` - Unix socket for daemon IPC  
+- `meeseeks.pid` - PID file for process tracking
+- `meeseeks.log` - Daemon internal log file
+
+### Examples
+
+```bash
+# Use custom config directory - all files go here
+export MEESEEKS_CONFIG_DIR="/opt/meeseeks"
+meeseeks run
+
+# Use default value ~/.meeseeks/config.yaml
+meeseeks run -d
+```
+
 ## CLI Commands
 
 ### `meeseeks run`
@@ -189,12 +214,13 @@ programs:
 Start programs from a configuration file.
 
 ```bash
-meeseeks run -config config.yaml        # Run in foreground
-meeseeks run -d -config config.yaml     # Run in daemon mode (detached)
+meeseeks run -config config.yaml        # Run in foreground with specific config
+meeseeks run                            # Run in foreground with default config
+meeseeks run -d                         # Run in detached mode
 ```
 
 **Options:**
-- `-config <file>`: Path to configuration file (required)
+- `-config <file>`: Path to configuration file (defaults to $MEESEEKS_CONFIG_DIR/config.yaml or ~/.meeseeks/config.yaml)
 - `-d`: Run in detached mode (daemon)
 
 ### `meeseeks status`
@@ -261,16 +287,6 @@ program.New("name", "command",
 )
 ```
 
-## Architecture
-
-Meeseeks follows a modular architecture with clear separation of concerns:
-
-- **`pkg/program`**: Individual process execution and management
-- **`pkg/meeseeks`**: Central process manager coordinating multiple programs
-- **`pkg/config`**: Configuration file parsing and validation
-- **`pkg/server`**: Server mode with Unix socket IPC for CLI communication
-- **`cmd/meeseeks`**: CLI application entry point
-
 ## Use Cases
 
 ### Development Environment
@@ -329,12 +345,6 @@ programs:
     args: ["/tmp", "-type", "f", "-mtime", "+7", "-delete"]
     interval: "24h"
 ```
-
-## Dependencies
-
-- **Go 1.21+**
-- **Runtime**: `gopkg.in/yaml.v3` (YAML support)
-- **Development**: `github.com/golangci/golangci-lint/v2` (linting)
 
 ## Contributing
 
