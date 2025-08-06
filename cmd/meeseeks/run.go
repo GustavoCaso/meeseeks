@@ -170,7 +170,7 @@ func startServer(
 	}
 
 	if err := s.Start(ctx); err != nil {
-		return nil, fmt.Errorf("failed to start daemon: %w", err)
+		return nil, fmt.Errorf("failed to start server: %w", err)
 	}
 
 	s.StartPrograms(ctx)

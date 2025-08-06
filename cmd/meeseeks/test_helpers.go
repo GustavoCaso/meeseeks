@@ -110,11 +110,11 @@ func runCommandTests(t *testing.T, tests []commandTestCase) {
 }
 
 // testCommandHelp tests the help functionality for a command.
-func testCommandHelp(t *testing.T, command string, expectedMessages []string) {
+func testCommandHelp(t *testing.T, command []string, expectedMessages []string) {
 	t.Helper()
 
 	var stdoutBuf, stderrBuf bytes.Buffer
-	exitCode := runCLICommand([]string{command, "-h"}, &stdoutBuf, &stderrBuf, 5*time.Second)
+	exitCode := runCLICommand(append(command, "-h"), &stdoutBuf, &stderrBuf, 5*time.Second)
 	output := stdoutBuf.String() + stderrBuf.String()
 
 	if exitCode != 0 {

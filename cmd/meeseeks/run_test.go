@@ -46,7 +46,7 @@ func TestRunCommand_ConfigValidation(t *testing.T) {
 }
 
 func TestRunCommand_Help(t *testing.T) {
-	testCommandHelp(t, "run", []string{
+	testCommandHelp(t, []string{"run"}, []string{
 		"Usage: meeseeks run [options]",
 		"Start programs from configuration file",
 		"-config",

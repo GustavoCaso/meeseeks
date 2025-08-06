@@ -60,7 +60,7 @@ func TestStopCommand_MissingProgramName(t *testing.T) {
 }
 
 func TestStopCommand_Help(t *testing.T) {
-	testCommandHelp(t, "stop", []string{
+	testCommandHelp(t, []string{"stop"}, []string{
 		"Usage: meeseeks stop [options] [program_name]",
 		"Stop running programs",
 		"-timeout",

@@ -11,11 +11,13 @@ A simple and lightweight process manager for Go applications. Meeseeks can be us
 - **Dual Usage**: CLI tool and Go package
 - **Process Management**: Start, stop, and monitor multiple processes
 - **Daemon Mode**: Run processes in the background with Docker Compose-like commands
+- **Auto-Start at Login**: Cross-platform service management for macOS, Linux, and Windows
 - **Configuration Files**: YAML and JSON support
 - **Scheduled Execution**: Run processes at intervals
 - **Real-time Monitoring**: Process status, logs, and statistics
 - **Output Redirection**: Capture or redirect stdout/stderr
 - **Graceful Shutdown**: Context-based cancellation and signal handling
+- **Security-First**: Input validation, privilege minimization, and secure defaults
 
 ## Installation
 
@@ -73,6 +75,14 @@ meeseeks logs web-server
 ```bash
 meeseeks stop web-server  # Stop specific program
 meeseeks stop             # Stop all programs
+```
+
+6. **Configure auto-start at login**:
+
+```bash
+meeseeks run-at-login enable
+meeseeks run-at-login status
+meeseeks run-at-login disable
 ```
 
 ### Go Package Usage
@@ -263,6 +273,31 @@ Stop and programs and meeseks process. Useful to stop meeseeks when running in d
 meeseeks exit
 ```
 
+### `meeseeks run-at-login`
+
+Manage automatic startup of meeseeks at user login across platforms.
+
+```bash
+# Enable auto-start
+meeseeks run-at-login enable
+
+# Check current status
+meeseeks run-at-login status
+
+# Disable auto-start
+meeseeks run-at-login disable
+```
+
+**Platform Support:**
+- **macOS**: Creates LaunchAgent plist files
+- **Linux**: TODO
+- **Windows**: TODO
+
+**Security Features:**
+- Runs only in user context (no admin privileges required)
+- Input validation prevents injection attacks
+- Secure file permissions and directory restrictions
+
 ### `meeseeks version`
 
 Show version information.
@@ -310,7 +345,7 @@ programs:
 
 ### Production Monitoring
 
-Simple process supervision and monitoring:
+Simple process supervision with auto-start capability:
 
 ```yaml
 programs:
@@ -327,6 +362,15 @@ programs:
   - name: "metrics-collector"
     command: "./collect-metrics"
     interval: "5m"
+```
+
+**Enable auto-start at login:**
+```bash
+# Configure meeseeks to start automatically
+meeseeks run-at-login enable
+
+# Verify it's working
+meeseeks run-at-login status
 ```
 
 ### Scheduled Tasks
