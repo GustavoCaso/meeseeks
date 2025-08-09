@@ -98,7 +98,6 @@ type program struct {
 	async     bool
 	done      chan struct{}
 	stop      chan struct{} // For stopping interval programs
-	doneOnce  sync.Once     // Ensure done is only close once
 
 	customStdout  io.Writer
 	customStderr  io.Writer
@@ -207,9 +206,7 @@ func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
 }
 
 func (p *program) signalDone() {
-	p.doneOnce.Do(func() {
-		close(p.done)
-	})
+	close(p.done)
 }
 
 func (p *program) start(ctx context.Context) (<-chan struct{}, error) {
@@ -276,6 +273,8 @@ func (p *program) start(ctx context.Context) (<-chan struct{}, error) {
 	if !p.keepStdinOpen {
 		_ = inWriter.Close()
 	}
+
+	p.done = make(chan struct{}, 1)
 
 	return p.done, p.run()
 }
@@ -533,9 +532,8 @@ func (p *program) Shutdown(timeout time.Duration) error {
 	}
 
 	p.cmdLock.Lock()
-	if p.cmd == nil || p.cmd.Process == nil {
+	if p.cmd == nil || p.cmd.Process == nil || p.done == nil {
 		p.cmdLock.Unlock()
-		p.signalDone()
 		return nil
 	}
 
@@ -562,9 +560,8 @@ func (p *program) Shutdown(timeout time.Duration) error {
 
 func (p *program) forcekill() error {
 	p.cmdLock.Lock()
-	if p.cmd == nil || p.cmd.Process == nil {
+	if p.cmd == nil || p.cmd.Process == nil || p.done == nil {
 		p.cmdLock.Unlock()
-		p.signalDone()
 		return nil
 	}
 
@@ -688,7 +685,6 @@ func New(name, command string, opts ...Option) Program {
 		command: command,
 		results: []result{},
 		current: 0,
-		done:    make(chan struct{}, 1),
 		stop:    make(chan struct{}, 1),
 	}
 
