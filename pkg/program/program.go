@@ -171,10 +171,6 @@ func (p *pipes) closeReaders() error {
 }
 
 func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
-	p.stateLock.Lock()
-	p.current = 0
-	p.stateLock.Unlock()
-
 	if p.interval > 0 {
 		ticker := time.NewTicker(p.interval)
 		intervalDone := make(chan struct{}, 1)
@@ -691,6 +687,7 @@ func New(name, command string, opts ...Option) Program {
 		name:    name,
 		command: command,
 		results: []result{},
+		current: 0,
 		done:    make(chan struct{}, 1),
 		stop:    make(chan struct{}, 1),
 	}
