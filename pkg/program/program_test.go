@@ -592,6 +592,10 @@ func TestStatistics(t *testing.T) {
 			t.Errorf("Expected at least 1 output line, got %d", stats.TotalOutputLines)
 		}
 
+		if stats.State != "idle" {
+			t.Errorf("Expected interval program state to be idle, got %s", stats.State)
+		}
+
 		stringOutput := stats.String()
 		if !strings.Contains(stringOutput, "echo-test") {
 			t.Errorf("Expected string output to contain program name, got: %q", stringOutput)
@@ -635,6 +639,10 @@ func TestStatistics(t *testing.T) {
 
 		if stats.LastError == "" {
 			t.Error("Expected LastError to be set")
+		}
+
+		if stats.State != "error" {
+			t.Errorf("Expected program state to be error, got %s", stats.State)
 		}
 
 		stringOutput := stats.String()

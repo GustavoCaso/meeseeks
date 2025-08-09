@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -37,6 +38,7 @@ const (
 	StateNotStarted ProcessState = iota
 	StateRunning
 	StateFinished
+	StateIdle
 	StateError
 )
 
@@ -98,7 +100,6 @@ type program struct {
 	async     bool
 	done      chan struct{}
 	stop      chan struct{} // For stopping interval programs
-	doneOnce  sync.Once     // Ensure done is only close once
 
 	customStdout  io.Writer
 	customStderr  io.Writer
@@ -107,10 +108,11 @@ type program struct {
 	customEnv     []string
 	interval      time.Duration
 
-	current int
-	results []result
+	currentRun int
+	runResults []result
 
-	exitCode int
+	exitCode     int
+	overallState ProcessState
 
 	stdoutLock  sync.RWMutex
 	stderrLock  sync.RWMutex
@@ -171,10 +173,6 @@ func (p *pipes) closeReaders() error {
 }
 
 func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
-	p.stateLock.Lock()
-	p.current = 0
-	p.stateLock.Unlock()
-
 	if p.interval > 0 {
 		ticker := time.NewTicker(p.interval)
 		intervalDone := make(chan struct{}, 1)
@@ -197,7 +195,8 @@ func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
 					<-done
 
 					p.stateLock.Lock()
-					p.current++
+					p.currentRun++
+					p.overallState = StateIdle
 					p.stateLock.Unlock()
 				}
 			}
@@ -211,26 +210,13 @@ func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
 }
 
 func (p *program) signalDone() {
-	p.doneOnce.Do(func() {
-		close(p.done)
-	})
+	close(p.done)
 }
 
 func (p *program) start(ctx context.Context) (<-chan struct{}, error) {
 	p.resultsLock.Lock()
-	if len(p.results) > 0 {
-		previousRunState := p.results[len(p.results)-1].state
-		if previousRunState == StateRunning || previousRunState == StateError {
-			// We skip this run, as we do not want to have overlaping programs
-			p.resultsLock.Unlock()
-			skipDone := make(chan struct{}, 1)
-			skipDone <- struct{}{}
-			return skipDone, nil
-		}
-	}
-
 	results := result{}
-	p.results = append(p.results, results)
+	p.runResults = append(p.runResults, results)
 	p.resultsLock.Unlock()
 
 	//nolint:gosec // We accept the arguments the users have manually defined
@@ -281,6 +267,8 @@ func (p *program) start(ctx context.Context) (<-chan struct{}, error) {
 		_ = inWriter.Close()
 	}
 
+	p.done = make(chan struct{}, 1)
+
 	return p.done, p.run()
 }
 
@@ -292,19 +280,27 @@ func (p *program) run() error {
 
 	if err != nil {
 		p.resultsLock.Lock()
-		currentIndex := len(p.results) - 1
-		p.results[currentIndex].state = StateError
-		p.results[currentIndex].errorBuffer.WriteString(err.Error())
-		p.results[currentIndex].errorBuffer.WriteString("\n")
-		p.results[currentIndex].lastError = err.Error()
+		currentIndex := len(p.runResults) - 1
+		p.runResults[currentIndex].state = StateError
+		p.runResults[currentIndex].errorBuffer.WriteString(err.Error())
+		p.runResults[currentIndex].errorBuffer.WriteString("\n")
+		p.runResults[currentIndex].lastError = err.Error()
 		p.resultsLock.Unlock()
+
+		p.stateLock.Lock()
+		p.overallState = StateError
+		p.stateLock.Unlock()
 		p.signalDone()
 		return err
 	}
 	p.resultsLock.Lock()
-	currentIndex := len(p.results) - 1
-	p.results[currentIndex].state = StateRunning
+	currentIndex := len(p.runResults) - 1
+	p.runResults[currentIndex].state = StateRunning
 	p.resultsLock.Unlock()
+
+	p.stateLock.Lock()
+	p.overallState = StateRunning
+	p.stateLock.Unlock()
 
 	if p.async {
 		go p.monitorProcess()
@@ -316,15 +312,6 @@ func (p *program) run() error {
 }
 
 func (p *program) monitorProcess() {
-	defer func() {
-		p.cmdLock.Lock()
-		exitCode := p.cmd.ProcessState.ExitCode()
-		p.cmdLock.Unlock()
-		p.stateLock.Lock()
-		p.exitCode = exitCode
-		p.stateLock.Unlock()
-	}()
-
 	// WaitGroup ensures readOutput goroutines finish reading all data.
 	// This prevents race conditions where callers might see incomplete output.
 	var wg sync.WaitGroup
@@ -373,16 +360,30 @@ func (p *program) monitorProcess() {
 	}
 
 	p.resultsLock.Lock()
-	currentIndex := len(p.results) - 1
+	currentIndex := len(p.runResults) - 1
 	if err != nil {
-		p.results[currentIndex].errorBuffer.WriteString(err.Error())
-		p.results[currentIndex].errorBuffer.WriteString("\n")
-		p.results[currentIndex].lastError = err.Error()
-		p.results[currentIndex].state = StateError
+		p.runResults[currentIndex].errorBuffer.WriteString(err.Error())
+		p.runResults[currentIndex].errorBuffer.WriteString("\n")
+		p.runResults[currentIndex].lastError = err.Error()
+		p.runResults[currentIndex].state = StateError
 	} else {
-		p.results[currentIndex].state = StateFinished
+		p.runResults[currentIndex].state = StateFinished
 	}
 	p.resultsLock.Unlock()
+
+	p.cmdLock.Lock()
+	exitCode := p.cmd.ProcessState.ExitCode()
+	p.cmdLock.Unlock()
+
+	p.stateLock.Lock()
+	p.exitCode = exitCode
+	if err != nil {
+		p.overallState = StateError
+	} else {
+		p.overallState = StateFinished
+	}
+	p.stateLock.Unlock()
+
 	p.signalDone()
 }
 
@@ -392,18 +393,18 @@ func (p *program) readOutput(reader io.Reader, isError bool) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		p.resultsLock.RLock()
-		currentIndex := len(p.results) - 1
+		currentIndex := len(p.runResults) - 1
 		p.resultsLock.RUnlock()
 
 		if isError {
 			p.stderrLock.Lock()
-			p.results[currentIndex].errorBuffer.WriteString(line + "\n")
-			p.results[currentIndex].lastError = line
+			p.runResults[currentIndex].errorBuffer.WriteString(line + "\n")
+			p.runResults[currentIndex].lastError = line
 			p.stderrLock.Unlock()
 		} else {
 			p.stdoutLock.Lock()
-			p.results[currentIndex].outputBuffer.WriteString(line + "\n")
-			p.results[currentIndex].lastLine = line
+			p.runResults[currentIndex].outputBuffer.WriteString(line + "\n")
+			p.runResults[currentIndex].lastLine = line
 			p.stdoutLock.Unlock()
 		}
 	}
@@ -411,11 +412,11 @@ func (p *program) readOutput(reader io.Reader, isError bool) {
 	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
 		if isError {
 			p.resultsLock.RLock()
-			currentIndex := len(p.results) - 1
+			currentIndex := len(p.runResults) - 1
 			p.resultsLock.RUnlock()
 			p.stderrLock.Lock()
-			p.results[currentIndex].errorBuffer.WriteString("Scanner error: " + err.Error())
-			p.results[currentIndex].errorBuffer.WriteString("\n")
+			p.runResults[currentIndex].errorBuffer.WriteString("Scanner error: " + err.Error())
+			p.runResults[currentIndex].errorBuffer.WriteString("\n")
 			p.stderrLock.Unlock()
 		}
 	}
@@ -423,7 +424,7 @@ func (p *program) readOutput(reader io.Reader, isError bool) {
 
 func (p *program) Send(data []byte) error {
 	p.resultsLock.RLock()
-	canSend := len(p.results) > 0 && p.results[len(p.results)-1].state == StateRunning
+	canSend := len(p.runResults) > 0 && p.runResults[len(p.runResults)-1].state == StateRunning
 	p.resultsLock.RUnlock()
 
 	if !canSend {
@@ -440,7 +441,7 @@ func (p *program) Send(data []byte) error {
 
 func (p *program) CloseStdin() error {
 	p.resultsLock.RLock()
-	canClose := len(p.results) > 0 && p.results[len(p.results)-1].state == StateRunning
+	canClose := len(p.runResults) > 0 && p.runResults[len(p.runResults)-1].state == StateRunning
 	p.resultsLock.RUnlock()
 
 	if !canClose {
@@ -468,52 +469,48 @@ func (p *program) Output() string {
 	p.resultsLock.RLock()
 	defer p.resultsLock.RUnlock()
 
-	if len(p.results) == 0 {
+	if len(p.runResults) == 0 {
 		return ""
 	}
 
 	p.stdoutLock.RLock()
 	defer p.stdoutLock.RUnlock()
 
-	return p.results[len(p.results)-1].outputBuffer.String()
+	return p.runResults[len(p.runResults)-1].outputBuffer.String()
 }
 
 func (p *program) LastLine() string {
 	p.resultsLock.RLock()
 	defer p.resultsLock.RUnlock()
 
-	if len(p.results) == 0 {
+	if len(p.runResults) == 0 {
 		return ""
 	}
 
 	p.stdoutLock.RLock()
 	defer p.stdoutLock.RUnlock()
 
-	return p.results[len(p.results)-1].lastLine
+	return p.runResults[len(p.runResults)-1].lastLine
 }
 
 func (p *program) Error() string {
 	p.resultsLock.RLock()
 	defer p.resultsLock.RUnlock()
 
-	if len(p.results) == 0 {
+	if len(p.runResults) == 0 {
 		return ""
 	}
 
 	p.stderrLock.RLock()
 	defer p.stderrLock.RUnlock()
 
-	return p.results[len(p.results)-1].errorBuffer.String()
+	return p.runResults[len(p.runResults)-1].errorBuffer.String()
 }
 
 func (p *program) State() ProcessState {
-	p.resultsLock.RLock()
-	defer p.resultsLock.RUnlock()
-
-	if len(p.results) == 0 {
-		return StateNotStarted
-	}
-	return p.results[len(p.results)-1].state
+	p.stateLock.RLock()
+	defer p.stateLock.RUnlock()
+	return p.overallState
 }
 
 func (p *program) Interval() time.Duration {
@@ -523,7 +520,7 @@ func (p *program) Interval() time.Duration {
 func (p *program) Runs() int {
 	p.stateLock.RLock()
 	defer p.stateLock.RUnlock()
-	return p.current
+	return p.currentRun
 }
 
 func (p *program) Shutdown(timeout time.Duration) error {
@@ -537,9 +534,8 @@ func (p *program) Shutdown(timeout time.Duration) error {
 	}
 
 	p.cmdLock.Lock()
-	if p.cmd == nil || p.cmd.Process == nil {
+	if p.cmd == nil || p.cmd.Process == nil || p.done == nil {
 		p.cmdLock.Unlock()
-		p.signalDone()
 		return nil
 	}
 
@@ -566,9 +562,8 @@ func (p *program) Shutdown(timeout time.Duration) error {
 
 func (p *program) forcekill() error {
 	p.cmdLock.Lock()
-	if p.cmd == nil || p.cmd.Process == nil {
+	if p.cmd == nil || p.cmd.Process == nil || p.done == nil {
 		p.cmdLock.Unlock()
-		p.signalDone()
 		return nil
 	}
 
@@ -585,6 +580,7 @@ func (p *program) forcekill() error {
 
 type Statistics struct {
 	ProgramName       string        `json:"program_name"`
+	State             string        `json:"state"`
 	TotalRuns         int           `json:"total_runs"`
 	Successful        int           `json:"successful_runs"`
 	Failed            int           `json:"failed_runs"`
@@ -634,12 +630,29 @@ func (s Statistics) String() string {
 }
 
 func (p *program) Statistics() Statistics {
+	var resultsCopy []result
 	p.resultsLock.RLock()
-	defer p.resultsLock.RUnlock()
+	resultsCopy = slices.Clone(p.runResults)
+	p.resultsLock.RUnlock()
+
+	var state string
+	switch p.State() {
+	case StateFinished:
+		state = "finished"
+	case StateIdle:
+		state = "idle"
+	case StateError:
+		state = "error"
+	case StateRunning:
+		state = "running"
+	case StateNotStarted:
+		state = "not started"
+	}
 
 	stats := Statistics{
 		ProgramName:       p.name,
-		TotalRuns:         len(p.results),
+		State:             state,
+		TotalRuns:         len(resultsCopy),
 		LastSuccessfulRun: -1,
 		Interval:          p.interval,
 		HasInterval:       p.interval > 0,
@@ -649,7 +662,7 @@ func (p *program) Statistics() Statistics {
 		return stats
 	}
 
-	for i, result := range p.results {
+	for i, result := range resultsCopy {
 		switch result.state { //nolint:exhaustive // StateNotRunning is skipped as we do not use in the Statistics struct
 		case StateFinished:
 			stats.Successful++
@@ -675,9 +688,9 @@ func (p *program) Statistics() Statistics {
 	}
 
 	if stats.Failed > 0 {
-		for i := len(p.results) - 1; i >= 0; i-- {
-			if p.results[i].state == StateError && p.results[i].lastError != "" {
-				stats.LastError = p.results[i].lastError
+		for i := len(resultsCopy) - 1; i >= 0; i-- {
+			if resultsCopy[i].state == StateError && resultsCopy[i].lastError != "" {
+				stats.LastError = resultsCopy[i].lastError
 				break
 			}
 		}
@@ -688,11 +701,11 @@ func (p *program) Statistics() Statistics {
 
 func New(name, command string, opts ...Option) Program {
 	p := &program{
-		name:    name,
-		command: command,
-		results: []result{},
-		done:    make(chan struct{}, 1),
-		stop:    make(chan struct{}, 1),
+		name:       name,
+		command:    command,
+		runResults: []result{},
+		currentRun: 0,
+		stop:       make(chan struct{}, 1),
 	}
 
 	for _, opt := range opts {

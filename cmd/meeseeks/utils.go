@@ -137,15 +137,6 @@ func formatStatisticsAsTable(data any, programName string) error {
 		if stats.HasInterval {
 			interval = stats.Interval.String()
 		}
-		status := "idle"
-		//nolint:gocritic // using switch would not improve readbility
-		if running > 0 {
-			status = "running"
-		} else if failed > 0 && successful == 0 {
-			status = "failed"
-		} else if successful > 0 {
-			status = "completed"
-		}
 
 		fmt.Fprintf(w, "%s\t%d\t%d\t%d\t%d\t%s\t%s\n",
 			truncateString(name, 20),
@@ -154,7 +145,7 @@ func formatStatisticsAsTable(data any, programName string) error {
 			failed,
 			running,
 			truncateString(interval, 10),
-			status)
+			stats.State)
 	}
 
 	return w.Flush()
