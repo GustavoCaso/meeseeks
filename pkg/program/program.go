@@ -212,17 +212,6 @@ func (p *program) signalDone() {
 
 func (p *program) start(ctx context.Context) (<-chan struct{}, error) {
 	p.resultsLock.Lock()
-	if len(p.runResults) > 0 {
-		previousRunState := p.runResults[len(p.runResults)-1].state
-		if previousRunState == StateRunning || previousRunState == StateError {
-			// We skip this run, as we do not want to have overlaping programs
-			p.resultsLock.Unlock()
-			skipDone := make(chan struct{}, 1)
-			skipDone <- struct{}{}
-			return skipDone, nil
-		}
-	}
-
 	results := result{}
 	p.runResults = append(p.runResults, results)
 	p.resultsLock.Unlock()
