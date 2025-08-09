@@ -38,6 +38,7 @@ const (
 	StateNotStarted ProcessState = iota
 	StateRunning
 	StateFinished
+	StateIdle
 	StateError
 )
 
@@ -195,6 +196,7 @@ func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
 
 					p.stateLock.Lock()
 					p.currentRun++
+					p.overallState = StateIdle
 					p.stateLock.Unlock()
 				}
 			}
@@ -637,6 +639,8 @@ func (p *program) Statistics() Statistics {
 	switch p.State() {
 	case StateFinished:
 		state = "finished"
+	case StateIdle:
+		state = "idle"
 	case StateError:
 		state = "error"
 	case StateRunning:
