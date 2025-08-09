@@ -110,7 +110,8 @@ type program struct {
 	currentRun int
 	runResults []result
 
-	exitCode int
+	exitCode     int
+	overallState ProcessState
 
 	stdoutLock  sync.RWMutex
 	stderrLock  sync.RWMutex
@@ -283,6 +284,10 @@ func (p *program) run() error {
 		p.runResults[currentIndex].errorBuffer.WriteString("\n")
 		p.runResults[currentIndex].lastError = err.Error()
 		p.resultsLock.Unlock()
+
+		p.stateLock.Lock()
+		p.overallState = StateError
+		p.stateLock.Unlock()
 		p.signalDone()
 		return err
 	}
@@ -290,6 +295,10 @@ func (p *program) run() error {
 	currentIndex := len(p.runResults) - 1
 	p.runResults[currentIndex].state = StateRunning
 	p.resultsLock.Unlock()
+
+	p.stateLock.Lock()
+	p.overallState = StateRunning
+	p.stateLock.Unlock()
 
 	if p.async {
 		go p.monitorProcess()
@@ -301,15 +310,6 @@ func (p *program) run() error {
 }
 
 func (p *program) monitorProcess() {
-	defer func() {
-		p.cmdLock.Lock()
-		exitCode := p.cmd.ProcessState.ExitCode()
-		p.cmdLock.Unlock()
-		p.stateLock.Lock()
-		p.exitCode = exitCode
-		p.stateLock.Unlock()
-	}()
-
 	// WaitGroup ensures readOutput goroutines finish reading all data.
 	// This prevents race conditions where callers might see incomplete output.
 	var wg sync.WaitGroup
@@ -368,6 +368,20 @@ func (p *program) monitorProcess() {
 		p.runResults[currentIndex].state = StateFinished
 	}
 	p.resultsLock.Unlock()
+
+	p.cmdLock.Lock()
+	exitCode := p.cmd.ProcessState.ExitCode()
+	p.cmdLock.Unlock()
+
+	p.stateLock.Lock()
+	p.exitCode = exitCode
+	if err != nil {
+		p.overallState = StateError
+	} else {
+		p.overallState = StateFinished
+	}
+	p.stateLock.Unlock()
+
 	p.signalDone()
 }
 
@@ -492,13 +506,9 @@ func (p *program) Error() string {
 }
 
 func (p *program) State() ProcessState {
-	p.resultsLock.RLock()
-	defer p.resultsLock.RUnlock()
-
-	if len(p.runResults) == 0 {
-		return StateNotStarted
-	}
-	return p.runResults[len(p.runResults)-1].state
+	p.stateLock.RLock()
+	defer p.stateLock.RUnlock()
+	return p.overallState
 }
 
 func (p *program) Interval() time.Duration {
@@ -568,6 +578,7 @@ func (p *program) forcekill() error {
 
 type Statistics struct {
 	ProgramName       string        `json:"program_name"`
+	State             string        `json:"state"`
 	TotalRuns         int           `json:"total_runs"`
 	Successful        int           `json:"successful_runs"`
 	Failed            int           `json:"failed_runs"`
@@ -622,8 +633,21 @@ func (p *program) Statistics() Statistics {
 	resultsCopy = slices.Clone(p.runResults)
 	p.resultsLock.RUnlock()
 
+	var state string
+	switch p.State() {
+	case StateFinished:
+		state = "finished"
+	case StateError:
+		state = "error"
+	case StateRunning:
+		state = "running"
+	case StateNotStarted:
+		state = "not started"
+	}
+
 	stats := Statistics{
 		ProgramName:       p.name,
+		State:             state,
 		TotalRuns:         len(resultsCopy),
 		LastSuccessfulRun: -1,
 		Interval:          p.interval,
