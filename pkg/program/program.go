@@ -106,8 +106,8 @@ type program struct {
 	customEnv     []string
 	interval      time.Duration
 
-	current int
-	results []result
+	currentRun int
+	runResults []result
 
 	exitCode int
 
@@ -192,7 +192,7 @@ func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
 					<-done
 
 					p.stateLock.Lock()
-					p.current++
+					p.currentRun++
 					p.stateLock.Unlock()
 				}
 			}
@@ -211,8 +211,8 @@ func (p *program) signalDone() {
 
 func (p *program) start(ctx context.Context) (<-chan struct{}, error) {
 	p.resultsLock.Lock()
-	if len(p.results) > 0 {
-		previousRunState := p.results[len(p.results)-1].state
+	if len(p.runResults) > 0 {
+		previousRunState := p.runResults[len(p.runResults)-1].state
 		if previousRunState == StateRunning || previousRunState == StateError {
 			// We skip this run, as we do not want to have overlaping programs
 			p.resultsLock.Unlock()
@@ -223,7 +223,7 @@ func (p *program) start(ctx context.Context) (<-chan struct{}, error) {
 	}
 
 	results := result{}
-	p.results = append(p.results, results)
+	p.runResults = append(p.runResults, results)
 	p.resultsLock.Unlock()
 
 	//nolint:gosec // We accept the arguments the users have manually defined
@@ -287,18 +287,18 @@ func (p *program) run() error {
 
 	if err != nil {
 		p.resultsLock.Lock()
-		currentIndex := len(p.results) - 1
-		p.results[currentIndex].state = StateError
-		p.results[currentIndex].errorBuffer.WriteString(err.Error())
-		p.results[currentIndex].errorBuffer.WriteString("\n")
-		p.results[currentIndex].lastError = err.Error()
+		currentIndex := len(p.runResults) - 1
+		p.runResults[currentIndex].state = StateError
+		p.runResults[currentIndex].errorBuffer.WriteString(err.Error())
+		p.runResults[currentIndex].errorBuffer.WriteString("\n")
+		p.runResults[currentIndex].lastError = err.Error()
 		p.resultsLock.Unlock()
 		p.signalDone()
 		return err
 	}
 	p.resultsLock.Lock()
-	currentIndex := len(p.results) - 1
-	p.results[currentIndex].state = StateRunning
+	currentIndex := len(p.runResults) - 1
+	p.runResults[currentIndex].state = StateRunning
 	p.resultsLock.Unlock()
 
 	if p.async {
@@ -368,14 +368,14 @@ func (p *program) monitorProcess() {
 	}
 
 	p.resultsLock.Lock()
-	currentIndex := len(p.results) - 1
+	currentIndex := len(p.runResults) - 1
 	if err != nil {
-		p.results[currentIndex].errorBuffer.WriteString(err.Error())
-		p.results[currentIndex].errorBuffer.WriteString("\n")
-		p.results[currentIndex].lastError = err.Error()
-		p.results[currentIndex].state = StateError
+		p.runResults[currentIndex].errorBuffer.WriteString(err.Error())
+		p.runResults[currentIndex].errorBuffer.WriteString("\n")
+		p.runResults[currentIndex].lastError = err.Error()
+		p.runResults[currentIndex].state = StateError
 	} else {
-		p.results[currentIndex].state = StateFinished
+		p.runResults[currentIndex].state = StateFinished
 	}
 	p.resultsLock.Unlock()
 	p.signalDone()
@@ -387,18 +387,18 @@ func (p *program) readOutput(reader io.Reader, isError bool) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		p.resultsLock.RLock()
-		currentIndex := len(p.results) - 1
+		currentIndex := len(p.runResults) - 1
 		p.resultsLock.RUnlock()
 
 		if isError {
 			p.stderrLock.Lock()
-			p.results[currentIndex].errorBuffer.WriteString(line + "\n")
-			p.results[currentIndex].lastError = line
+			p.runResults[currentIndex].errorBuffer.WriteString(line + "\n")
+			p.runResults[currentIndex].lastError = line
 			p.stderrLock.Unlock()
 		} else {
 			p.stdoutLock.Lock()
-			p.results[currentIndex].outputBuffer.WriteString(line + "\n")
-			p.results[currentIndex].lastLine = line
+			p.runResults[currentIndex].outputBuffer.WriteString(line + "\n")
+			p.runResults[currentIndex].lastLine = line
 			p.stdoutLock.Unlock()
 		}
 	}
@@ -406,11 +406,11 @@ func (p *program) readOutput(reader io.Reader, isError bool) {
 	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
 		if isError {
 			p.resultsLock.RLock()
-			currentIndex := len(p.results) - 1
+			currentIndex := len(p.runResults) - 1
 			p.resultsLock.RUnlock()
 			p.stderrLock.Lock()
-			p.results[currentIndex].errorBuffer.WriteString("Scanner error: " + err.Error())
-			p.results[currentIndex].errorBuffer.WriteString("\n")
+			p.runResults[currentIndex].errorBuffer.WriteString("Scanner error: " + err.Error())
+			p.runResults[currentIndex].errorBuffer.WriteString("\n")
 			p.stderrLock.Unlock()
 		}
 	}
@@ -418,7 +418,7 @@ func (p *program) readOutput(reader io.Reader, isError bool) {
 
 func (p *program) Send(data []byte) error {
 	p.resultsLock.RLock()
-	canSend := len(p.results) > 0 && p.results[len(p.results)-1].state == StateRunning
+	canSend := len(p.runResults) > 0 && p.runResults[len(p.runResults)-1].state == StateRunning
 	p.resultsLock.RUnlock()
 
 	if !canSend {
@@ -435,7 +435,7 @@ func (p *program) Send(data []byte) error {
 
 func (p *program) CloseStdin() error {
 	p.resultsLock.RLock()
-	canClose := len(p.results) > 0 && p.results[len(p.results)-1].state == StateRunning
+	canClose := len(p.runResults) > 0 && p.runResults[len(p.runResults)-1].state == StateRunning
 	p.resultsLock.RUnlock()
 
 	if !canClose {
@@ -463,52 +463,52 @@ func (p *program) Output() string {
 	p.resultsLock.RLock()
 	defer p.resultsLock.RUnlock()
 
-	if len(p.results) == 0 {
+	if len(p.runResults) == 0 {
 		return ""
 	}
 
 	p.stdoutLock.RLock()
 	defer p.stdoutLock.RUnlock()
 
-	return p.results[len(p.results)-1].outputBuffer.String()
+	return p.runResults[len(p.runResults)-1].outputBuffer.String()
 }
 
 func (p *program) LastLine() string {
 	p.resultsLock.RLock()
 	defer p.resultsLock.RUnlock()
 
-	if len(p.results) == 0 {
+	if len(p.runResults) == 0 {
 		return ""
 	}
 
 	p.stdoutLock.RLock()
 	defer p.stdoutLock.RUnlock()
 
-	return p.results[len(p.results)-1].lastLine
+	return p.runResults[len(p.runResults)-1].lastLine
 }
 
 func (p *program) Error() string {
 	p.resultsLock.RLock()
 	defer p.resultsLock.RUnlock()
 
-	if len(p.results) == 0 {
+	if len(p.runResults) == 0 {
 		return ""
 	}
 
 	p.stderrLock.RLock()
 	defer p.stderrLock.RUnlock()
 
-	return p.results[len(p.results)-1].errorBuffer.String()
+	return p.runResults[len(p.runResults)-1].errorBuffer.String()
 }
 
 func (p *program) State() ProcessState {
 	p.resultsLock.RLock()
 	defer p.resultsLock.RUnlock()
 
-	if len(p.results) == 0 {
+	if len(p.runResults) == 0 {
 		return StateNotStarted
 	}
-	return p.results[len(p.results)-1].state
+	return p.runResults[len(p.runResults)-1].state
 }
 
 func (p *program) Interval() time.Duration {
@@ -518,7 +518,7 @@ func (p *program) Interval() time.Duration {
 func (p *program) Runs() int {
 	p.stateLock.RLock()
 	defer p.stateLock.RUnlock()
-	return p.current
+	return p.currentRun
 }
 
 func (p *program) Shutdown(timeout time.Duration) error {
@@ -632,7 +632,7 @@ func (p *program) Statistics() Statistics {
 
 	stats := Statistics{
 		ProgramName:       p.name,
-		TotalRuns:         len(p.results),
+		TotalRuns:         len(p.runResults),
 		LastSuccessfulRun: -1,
 		Interval:          p.interval,
 		HasInterval:       p.interval > 0,
@@ -642,7 +642,7 @@ func (p *program) Statistics() Statistics {
 		return stats
 	}
 
-	for i, result := range p.results {
+	for i, result := range p.runResults {
 		switch result.state { //nolint:exhaustive // StateNotRunning is skipped as we do not use in the Statistics struct
 		case StateFinished:
 			stats.Successful++
@@ -668,9 +668,9 @@ func (p *program) Statistics() Statistics {
 	}
 
 	if stats.Failed > 0 {
-		for i := len(p.results) - 1; i >= 0; i-- {
-			if p.results[i].state == StateError && p.results[i].lastError != "" {
-				stats.LastError = p.results[i].lastError
+		for i := len(p.runResults) - 1; i >= 0; i-- {
+			if p.runResults[i].state == StateError && p.runResults[i].lastError != "" {
+				stats.LastError = p.runResults[i].lastError
 				break
 			}
 		}
@@ -681,11 +681,11 @@ func (p *program) Statistics() Statistics {
 
 func New(name, command string, opts ...Option) Program {
 	p := &program{
-		name:    name,
-		command: command,
-		results: []result{},
-		current: 0,
-		stop:    make(chan struct{}, 1),
+		name:       name,
+		command:    command,
+		runResults: []result{},
+		currentRun: 0,
+		stop:       make(chan struct{}, 1),
 	}
 
 	for _, opt := range opts {
