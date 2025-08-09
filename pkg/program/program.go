@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -627,12 +628,14 @@ func (s Statistics) String() string {
 }
 
 func (p *program) Statistics() Statistics {
+	var resultsCopy []result
 	p.resultsLock.RLock()
-	defer p.resultsLock.RUnlock()
+	resultsCopy = slices.Clone(p.runResults)
+	p.resultsLock.RUnlock()
 
 	stats := Statistics{
 		ProgramName:       p.name,
-		TotalRuns:         len(p.runResults),
+		TotalRuns:         len(resultsCopy),
 		LastSuccessfulRun: -1,
 		Interval:          p.interval,
 		HasInterval:       p.interval > 0,
@@ -642,7 +645,7 @@ func (p *program) Statistics() Statistics {
 		return stats
 	}
 
-	for i, result := range p.runResults {
+	for i, result := range resultsCopy {
 		switch result.state { //nolint:exhaustive // StateNotRunning is skipped as we do not use in the Statistics struct
 		case StateFinished:
 			stats.Successful++
@@ -668,9 +671,9 @@ func (p *program) Statistics() Statistics {
 	}
 
 	if stats.Failed > 0 {
-		for i := len(p.runResults) - 1; i >= 0; i-- {
-			if p.runResults[i].state == StateError && p.runResults[i].lastError != "" {
-				stats.LastError = p.runResults[i].lastError
+		for i := len(resultsCopy) - 1; i >= 0; i-- {
+			if resultsCopy[i].state == StateError && resultsCopy[i].lastError != "" {
+				stats.LastError = resultsCopy[i].lastError
 				break
 			}
 		}
