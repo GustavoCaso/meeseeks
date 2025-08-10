@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/GustavoCaso/meeseeks/internal/config"
+	"github.com/GustavoCaso/meeseeks/internal/logger"
 )
 
 func TestCreateProgramFromConfig(t *testing.T) {
@@ -57,9 +58,11 @@ func TestCreateProgramFromConfig(t *testing.T) {
 		},
 	}
 
+	logger := logger.New()
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			prog, err := createProgramFromConfig(tt.config)
+			prog, err := createProgramFromConfig(tt.config, logger)
 
 			if tt.expectError {
 				if err == nil {

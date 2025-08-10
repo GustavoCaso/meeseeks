@@ -3,13 +3,14 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log/slog"
 	"os"
 	"strconv"
 	"syscall"
+
+	"github.com/GustavoCaso/meeseeks/internal/logger"
 )
 
-func exitCommand(args []string) error {
+func exitCommand(args []string, _ *logger.Logger) error {
 	fs := flag.NewFlagSet("exit", flag.ExitOnError)
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: meeseeks exit\n\n")
@@ -41,8 +42,8 @@ func exitCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	//nolint:sloglint //currently working on adding support for custom logger
-	slog.Info("Exiting meeseeks")
+
+	fmt.Fprintln(os.Stdout, "Exiting meeseeks")
 
 	return nil
 }

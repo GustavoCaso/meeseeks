@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"os"
+
+	"github.com/GustavoCaso/meeseeks/internal/logger"
 )
 
 func main() {
@@ -14,29 +16,31 @@ func main() {
 	command := os.Args[1]
 	args := os.Args[2:]
 
+	logger := logger.New()
+
 	switch command {
 	case "run":
-		if err := runCommand(args); err != nil {
+		if err := runCommand(args, logger); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
 	case "status":
-		if err := statusCommand(args); err != nil {
+		if err := statusCommand(args, logger); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
 	case "logs":
-		if err := logsCommand(args); err != nil {
+		if err := logsCommand(args, logger); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
 	case "stop":
-		if err := stopCommand(args); err != nil {
+		if err := stopCommand(args, logger); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
 	case "exit":
-		if err := exitCommand(args); err != nil {
+		if err := exitCommand(args, logger); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}

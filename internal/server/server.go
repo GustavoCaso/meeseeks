@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -13,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/GustavoCaso/meeseeks/internal/logger"
 	"github.com/GustavoCaso/meeseeks/pkg/meeseeks"
 	"github.com/GustavoCaso/meeseeks/pkg/program"
 )
@@ -23,6 +23,7 @@ type Server struct {
 	sockPath string
 	mu       sync.RWMutex
 	running  bool
+	logger   *logger.Logger
 }
 
 type Response struct {
@@ -31,10 +32,11 @@ type Response struct {
 	Error   string      `json:"error,omitempty"`
 }
 
-func New(sockPath string) *Server {
+func New(sockPath string, logger *logger.Logger) *Server {
 	s := &Server{
 		meeseeks: meeseeks.New(),
 		sockPath: sockPath,
+		logger:   logger,
 	}
 
 	mux := http.NewServeMux()
@@ -78,7 +80,7 @@ func (s *Server) Start(_ context.Context) error {
 
 	go func() {
 		if err = s.server.Serve(listener); err != nil {
-			slog.Error("Failed to start server", "error", err)
+			s.logger.Error("Failed to start server", "error", err)
 		}
 	}()
 

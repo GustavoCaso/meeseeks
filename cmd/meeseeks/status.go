@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/GustavoCaso/meeseeks/internal/logger"
 	"github.com/GustavoCaso/meeseeks/internal/server"
 )
 
-func statusCommand(args []string) error {
+func statusCommand(args []string, _ *logger.Logger) error {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
 	format := fs.String("format", "table", "Output format: table, json")
 	fs.StringVar(format, "f", "table", "Output format: table, json (shorthand)")

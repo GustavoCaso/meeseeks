@@ -7,10 +7,11 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/GustavoCaso/meeseeks/internal/logger"
 	"github.com/GustavoCaso/meeseeks/internal/server"
 )
 
-func logsCommand(args []string) error {
+func logsCommand(args []string, _ *logger.Logger) error {
 	fs := flag.NewFlagSet("logs", flag.ExitOnError)
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: meeseeks logs <program_name>\n\n")

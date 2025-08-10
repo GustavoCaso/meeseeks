@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"os/exec"
 	"slices"
@@ -15,6 +14,14 @@ import (
 	"syscall"
 	"time"
 )
+
+type Log interface {
+	Debug(msg string, args ...interface{})
+	Info(msg string, args ...interface{})
+	Warn(msg string, args ...interface{})
+	Error(msg string, args ...interface{})
+	Fatal(msg string, args ...interface{})
+}
 
 type Program interface {
 	Async() bool
@@ -92,6 +99,12 @@ func Interval(interval time.Duration) Option {
 	}
 }
 
+func Logger(logger Log) Option {
+	return func(p *program) {
+		p.logger = logger
+	}
+}
+
 type program struct {
 	cmd       *exec.Cmd
 	name      string
@@ -120,7 +133,8 @@ type program struct {
 	stateLock   sync.RWMutex
 	cmdLock     sync.Mutex
 
-	pipes *pipes
+	pipes  *pipes
+	logger Log
 }
 
 type result struct {
@@ -333,30 +347,34 @@ func (p *program) monitorProcess() {
 	err := cmd.Wait()
 
 	writersErr := p.pipes.closeWriters()
-	//nolint:sloglint //currently working on adding support for custom logger
+
 	if writersErr != nil {
-		slog.Error(
-			"error closing writers",
-			"program",
-			p.name,
-			"error",
-			writersErr.Error(),
-		)
+		if p.logger != nil {
+			p.logger.Error(
+				"error closing writers",
+				"program",
+				p.name,
+				"error",
+				writersErr.Error(),
+			)
+		}
 	}
 
 	// Wait for readers to finish processing all data
 	wg.Wait()
 
 	readersErr := p.pipes.closeReaders()
-	//nolint:sloglint //currently working on adding support for custom logger
+
 	if readersErr != nil {
-		slog.Error(
-			"error closing readers",
-			"program",
-			p.name,
-			"error",
-			readersErr.Error(),
-		)
+		if p.logger != nil {
+			p.logger.Error(
+				"error closing readers",
+				"program",
+				p.name,
+				"error",
+				readersErr.Error(),
+			)
+		}
 	}
 
 	p.resultsLock.Lock()
