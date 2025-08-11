@@ -57,42 +57,42 @@ func TestDaemon_StartStop(t *testing.T) {
 
 			if tt.wantErr {
 				if err == nil {
-					t.Errorf("Start() expected error but got none")
+					t.Fatalf("Start() expected error but got none")
 				}
 				return
 			}
 
 			if err != nil {
-				t.Errorf("Start() unexpected error = %v", err)
+				t.Fatalf("Start() unexpected error = %v", err)
 				return
 			}
 
 			// Verify socket file exists
 			if _, err := os.Stat(sockPath); os.IsNotExist(err) {
-				t.Errorf("Socket file was not created at %s", sockPath)
+				t.Fatalf("Socket file was not created at %s", sockPath)
 			}
 
 			// Test double start (should return error)
 			err = d.Start(ctx)
 			if err == nil {
-				t.Errorf("Second Start() should return error but got none")
+				t.Fatalf("Second Start() should return error but got none")
 			}
 
 			// Stop daemon
 			err = d.Stop()
 			if err != nil {
-				t.Errorf("Stop() unexpected error = %v", err)
+				t.Fatalf("Stop() unexpected error = %v", err)
 			}
 
 			// Verify socket file is removed
 			if _, err := os.Stat(sockPath); !os.IsNotExist(err) {
-				t.Errorf("Socket file should be removed after Stop()")
+				t.Fatalf("Socket file should be removed after Stop()")
 			}
 
 			// Test double stop (should not error)
 			err = d.Stop()
 			if err != nil {
-				t.Errorf("Second Stop() unexpected error = %v", err)
+				t.Fatalf("Second Stop() unexpected error = %v", err)
 			}
 		})
 	}
@@ -166,14 +166,14 @@ func TestServer_HTTPHandlers(t *testing.T) {
 			testFn: func(t *testing.T, client *Client) {
 				resp, err := client.Statistics("")
 				if err != nil {
-					t.Errorf("Statistics() unexpected error = %v", err)
+					t.Fatalf("Statistics() unexpected error = %v", err)
 					return
 				}
 				if !resp.Success {
-					t.Errorf("Expected success=true, got %v", resp.Success)
+					t.Fatalf("Expected success=true, got %v", resp.Success)
 				}
 				if resp.Data == nil {
-					t.Errorf("Expected data to be non-nil")
+					t.Fatalf("Expected data to be non-nil")
 				}
 			},
 		},
@@ -182,14 +182,14 @@ func TestServer_HTTPHandlers(t *testing.T) {
 			testFn: func(t *testing.T, client *Client) {
 				resp, err := client.Statistics("test-program1")
 				if err != nil {
-					t.Errorf("Statistics() unexpected error = %v", err)
+					t.Fatalf("Statistics() unexpected error = %v", err)
 					return
 				}
 				if !resp.Success {
-					t.Errorf("Expected success=true, got %v", resp.Success)
+					t.Fatalf("Expected success=true, got %v", resp.Success)
 				}
 				if resp.Data == nil {
-					t.Errorf("Expected data to be non-nil")
+					t.Fatalf("Expected data to be non-nil")
 				}
 			},
 		},
@@ -198,14 +198,14 @@ func TestServer_HTTPHandlers(t *testing.T) {
 			testFn: func(t *testing.T, client *Client) {
 				resp, err := client.Statistics("nonexistent")
 				if err != nil {
-					t.Errorf("Statistics() unexpected error = %v", err)
+					t.Fatalf("Statistics() unexpected error = %v", err)
 					return
 				}
 				if resp.Success {
-					t.Errorf("Expected success=false, got %v", resp.Success)
+					t.Fatalf("Expected success=false, got %v", resp.Success)
 				}
 				if resp.Error == "" {
-					t.Errorf("Expected error message to be non-empty")
+					t.Fatalf("Expected error message to be non-empty")
 				}
 			},
 		},
@@ -214,14 +214,14 @@ func TestServer_HTTPHandlers(t *testing.T) {
 			testFn: func(t *testing.T, client *Client) {
 				resp, err := client.Logs("test-program1")
 				if err != nil {
-					t.Errorf("Logs() unexpected error = %v", err)
+					t.Fatalf("Logs() unexpected error = %v", err)
 					return
 				}
 				if !resp.Success {
-					t.Errorf("Expected success=true, got %v", resp.Success)
+					t.Fatalf("Expected success=true, got %v", resp.Success)
 				}
 				if resp.Data == nil {
-					t.Errorf("Expected data to be non-nil")
+					t.Fatalf("Expected data to be non-nil")
 				}
 			},
 		},
@@ -230,14 +230,14 @@ func TestServer_HTTPHandlers(t *testing.T) {
 			testFn: func(t *testing.T, client *Client) {
 				resp, err := client.Logs("nonexistent")
 				if err != nil {
-					t.Errorf("Logs() unexpected error = %v", err)
+					t.Fatalf("Logs() unexpected error = %v", err)
 					return
 				}
 				if resp.Success {
-					t.Errorf("Expected success=false, got %v", resp.Success)
+					t.Fatalf("Expected success=false, got %v", resp.Success)
 				}
 				if resp.Error == "" {
-					t.Errorf("Expected error message to be non-empty")
+					t.Fatalf("Expected error message to be non-empty")
 				}
 			},
 		},
@@ -246,14 +246,14 @@ func TestServer_HTTPHandlers(t *testing.T) {
 			testFn: func(t *testing.T, client *Client) {
 				resp, err := client.Stop("", "5s")
 				if err != nil {
-					t.Errorf("Stop() unexpected error = %v", err)
+					t.Fatalf("Stop() unexpected error = %v", err)
 					return
 				}
 				if resp.Success {
-					t.Errorf("Expected success=false for empty program name, got %v", resp.Success)
+					t.Fatalf("Expected success=false for empty program name, got %v", resp.Success)
 				}
 				if resp.Error == "" {
-					t.Errorf("Expected error message for empty program name")
+					t.Fatalf("Expected error message for empty program name")
 				}
 			},
 		},
@@ -297,11 +297,11 @@ func TestClient_SendRequest(t *testing.T) {
 			testFn: func(t *testing.T, client *Client) {
 				resp, err := client.Statistics("")
 				if err != nil {
-					t.Errorf("Statistics() unexpected error = %v", err)
+					t.Fatalf("Statistics() unexpected error = %v", err)
 					return
 				}
 				if !resp.Success {
-					t.Errorf("Statistics() expected success=true, got %v", resp.Success)
+					t.Fatalf("Statistics() expected success=true, got %v", resp.Success)
 				}
 			},
 		},
@@ -310,11 +310,11 @@ func TestClient_SendRequest(t *testing.T) {
 			testFn: func(t *testing.T, client *Client) {
 				resp, err := client.Statistics("test-program")
 				if err != nil {
-					t.Errorf("Statistics() unexpected error = %v", err)
+					t.Fatalf("Statistics() unexpected error = %v", err)
 					return
 				}
 				if !resp.Success {
-					t.Errorf("Statistics() expected success=true, got %v", resp.Success)
+					t.Fatalf("Statistics() expected success=true, got %v", resp.Success)
 				}
 			},
 		},
@@ -323,11 +323,11 @@ func TestClient_SendRequest(t *testing.T) {
 			testFn: func(t *testing.T, client *Client) {
 				resp, err := client.Logs("test-program")
 				if err != nil {
-					t.Errorf("Logs() unexpected error = %v", err)
+					t.Fatalf("Logs() unexpected error = %v", err)
 					return
 				}
 				if !resp.Success {
-					t.Errorf("Logs() expected success=true, got %v", resp.Success)
+					t.Fatalf("Logs() expected success=true, got %v", resp.Success)
 				}
 			},
 		},
@@ -336,11 +336,11 @@ func TestClient_SendRequest(t *testing.T) {
 			testFn: func(t *testing.T, client *Client) {
 				resp, err := client.Stop("test-program", "5s")
 				if err != nil {
-					t.Errorf("Stop() unexpected error = %v", err)
+					t.Fatalf("Stop() unexpected error = %v", err)
 					return
 				}
 				if !resp.Success {
-					t.Errorf("Stop() expected success=true, got %v", resp.Success)
+					t.Fatalf("Stop() expected success=true, got %v", resp.Success)
 				}
 			},
 		},
@@ -358,12 +358,12 @@ func TestClient_ConnectToNonExistentDaemon(t *testing.T) {
 
 	_, err := client.Statistics("")
 	if err == nil {
-		t.Errorf("Expected error when connecting to non-existent daemon")
+		t.Fatalf("Expected error when connecting to non-existent daemon")
 	}
 
 	expectedMsg := "meeseeks server not running (socket not found)"
 	if !containsString(err.Error(), expectedMsg) {
-		t.Errorf("Error should contain %q, got %q", expectedMsg, err.Error())
+		t.Fatalf("Error should contain %q, got %q", expectedMsg, err.Error())
 	}
 }
 
@@ -410,7 +410,7 @@ func TestDaemon_IntegrationWithRealSocket(t *testing.T) {
 		t.Fatalf("Client Statistics() error: %v", err)
 	}
 	if !resp.Success {
-		t.Errorf("Statistics() expected success=true, got %v", resp.Success)
+		t.Fatalf("Statistics() expected success=true, got %v", resp.Success)
 	}
 
 	// Test logs
@@ -419,7 +419,7 @@ func TestDaemon_IntegrationWithRealSocket(t *testing.T) {
 		t.Fatalf("Client Logs() error: %v", err)
 	}
 	if !resp.Success {
-		t.Errorf("Logs() expected success=true, got %v", resp.Success)
+		t.Fatalf("Logs() expected success=true, got %v", resp.Success)
 	}
 }
 
@@ -474,7 +474,7 @@ func TestDaemon_ConcurrentConnections(t *testing.T) {
 	for i := range numClients {
 		err := <-results
 		if err != nil {
-			t.Errorf("Client %d failed: %v", i, err)
+			t.Fatalf("Client %d failed: %v", i, err)
 		}
 	}
 }

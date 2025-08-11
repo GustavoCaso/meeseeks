@@ -20,7 +20,7 @@ func TestMainCommands(t *testing.T) {
 				output := stdoutBuf.String() + stderrBuf.String()
 
 				if exitCode != 1 {
-					t.Errorf("Expected exit code 1, got %d", exitCode)
+					t.Fatalf("Expected exit code 1, got %d", exitCode)
 				}
 
 				expectedMessages := []string{
@@ -34,7 +34,7 @@ func TestMainCommands(t *testing.T) {
 
 				for _, msg := range expectedMessages {
 					if !strings.Contains(output, msg) {
-						t.Errorf("Expected output to contain %q, got %q", msg, output)
+						t.Fatalf("Expected output to contain %q, got %q", msg, output)
 					}
 				}
 			},
@@ -47,11 +47,11 @@ func TestMainCommands(t *testing.T) {
 				output := stdoutBuf.String() + stderrBuf.String()
 
 				if exitCode != 1 {
-					t.Errorf("Expected exit code 1, got %d", exitCode)
+					t.Fatalf("Expected exit code 1, got %d", exitCode)
 				}
 
 				if !strings.Contains(output, "Unknown command: unknown") {
-					t.Errorf("Expected unknown command error, got %q", output)
+					t.Fatalf("Expected unknown command error, got %q", output)
 				}
 			},
 		},
@@ -63,11 +63,11 @@ func TestMainCommands(t *testing.T) {
 				output := stdoutBuf.String() + stderrBuf.String()
 
 				if exitCode != 0 {
-					t.Errorf("Expected exit code %d, got %d", 0, exitCode)
+					t.Fatalf("Expected exit code %d, got %d", 0, exitCode)
 				}
 
 				if !strings.Contains(output, "meeseeks version 1.0.0") {
-					t.Errorf("Expected output to contain %q, got %q", "meeseeks version 1.0.0", output)
+					t.Fatalf("Expected output to contain %q, got %q", "meeseeks version 1.0.0", output)
 				}
 			},
 		},

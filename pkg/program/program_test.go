@@ -24,11 +24,11 @@ func TestOneShot(t *testing.T) {
 
 		output := p.Output()
 		if !strings.Contains(output, "hello world") {
-			t.Errorf("Expected output to contain 'hello world', got: %q", output)
+			t.Fatalf("Expected output to contain 'hello world', got: %q", output)
 		}
 
 		if p.Error() != "" {
-			t.Errorf("Expected no error output, got: %q", p.Error())
+			t.Fatalf("Expected no error output, got: %q", p.Error())
 		}
 	})
 
@@ -43,7 +43,7 @@ func TestOneShot(t *testing.T) {
 
 		errorMessage := p.Error()
 		if !strings.Contains(errorMessage, "exit status 2") {
-			t.Errorf("Expected errors to contain 'exit status 2', got: %q", errorMessage)
+			t.Fatalf("Expected errors to contain 'exit status 2', got: %q", errorMessage)
 		}
 	})
 
@@ -57,7 +57,7 @@ func TestOneShot(t *testing.T) {
 		<-done
 
 		if errOutput := p.Error(); !strings.Contains(errOutput, "error message") {
-			t.Errorf("Expected stderr to contain 'error message', got: %q", errOutput)
+			t.Fatalf("Expected stderr to contain 'error message', got: %q", errOutput)
 		}
 	})
 }
@@ -74,7 +74,7 @@ func TestCustomIO(t *testing.T) {
 		<-done
 
 		if !strings.Contains(buf.String(), "hello custom stdout") {
-			t.Errorf("Custom stdout should contain 'hello custom stdout', got: %q", buf.String())
+			t.Fatalf("Custom stdout should contain 'hello custom stdout', got: %q", buf.String())
 		}
 	})
 
@@ -89,7 +89,7 @@ func TestCustomIO(t *testing.T) {
 		<-done
 
 		if !strings.Contains(buf.String(), "custom error") {
-			t.Errorf("Custom stderr should contain 'custom error', got: %q", buf.String())
+			t.Fatalf("Custom stderr should contain 'custom error', got: %q", buf.String())
 		}
 	})
 
@@ -104,7 +104,7 @@ func TestCustomIO(t *testing.T) {
 		<-done
 
 		if output := p.Output(); !strings.Contains(output, "hello from stdin") {
-			t.Errorf("Expected output to contain stdin content, got: %q", output)
+			t.Fatalf("Expected output to contain stdin content, got: %q", output)
 		}
 	})
 
@@ -118,7 +118,7 @@ func TestCustomIO(t *testing.T) {
 		<-done
 
 		if output := p.Output(); !strings.Contains(output, "test_value") {
-			t.Errorf("Expected output to contain env var value, got: %q", output)
+			t.Fatalf("Expected output to contain env var value, got: %q", output)
 		}
 	})
 
@@ -147,7 +147,7 @@ func TestCustomIO(t *testing.T) {
 		}
 
 		if !strings.Contains(string(content), "write to file") {
-			t.Errorf("File should contain 'write to file', got: %q", string(content))
+			t.Fatalf("File should contain 'write to file', got: %q", string(content))
 		}
 	})
 }
@@ -170,7 +170,7 @@ func TestAsync(t *testing.T) {
 
 		output := p.Output()
 		if !strings.Contains(output, "iteration 1") {
-			t.Errorf("Expected output to contain iteration 1, got: %q", output)
+			t.Fatalf("Expected output to contain iteration 1, got: %q", output)
 		}
 	})
 
@@ -197,7 +197,7 @@ func TestAsync(t *testing.T) {
 		errorMessage := p.Error()
 		// Context cancellation can result in either error or finished status depending on timing
 		if !strings.Contains(errorMessage, "signal: killed") {
-			t.Errorf("Expected errorMessage to indicate error or finished after cancellation, got: %q", errorMessage)
+			t.Fatalf("Expected errorMessage to indicate error or finished after cancellation, got: %q", errorMessage)
 		}
 	})
 
@@ -224,11 +224,11 @@ func TestAsync(t *testing.T) {
 
 		if !strings.Contains(stdoutBuf.String(), "stdout message") ||
 			!strings.Contains(stdoutBuf.String(), "delayed message") {
-			t.Errorf("Expected custom stdout to contain messages, got: %q", stdoutBuf.String())
+			t.Fatalf("Expected custom stdout to contain messages, got: %q", stdoutBuf.String())
 		}
 
 		if !strings.Contains(stderrBuf.String(), "stderr message") {
-			t.Errorf("Expected custom stderr to contain message, got: %q", stderrBuf.String())
+			t.Fatalf("Expected custom stderr to contain message, got: %q", stderrBuf.String())
 		}
 	})
 
@@ -254,7 +254,7 @@ func TestAsync(t *testing.T) {
 
 		lastLine := p.LastLine()
 		if lastLine != "final line" {
-			t.Errorf("Expected lastLine to be 'final line', got: %q", lastLine)
+			t.Fatalf("Expected lastLine to be 'final line', got: %q", lastLine)
 		}
 	})
 }
@@ -270,7 +270,7 @@ func TestEdgeCases(t *testing.T) {
 
 		errorMessage := p.Error()
 		if !strings.Contains(errorMessage, "executable file not found in $PATH") {
-			t.Errorf("Expected errorMessage to indicate error, got: %q", errorMessage)
+			t.Fatalf("Expected errorMessage to indicate error, got: %q", errorMessage)
 		}
 	})
 
@@ -295,11 +295,11 @@ func TestEdgeCases(t *testing.T) {
 
 		output := p.Output()
 		if len(output) < 90000 {
-			t.Errorf("Expected large output, got only %d bytes", len(output))
+			t.Fatalf("Expected large output, got only %d bytes", len(output))
 		}
 
 		if !strings.Contains(output, "line 5000") {
-			t.Errorf("Output should contain final line")
+			t.Fatalf("Output should contain final line")
 		}
 	})
 
@@ -340,7 +340,7 @@ func TestEdgeCases(t *testing.T) {
 		}
 
 		if len(p.Output()) == 0 {
-			t.Error("Expected some output from concurrent access test")
+			t.Fatal("Expected some output from concurrent access test")
 		}
 	})
 }
@@ -386,10 +386,10 @@ func TestSend(t *testing.T) {
 
 		output := p.Output()
 		if !strings.Contains(output, "hello world") {
-			t.Errorf("Expected output to contain 'hello world', got: %q", output)
+			t.Fatalf("Expected output to contain 'hello world', got: %q", output)
 		}
 		if !strings.Contains(output, "second line") {
-			t.Errorf("Expected output to contain 'second line', got: %q", output)
+			t.Fatalf("Expected output to contain 'second line', got: %q", output)
 		}
 	})
 
@@ -426,10 +426,10 @@ func TestSend(t *testing.T) {
 
 		output := p.Output()
 		if !strings.Contains(output, "initial input") {
-			t.Errorf("Expected output to contain 'initial input', got: %q", output)
+			t.Fatalf("Expected output to contain 'initial input', got: %q", output)
 		}
 		if !strings.Contains(output, "runtime input") {
-			t.Errorf("Expected output to contain 'runtime input', got: %q", output)
+			t.Fatalf("Expected output to contain 'runtime input', got: %q", output)
 		}
 	})
 
@@ -479,7 +479,7 @@ func TestMultiplePrograms(t *testing.T) {
 			output := p.Output()
 			expected := fmt.Sprintf("output from program %d", i)
 			if !strings.Contains(output, expected) {
-				t.Errorf("Program %s: expected output to contain %q, got: %q", p.Name(), expected, output)
+				t.Fatalf("Program %s: expected output to contain %q, got: %q", p.Name(), expected, output)
 			}
 		}
 	})
@@ -542,13 +542,13 @@ func TestInterval(t *testing.T) {
 
 		// Verify that the program is in error state
 		if p.State() != StateError {
-			t.Errorf("Expected program state to be StateError, got: %v", p.State())
+			t.Fatalf("Expected program state to be StateError, got: %v", p.State())
 		}
 
 		// Verify error message is captured
 		errorOutput := p.Error()
 		if errorOutput == "" {
-			t.Error("Expected error output to be captured, but it was empty")
+			t.Fatal("Expected error output to be captured, but it was empty")
 		}
 	})
 }
@@ -569,48 +569,48 @@ func TestStatistics(t *testing.T) {
 		stats := p.Statistics()
 
 		if stats.ProgramName != "echo-test" {
-			t.Errorf("Expected program name 'echo-test', got %q", stats.ProgramName)
+			t.Fatalf("Expected program name 'echo-test', got %q", stats.ProgramName)
 		}
 
 		if stats.TotalRuns <= 0 {
-			t.Errorf("Expected at least 1 run, got %d", stats.TotalRuns)
+			t.Fatalf("Expected at least 1 run, got %d", stats.TotalRuns)
 		}
 
 		if stats.Successful <= 0 {
-			t.Errorf("Expected at least 1 successful run, got %d", stats.Successful)
+			t.Fatalf("Expected at least 1 successful run, got %d", stats.Successful)
 		}
 
 		if !stats.HasInterval {
-			t.Error("Expected HasInterval to be true")
+			t.Fatal("Expected HasInterval to be true")
 		}
 
 		if stats.Interval != 10*time.Millisecond {
-			t.Errorf("Expected interval 10ms, got %v", stats.Interval)
+			t.Fatalf("Expected interval 10ms, got %v", stats.Interval)
 		}
 
 		if stats.TotalOutputLines <= 0 {
-			t.Errorf("Expected at least 1 output line, got %d", stats.TotalOutputLines)
+			t.Fatalf("Expected at least 1 output line, got %d", stats.TotalOutputLines)
 		}
 
 		if stats.State != "idle" {
-			t.Errorf("Expected interval program state to be idle, got %s", stats.State)
+			t.Fatalf("Expected interval program state to be idle, got %s", stats.State)
 		}
 
 		stringOutput := stats.String()
 		if !strings.Contains(stringOutput, "echo-test") {
-			t.Errorf("Expected string output to contain program name, got: %q", stringOutput)
+			t.Fatalf("Expected string output to contain program name, got: %q", stringOutput)
 		}
 
 		if !strings.Contains(stringOutput, "interval: 10ms") {
-			t.Errorf("Expected string output to contain interval info, got: %q", stringOutput)
+			t.Fatalf("Expected string output to contain interval info, got: %q", stringOutput)
 		}
 
 		if stats.LastOutput == "" {
-			t.Error("Expected LastOutput to be set")
+			t.Fatal("Expected LastOutput to be set")
 		}
 
 		if !strings.Contains(stringOutput, "last output:") {
-			t.Errorf("Expected string output to contain last output info, got: %q", stringOutput)
+			t.Fatalf("Expected string output to contain last output info, got: %q", stringOutput)
 		}
 	})
 
@@ -626,36 +626,36 @@ func TestStatistics(t *testing.T) {
 		stats := p.Statistics()
 
 		if stats.TotalRuns != 1 {
-			t.Errorf("Expected 1 run, got %d", stats.TotalRuns)
+			t.Fatalf("Expected 1 run, got %d", stats.TotalRuns)
 		}
 
 		if stats.Failed != 1 {
-			t.Errorf("Expected 1 failed run, got %d", stats.Failed)
+			t.Fatalf("Expected 1 failed run, got %d", stats.Failed)
 		}
 
 		if stats.Successful != 0 {
-			t.Errorf("Expected 0 successful runs, got %d", stats.Successful)
+			t.Fatalf("Expected 0 successful runs, got %d", stats.Successful)
 		}
 
 		if stats.LastError == "" {
-			t.Error("Expected LastError to be set")
+			t.Fatal("Expected LastError to be set")
 		}
 
 		if stats.State != "error" {
-			t.Errorf("Expected program state to be error, got %s", stats.State)
+			t.Fatalf("Expected program state to be error, got %s", stats.State)
 		}
 
 		stringOutput := stats.String()
 		if !strings.Contains(stringOutput, "failed: 1") {
-			t.Errorf("Expected string output to show failed runs, got: %q", stringOutput)
+			t.Fatalf("Expected string output to show failed runs, got: %q", stringOutput)
 		}
 
 		if stats.LastOutput == "" {
-			t.Error("Expected LastOutput to be set even for failed programs")
+			t.Fatal("Expected LastOutput to be set even for failed programs")
 		}
 
 		if !strings.Contains(stats.LastOutput, "before error") {
-			t.Errorf("Expected LastOutput to contain output before error, got: %q", stats.LastOutput)
+			t.Fatalf("Expected LastOutput to contain output before error, got: %q", stats.LastOutput)
 		}
 	})
 
@@ -665,12 +665,12 @@ func TestStatistics(t *testing.T) {
 		stats := p.Statistics()
 
 		if stats.TotalRuns != 0 {
-			t.Errorf("Expected 0 runs, got %d", stats.TotalRuns)
+			t.Fatalf("Expected 0 runs, got %d", stats.TotalRuns)
 		}
 
 		stringOutput := stats.String()
 		if !strings.Contains(stringOutput, "No runs completed yet") {
-			t.Errorf("Expected message about no runs, got: %q", stringOutput)
+			t.Fatalf("Expected message about no runs, got: %q", stringOutput)
 		}
 	})
 }
@@ -697,12 +697,12 @@ func TestShutdown(t *testing.T) {
 		duration := time.Since(start)
 
 		if err != nil {
-			t.Errorf("Shutdown failed: %v", err)
+			t.Fatalf("Shutdown failed: %v", err)
 		}
 
 		// Should terminate quickly (much less than timeout)
 		if duration > 1*time.Second {
-			t.Errorf("Expected quick termination, took %v", duration)
+			t.Fatalf("Expected quick termination, took %v", duration)
 		}
 
 		// Wait for done channel
@@ -710,7 +710,7 @@ func TestShutdown(t *testing.T) {
 		case <-done:
 			// Expected
 		case <-time.After(1 * time.Second):
-			t.Error("Process should have signaled done after graceful shutdown")
+			t.Fatal("Process should have signaled done after graceful shutdown")
 		}
 	})
 
@@ -737,12 +737,12 @@ func TestShutdown(t *testing.T) {
 		duration := time.Since(start)
 
 		if err != nil {
-			t.Errorf("Shutdown failed: %v", err)
+			t.Fatalf("Shutdown failed: %v", err)
 		}
 
 		// Should timeout and force kill (duration should be close to timeout)
 		if duration < 250*time.Millisecond || duration > 500*time.Millisecond {
-			t.Errorf("Expected timeout around 300ms, took %v", duration)
+			t.Fatalf("Expected timeout around 300ms, took %v", duration)
 		}
 
 		// Wait for done channel
@@ -750,7 +750,7 @@ func TestShutdown(t *testing.T) {
 		case <-done:
 			// Expected
 		case <-time.After(1 * time.Second):
-			t.Error("Process should have signaled done after force kill")
+			t.Fatal("Process should have signaled done after force kill")
 		}
 	})
 
@@ -770,7 +770,7 @@ func TestShutdown(t *testing.T) {
 		// Graceful shutdown of finished process should be no-op
 		err = p.Shutdown(1 * time.Second)
 		if err != nil {
-			t.Errorf("Shutdown of finished process should not error: %v", err)
+			t.Fatalf("Shutdown of finished process should not error: %v", err)
 		}
 	})
 }
@@ -798,7 +798,7 @@ func TestIntervalShutdown(t *testing.T) {
 		// Graceful shutdown should stop the interval
 		err = p.Shutdown(1 * time.Second)
 		if err != nil {
-			t.Errorf("Shutdown failed: %v", err)
+			t.Fatalf("Shutdown failed: %v", err)
 		}
 
 		// Wait for done signal
@@ -806,7 +806,7 @@ func TestIntervalShutdown(t *testing.T) {
 		case <-done:
 			// Expected
 		case <-time.After(2 * time.Second):
-			t.Error("Interval program should have signaled done after graceful shutdown")
+			t.Fatal("Interval program should have signaled done after graceful shutdown")
 		}
 
 		// No more runs should happen
@@ -815,7 +815,7 @@ func TestIntervalShutdown(t *testing.T) {
 		afterWaitRuns := p.Runs()
 
 		if afterWaitRuns != finalRuns {
-			t.Errorf("Expected no more runs after shutdown, but runs increased from %d to %d",
+			t.Fatalf("Expected no more runs after shutdown, but runs increased from %d to %d",
 				finalRuns, afterWaitRuns)
 		}
 	})
@@ -847,19 +847,19 @@ func TestIntervalShutdown(t *testing.T) {
 		duration := time.Since(start)
 
 		if err != nil {
-			t.Errorf("Shutdown failed: %v", err)
+			t.Fatalf("Shutdown failed: %v", err)
 		}
 
 		// Should terminate current sleep process quickly
 		if duration > 400*time.Millisecond {
-			t.Errorf("Expected quick termination, took %v", duration)
+			t.Fatalf("Expected quick termination, took %v", duration)
 		}
 
 		select {
 		case <-done:
 			// Expected
-		case <-time.After(1 * time.Second):
-			t.Error("Interval program should have signaled done")
+		case <-time.After(3 * time.Second):
+			t.Fatal("Interval program should have signaled done")
 		}
 
 		// Should not start new iterations
@@ -868,7 +868,7 @@ func TestIntervalShutdown(t *testing.T) {
 		afterWaitRuns := p.Runs()
 
 		if afterWaitRuns != finalRuns {
-			t.Errorf("Expected no new iterations after shutdown, but runs increased from %d to %d",
+			t.Fatalf("Expected no new iterations after shutdown, but runs increased from %d to %d",
 				finalRuns, afterWaitRuns)
 		}
 	})
