@@ -587,11 +587,9 @@ func (p *program) forcekill() error {
 
 	err := p.cmd.Process.Kill()
 	p.cmdLock.Unlock()
-	if err != nil && errors.Is(err, os.ErrProcessDone) {
-		// Process already terminated, ignore this error
-		p.signalDone()
-		return nil
-	}
+	p.stateLock.Lock()
+	p.overallState = StateError
+	p.stateLock.Unlock()
 	// Don't signal done here - let the monitoring goroutine handle it
 	return err
 }

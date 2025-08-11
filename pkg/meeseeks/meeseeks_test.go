@@ -49,7 +49,7 @@ func TestMeeseek_AddProgram(t *testing.T) {
 			for _, prog := range tt.programs {
 				err = m.AddProgram(prog)
 				if err != nil && !tt.wantErr {
-					t.Errorf("AddProgram() unexpected error = %v", err)
+					t.Fatalf("AddProgram() unexpected error = %v", err)
 					return
 				}
 				if err != nil && tt.wantErr {
@@ -59,17 +59,17 @@ func TestMeeseek_AddProgram(t *testing.T) {
 
 			if tt.wantErr {
 				if err == nil {
-					t.Errorf("AddProgram() expected error but got none")
+					t.Fatalf("AddProgram() expected error but got none")
 					return
 				}
 				if !strings.Contains(err.Error(), tt.errMsg) {
-					t.Errorf("AddProgram() error = %q, want error containing %q", err.Error(), tt.errMsg)
+					t.Fatalf("AddProgram() error = %q, want error containing %q", err.Error(), tt.errMsg)
 				}
 				return
 			}
 
 			if err != nil {
-				t.Errorf("AddProgram() unexpected error = %v", err)
+				t.Fatalf("AddProgram() unexpected error = %v", err)
 			}
 		})
 	}
@@ -116,22 +116,22 @@ func TestMeeseek_Statistic(t *testing.T) {
 
 			if tt.wantErr {
 				if err == nil {
-					t.Errorf("Status() expected error but got none")
+					t.Fatalf("Status() expected error but got none")
 					return
 				}
 				if !strings.Contains(err.Error(), tt.errMsg) {
-					t.Errorf("Statistic() error = %q, want error containing %q", err.Error(), tt.errMsg)
+					t.Fatalf("Statistic() error = %q, want error containing %q", err.Error(), tt.errMsg)
 				}
 				return
 			}
 
 			if err != nil {
-				t.Errorf("Statistic() unexpected error = %v", err)
+				t.Fatalf("Statistic() unexpected error = %v", err)
 				return
 			}
 
 			if statistic.ProgramName != tt.statusQuery {
-				t.Errorf("Statistic() returned incorrect statistic")
+				t.Fatalf("Statistic() returned incorrect statistic")
 			}
 		})
 	}
@@ -189,13 +189,13 @@ func TestMeeseek_StartAndWait(t *testing.T) {
 
 			if tt.wantErr {
 				if err == nil {
-					t.Errorf("Wait() expected error but got none")
+					t.Fatalf("Wait() expected error but got none")
 				}
 				return
 			}
 
 			if err != nil {
-				t.Errorf("Wait() unexpected error = %v", err)
+				t.Fatalf("Wait() unexpected error = %v", err)
 			}
 		})
 	}
@@ -258,7 +258,7 @@ func TestMeeseek_Statistics(t *testing.T) {
 			stats := m.Statistics()
 
 			if len(stats) != tt.expectedCount {
-				t.Errorf("Statistics() returned %d statistics, want %d", len(stats), tt.expectedCount)
+				t.Fatalf("Statistics() returned %d statistics, want %d", len(stats), tt.expectedCount)
 			}
 
 			// Verify each statistic has a valid program name
@@ -269,7 +269,7 @@ func TestMeeseek_Statistics(t *testing.T) {
 
 			for i, stat := range stats {
 				if !programNames[stat.ProgramName] {
-					t.Errorf("Statistics()[%d].ProgramName = %q, not found in expected programs", i, stat.ProgramName)
+					t.Fatalf("Statistics()[%d].ProgramName = %q, not found in expected programs", i, stat.ProgramName)
 				}
 			}
 		})
@@ -322,7 +322,7 @@ func TestMeeseek_IntervalPrograms(t *testing.T) {
 
 			runs := stats[0].TotalRuns
 			if runs < tt.minRuns || runs > tt.maxRuns {
-				t.Errorf("Expected %d-%d runs, got %d", tt.minRuns, tt.maxRuns, runs)
+				t.Fatalf("Expected %d-%d runs, got %d", tt.minRuns, tt.maxRuns, runs)
 			}
 
 			cancel() // Cancel context to stop interval program
@@ -350,14 +350,14 @@ func TestMeeseek_ConcurrentAccess(t *testing.T) {
 	for i := range numPrograms {
 		err := <-results
 		if err != nil {
-			t.Errorf("Failed to add program %d: %v", i, err)
+			t.Fatalf("Failed to add program %d: %v", i, err)
 		}
 	}
 
 	// Verify all programs were added
 	stats := m.Statistics()
 	if len(stats) != numPrograms {
-		t.Errorf("Expected %d programs, got %d", numPrograms, len(stats))
+		t.Fatalf("Expected %d programs, got %d", numPrograms, len(stats))
 	}
 
 	// Test concurrent statisitics queries
@@ -374,7 +374,7 @@ func TestMeeseek_ConcurrentAccess(t *testing.T) {
 	for i := range numPrograms {
 		err := <-statusResults
 		if err != nil {
-			t.Errorf("Failed to get statictics for program %d: %v", i, err)
+			t.Fatalf("Failed to get statictics for program %d: %v", i, err)
 		}
 	}
 }
@@ -395,12 +395,12 @@ func TestMeeseek_ContextCancellation(t *testing.T) {
 
 	err = m.Wait(ctx)
 	if err == nil {
-		t.Errorf("Wait() should return error when context is cancelled")
+		t.Fatalf("Wait() should return error when context is cancelled")
 	}
 
 	expectedMsg := "context cancelled"
 	if !strings.Contains(err.Error(), expectedMsg) {
-		t.Errorf("Wait() error should contain %q, got %q", expectedMsg, err.Error())
+		t.Fatalf("Wait() error should contain %q, got %q", expectedMsg, err.Error())
 	}
 }
 
@@ -494,34 +494,28 @@ func TestMeeseek_Stop(t *testing.T) {
 
 			if tt.wantErr {
 				if err == nil {
-					t.Errorf("Stop() expected error but got none")
-					return
+					t.Fatal("Stop() expected error but got none")
 				}
 				if !strings.Contains(err.Error(), tt.errMsg) {
-					t.Errorf("Stop() error = %q, want error containing %q", err.Error(), tt.errMsg)
+					t.Fatalf("Stop() error = %q, want error containing %q", err.Error(), tt.errMsg)
 				}
 				return
 			}
 
 			if err != nil {
-				t.Errorf("Stop() unexpected error = %v", err)
+				t.Fatalf("Stop() unexpected error = %v", err)
 			}
 
-			// Verify the program is stopped by checking its status
-			if !tt.wantErr {
-				stat, err := m.Statistic(tt.stopProgram)
-				if err != nil {
-					t.Errorf("Failed to get statistic after stop: %v", err)
-					return
-				}
-				// The program should have terminated
-				if stat.Running > 0 {
-					t.Errorf(
-						"Program %s should be stopped but %d instances are still running",
-						tt.stopProgram,
-						stat.Running,
-					)
-				}
+			stat, err := m.Statistic(tt.stopProgram)
+			if err != nil {
+				t.Fatalf("Failed to get statistic after stop: %v", err)
+			}
+			// The program should have terminated
+			if stat.State == "running" {
+				t.Fatalf(
+					"Program %s should be stopped but it still running",
+					tt.stopProgram,
+				)
 			}
 		})
 	}

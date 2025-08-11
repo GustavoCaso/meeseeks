@@ -141,11 +141,11 @@ func ensureNoDaemonRunning(t *testing.T) {
 	expectedSocketPath := getSocketPath()
 
 	if _, err := os.Stat(expectedPidFile); !os.IsNotExist(err) {
-		t.Error("PID file still exists. Stoping meeseeks should remove the PID file")
+		t.Fatal("PID file still exists. Stoping meeseeks should remove the PID file")
 	}
 
 	if _, err := os.Stat(expectedSocketPath); !os.IsNotExist(err) {
-		t.Error("Socket file still exists. Stoping meeseeks should remove the Socket file")
+		t.Fatal("Socket file still exists. Stoping meeseeks should remove the Socket file")
 	}
 }
 
@@ -166,11 +166,11 @@ func runCommandTests(t *testing.T, tests []commandTestCase) {
 			output := stdoutBuf.String() + stderrBuf.String()
 
 			if exitCode != tt.expectedExit {
-				t.Errorf("Expected exit code %d, got %d", tt.expectedExit, exitCode)
+				t.Fatalf("Expected exit code %d, got %d", tt.expectedExit, exitCode)
 			}
 
 			if !strings.Contains(output, tt.shouldContain) {
-				t.Errorf("Expected output to contain %q, got %q", tt.shouldContain, output)
+				t.Fatalf("Expected output to contain %q, got %q", tt.shouldContain, output)
 			}
 		})
 	}
@@ -183,12 +183,12 @@ func testCommandHelp(t *testing.T, command string, expectedMessages []string) {
 	output := stdoutBuf.String() + stderrBuf.String()
 
 	if exitCode != 0 {
-		t.Errorf("Expected exit code 0 for help, got %d", exitCode)
+		t.Fatalf("Expected exit code 0 for help, got %d", exitCode)
 	}
 
 	for _, msg := range expectedMessages {
 		if !strings.Contains(output, msg) {
-			t.Errorf("Expected help output to contain %q, got %q", msg, output)
+			t.Fatalf("Expected help output to contain %q, got %q", msg, output)
 		}
 	}
 }

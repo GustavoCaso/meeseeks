@@ -186,22 +186,22 @@ func TestLoadConfig(t *testing.T) {
 
 			if tt.wantErr {
 				if err == nil {
-					t.Errorf("LoadConfig() expected error but got none")
+					t.Fatalf("LoadConfig() expected error but got none")
 					return
 				}
 				if tt.errContains != "" && !containsString(err.Error(), tt.errContains) {
-					t.Errorf("LoadConfig() error = %q, want error containing %q", err.Error(), tt.errContains)
+					t.Fatalf("LoadConfig() error = %q, want error containing %q", err.Error(), tt.errContains)
 				}
 				return
 			}
 
 			if err != nil {
-				t.Errorf("LoadConfig() unexpected error = %v", err)
+				t.Fatalf("LoadConfig() unexpected error = %v", err)
 				return
 			}
 
 			if !configsEqual(config, tt.expected) {
-				t.Errorf("LoadConfig() = %+v, want %+v", config, tt.expected)
+				t.Fatalf("LoadConfig() = %+v, want %+v", config, tt.expected)
 			}
 		})
 	}
@@ -261,22 +261,20 @@ func TestProgramConfig_GetInterval(t *testing.T) {
 
 			if tt.wantErr {
 				if err == nil {
-					t.Errorf("GetInterval() expected error but got none")
-					return
+					t.Fatalf("GetInterval() expected error but got none")
 				}
 				if tt.errContains != "" && !containsString(err.Error(), tt.errContains) {
-					t.Errorf("GetInterval() error = %q, want error containing %q", err.Error(), tt.errContains)
+					t.Fatalf("GetInterval() error = %q, want error containing %q", err.Error(), tt.errContains)
 				}
 				return
 			}
 
 			if err != nil {
-				t.Errorf("GetInterval() unexpected error = %v", err)
-				return
+				t.Fatalf("GetInterval() unexpected error = %v", err)
 			}
 
 			if duration != tt.expected {
-				t.Errorf("GetInterval() = %v, want %v", duration, tt.expected)
+				t.Fatalf("GetInterval() = %v, want %v", duration, tt.expected)
 			}
 		})
 	}
@@ -361,17 +359,16 @@ func TestConfig_Validate(t *testing.T) {
 
 			if tt.wantErr {
 				if err == nil {
-					t.Errorf("Validate() expected error but got none")
-					return
+					t.Fatalf("Validate() expected error but got none")
 				}
 				if tt.errContains != "" && !containsString(err.Error(), tt.errContains) {
-					t.Errorf("Validate() error = %q, want error containing %q", err.Error(), tt.errContains)
+					t.Fatalf("Validate() error = %q, want error containing %q", err.Error(), tt.errContains)
 				}
 				return
 			}
 
 			if err != nil {
-				t.Errorf("Validate() unexpected error = %v", err)
+				t.Fatalf("Validate() unexpected error = %v", err)
 			}
 		})
 	}

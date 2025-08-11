@@ -66,22 +66,20 @@ func TestCreateProgramFromConfig(t *testing.T) {
 
 			if tt.expectError {
 				if err == nil {
-					t.Errorf("Expected error but got none")
-					return
+					t.Fatalf("Expected error but got none")
 				}
 				if !strings.Contains(err.Error(), tt.errorMessage) {
-					t.Errorf("Expected error containing %q, got %q", tt.errorMessage, err.Error())
+					t.Fatalf("Expected error containing %q, got %q", tt.errorMessage, err.Error())
 				}
 				return
 			}
 
 			if err != nil {
-				t.Errorf("Unexpected error: %v", err)
-				return
+				t.Fatalf("Unexpected error: %v", err)
 			}
 
 			if prog.Name() != tt.expectedName {
-				t.Errorf("Expected name %q, got %q", tt.expectedName, prog.Name())
+				t.Fatalf("Expected name %q, got %q", tt.expectedName, prog.Name())
 			}
 		})
 	}
@@ -94,7 +92,7 @@ func TestGetMeeseeksDir(t *testing.T) {
 
 		result := getMeeseeksDir()
 		if result != customDir {
-			t.Errorf("Expected %q, got %q", customDir, result)
+			t.Fatalf("Expected %q, got %q", customDir, result)
 		}
 	})
 
@@ -104,7 +102,7 @@ func TestGetMeeseeksDir(t *testing.T) {
 		expected := filepath.Join(homeDir, ".meeseeks")
 
 		if result != expected {
-			t.Errorf("Expected %q, got %q", expected, result)
+			t.Fatalf("Expected %q, got %q", expected, result)
 		}
 	})
 }
@@ -129,7 +127,7 @@ func TestPathFunctions(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				result := tt.function()
 				if result != tt.expected {
-					t.Errorf("Expected %q, got %q", tt.expected, result)
+					t.Fatalf("Expected %q, got %q", tt.expected, result)
 				}
 			})
 		}
@@ -154,7 +152,7 @@ func TestPathFunctions(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				result := tt.function()
 				if result != tt.expected {
-					t.Errorf("Expected %q, got %q", tt.expected, result)
+					t.Fatalf("Expected %q, got %q", tt.expected, result)
 				}
 			})
 		}
