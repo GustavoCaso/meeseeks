@@ -511,11 +511,10 @@ func TestMeeseek_Stop(t *testing.T) {
 				t.Fatalf("Failed to get statistic after stop: %v", err)
 			}
 			// The program should have terminated
-			if stat.Running > 0 {
+			if stat.State == "running" {
 				t.Fatalf(
-					"Program %s should be stopped but %d instances are still running",
+					"Program %s should be stopped but it still running",
 					tt.stopProgram,
-					stat.Running,
 				)
 			}
 		})
