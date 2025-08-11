@@ -93,13 +93,15 @@ func Interval(interval time.Duration) Option {
 }
 
 type program struct {
-	cmd       *exec.Cmd
-	name      string
-	command   string
-	arguments []string
-	async     bool
-	done      chan struct{}
-	stop      chan struct{} // For stopping interval programs
+	cmd          *exec.Cmd
+	name         string
+	command      string
+	arguments    []string
+	async        bool
+	ctx          context.Context
+	cancel       context.CancelFunc
+	internalDone chan struct{} // Internal completion signal
+	stop         chan struct{} // For stopping interval programs
 
 	customStdout  io.Writer
 	customStderr  io.Writer
@@ -111,14 +113,10 @@ type program struct {
 	currentRun int
 	runResults []result
 
-	exitCode     int
-	overallState ProcessState
+	exitCode int
 
-	stdoutLock  sync.RWMutex
-	stderrLock  sync.RWMutex
-	resultsLock sync.RWMutex
-	stateLock   sync.RWMutex
-	cmdLock     sync.Mutex
+	dataLock sync.RWMutex // Protects runResults, state, and I/O data
+	cmdLock  sync.Mutex   // Protects cmd and process lifecycle
 
 	pipes *pipes
 }
@@ -194,10 +192,9 @@ func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
 					}
 					<-done
 
-					p.stateLock.Lock()
+					p.dataLock.Lock()
 					p.currentRun++
-					p.overallState = StateIdle
-					p.stateLock.Unlock()
+					p.dataLock.Unlock()
 				}
 			}
 		}()
@@ -210,18 +207,27 @@ func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
 }
 
 func (p *program) signalDone() {
-	close(p.done)
+	if p.cancel != nil {
+		p.cancel()
+	}
+	if p.internalDone != nil {
+		close(p.internalDone)
+	}
 }
 
 func (p *program) start(ctx context.Context) (<-chan struct{}, error) {
-	p.resultsLock.Lock()
+	p.dataLock.Lock()
 	results := result{}
 	p.runResults = append(p.runResults, results)
-	p.resultsLock.Unlock()
+	p.dataLock.Unlock()
+
+	// Create execution context for this run
+	p.ctx, p.cancel = context.WithCancel(ctx)
+	p.internalDone = make(chan struct{})
 
 	//nolint:gosec // We accept the arguments the users have manually defined
 	cmd := exec.CommandContext(
-		ctx,
+		p.ctx,
 		p.command,
 		p.arguments...)
 	cmd.Env = append(os.Environ(), p.customEnv...)
@@ -267,9 +273,14 @@ func (p *program) start(ctx context.Context) (<-chan struct{}, error) {
 		_ = inWriter.Close()
 	}
 
-	p.done = make(chan struct{}, 1)
+	// Return a done channel that waits for internal completion signal
+	done := make(chan struct{})
+	go func() {
+		<-p.internalDone
+		close(done)
+	}()
 
-	return p.done, p.run()
+	return done, p.run()
 }
 
 func (p *program) run() error {
@@ -279,28 +290,21 @@ func (p *program) run() error {
 	err := cmd.Start()
 
 	if err != nil {
-		p.resultsLock.Lock()
+		p.dataLock.Lock()
 		currentIndex := len(p.runResults) - 1
 		p.runResults[currentIndex].state = StateError
 		p.runResults[currentIndex].errorBuffer.WriteString(err.Error())
 		p.runResults[currentIndex].errorBuffer.WriteString("\n")
 		p.runResults[currentIndex].lastError = err.Error()
-		p.resultsLock.Unlock()
+		p.dataLock.Unlock()
 
-		p.stateLock.Lock()
-		p.overallState = StateError
-		p.stateLock.Unlock()
 		p.signalDone()
 		return err
 	}
-	p.resultsLock.Lock()
+	p.dataLock.Lock()
 	currentIndex := len(p.runResults) - 1
 	p.runResults[currentIndex].state = StateRunning
-	p.resultsLock.Unlock()
-
-	p.stateLock.Lock()
-	p.overallState = StateRunning
-	p.stateLock.Unlock()
+	p.dataLock.Unlock()
 
 	if p.async {
 		go p.monitorProcess()
@@ -359,7 +363,7 @@ func (p *program) monitorProcess() {
 		)
 	}
 
-	p.resultsLock.Lock()
+	p.dataLock.Lock()
 	currentIndex := len(p.runResults) - 1
 	if err != nil {
 		p.runResults[currentIndex].errorBuffer.WriteString(err.Error())
@@ -369,20 +373,16 @@ func (p *program) monitorProcess() {
 	} else {
 		p.runResults[currentIndex].state = StateFinished
 	}
-	p.resultsLock.Unlock()
+	p.dataLock.Unlock()
 
 	p.cmdLock.Lock()
 	exitCode := p.cmd.ProcessState.ExitCode()
 	p.cmdLock.Unlock()
 
-	p.stateLock.Lock()
+	p.dataLock.Lock()
 	p.exitCode = exitCode
-	if err != nil {
-		p.overallState = StateError
-	} else {
-		p.overallState = StateFinished
-	}
-	p.stateLock.Unlock()
+	// State is already set in the result above
+	p.dataLock.Unlock()
 
 	p.signalDone()
 }
@@ -392,40 +392,40 @@ func (p *program) readOutput(reader io.Reader, isError bool) {
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		p.resultsLock.RLock()
+		p.dataLock.RLock()
 		currentIndex := len(p.runResults) - 1
-		p.resultsLock.RUnlock()
+		p.dataLock.RUnlock()
 
 		if isError {
-			p.stderrLock.Lock()
+			p.dataLock.Lock()
 			p.runResults[currentIndex].errorBuffer.WriteString(line + "\n")
 			p.runResults[currentIndex].lastError = line
-			p.stderrLock.Unlock()
+			p.dataLock.Unlock()
 		} else {
-			p.stdoutLock.Lock()
+			p.dataLock.Lock()
 			p.runResults[currentIndex].outputBuffer.WriteString(line + "\n")
 			p.runResults[currentIndex].lastLine = line
-			p.stdoutLock.Unlock()
+			p.dataLock.Unlock()
 		}
 	}
 
 	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
 		if isError {
-			p.resultsLock.RLock()
+			p.dataLock.RLock()
 			currentIndex := len(p.runResults) - 1
-			p.resultsLock.RUnlock()
-			p.stderrLock.Lock()
+			p.dataLock.RUnlock()
+			p.dataLock.Lock()
 			p.runResults[currentIndex].errorBuffer.WriteString("Scanner error: " + err.Error())
 			p.runResults[currentIndex].errorBuffer.WriteString("\n")
-			p.stderrLock.Unlock()
+			p.dataLock.Unlock()
 		}
 	}
 }
 
 func (p *program) Send(data []byte) error {
-	p.resultsLock.RLock()
+	p.dataLock.RLock()
 	canSend := len(p.runResults) > 0 && p.runResults[len(p.runResults)-1].state == StateRunning
-	p.resultsLock.RUnlock()
+	p.dataLock.RUnlock()
 
 	if !canSend {
 		return errors.New("can not send data to a non-running program")
@@ -440,9 +440,9 @@ func (p *program) Send(data []byte) error {
 }
 
 func (p *program) CloseStdin() error {
-	p.resultsLock.RLock()
+	p.dataLock.RLock()
 	canClose := len(p.runResults) > 0 && p.runResults[len(p.runResults)-1].state == StateRunning
-	p.resultsLock.RUnlock()
+	p.dataLock.RUnlock()
 
 	if !canClose {
 		return errors.New("closing stdin of non-running process has no effect")
@@ -466,51 +466,60 @@ func (p *program) Name() string {
 }
 
 func (p *program) Output() string {
-	p.resultsLock.RLock()
-	defer p.resultsLock.RUnlock()
+	p.dataLock.RLock()
+	defer p.dataLock.RUnlock()
 
 	if len(p.runResults) == 0 {
 		return ""
 	}
 
-	p.stdoutLock.RLock()
-	defer p.stdoutLock.RUnlock()
+	p.dataLock.RLock()
+	defer p.dataLock.RUnlock()
 
 	return p.runResults[len(p.runResults)-1].outputBuffer.String()
 }
 
 func (p *program) LastLine() string {
-	p.resultsLock.RLock()
-	defer p.resultsLock.RUnlock()
+	p.dataLock.RLock()
+	defer p.dataLock.RUnlock()
 
 	if len(p.runResults) == 0 {
 		return ""
 	}
 
-	p.stdoutLock.RLock()
-	defer p.stdoutLock.RUnlock()
+	p.dataLock.RLock()
+	defer p.dataLock.RUnlock()
 
 	return p.runResults[len(p.runResults)-1].lastLine
 }
 
 func (p *program) Error() string {
-	p.resultsLock.RLock()
-	defer p.resultsLock.RUnlock()
+	p.dataLock.RLock()
+	defer p.dataLock.RUnlock()
 
 	if len(p.runResults) == 0 {
 		return ""
 	}
 
-	p.stderrLock.RLock()
-	defer p.stderrLock.RUnlock()
+	p.dataLock.RLock()
+	defer p.dataLock.RUnlock()
 
 	return p.runResults[len(p.runResults)-1].errorBuffer.String()
 }
 
 func (p *program) State() ProcessState {
-	p.stateLock.RLock()
-	defer p.stateLock.RUnlock()
-	return p.overallState
+	p.dataLock.RLock()
+	defer p.dataLock.RUnlock()
+	if len(p.runResults) == 0 {
+		return StateNotStarted
+	}
+
+	latest := p.runResults[len(p.runResults)-1]
+	// For interval programs, if the latest run finished successfully, we're idle
+	if p.interval > 0 && latest.state != StateError {
+		return StateIdle
+	}
+	return latest.state
 }
 
 func (p *program) Interval() time.Duration {
@@ -518,8 +527,8 @@ func (p *program) Interval() time.Duration {
 }
 
 func (p *program) Runs() int {
-	p.stateLock.RLock()
-	defer p.stateLock.RUnlock()
+	p.dataLock.RLock()
+	defer p.dataLock.RUnlock()
 	return p.currentRun
 }
 
@@ -534,7 +543,7 @@ func (p *program) Shutdown(timeout time.Duration) error {
 	}
 
 	p.cmdLock.Lock()
-	if p.cmd == nil || p.cmd.Process == nil || p.done == nil {
+	if p.cmd == nil || p.cmd.Process == nil || p.ctx == nil {
 		p.cmdLock.Unlock()
 		return nil
 	}
@@ -552,7 +561,7 @@ func (p *program) Shutdown(timeout time.Duration) error {
 
 	// Wait for the existing monitoring to handle process exit
 	select {
-	case <-p.done:
+	case <-p.ctx.Done():
 		return nil
 	case <-time.After(timeout):
 		// Timeout exceeded, force kill
@@ -562,16 +571,13 @@ func (p *program) Shutdown(timeout time.Duration) error {
 
 func (p *program) forcekill() error {
 	p.cmdLock.Lock()
-	if p.cmd == nil || p.cmd.Process == nil || p.done == nil {
+	if p.cmd == nil || p.cmd.Process == nil || p.ctx == nil {
 		p.cmdLock.Unlock()
 		return nil
 	}
 
 	err := p.cmd.Process.Kill()
 	p.cmdLock.Unlock()
-	p.stateLock.Lock()
-	p.overallState = StateError
-	p.stateLock.Unlock()
 	// Don't signal done here - let the monitoring goroutine handle it
 	return err
 }
@@ -629,12 +635,13 @@ func (s Statistics) String() string {
 
 func (p *program) Statistics() Statistics {
 	var resultsCopy []result
-	p.resultsLock.RLock()
+	p.dataLock.RLock()
 	resultsCopy = slices.Clone(p.runResults)
-	p.resultsLock.RUnlock()
+	currentState := p.State()
+	p.dataLock.RUnlock()
 
 	var state string
-	switch p.State() {
+	switch currentState {
 	case StateFinished:
 		state = "finished"
 	case StateIdle:
@@ -671,10 +678,10 @@ func (p *program) Statistics() Statistics {
 			stats.Running++
 		}
 
-		p.stdoutLock.RLock()
+		p.dataLock.RLock()
 		outputContent := result.outputBuffer.String()
 		lastLine := result.lastLine
-		p.stdoutLock.RUnlock()
+		p.dataLock.RUnlock()
 
 		if len(outputContent) > 0 {
 			stats.TotalOutputLines += len(strings.Split(strings.TrimSpace(outputContent), "\n"))

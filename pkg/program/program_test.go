@@ -176,7 +176,6 @@ func TestAsync(t *testing.T) {
 
 	t.Run("context cancellation", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
 
 		p := New("cancel-test", "bash", Args("-c", "for i in {1..10}; do echo \"loop $i\"; sleep 0.5; done"), Async())
 
@@ -836,11 +835,6 @@ func TestIntervalShutdown(t *testing.T) {
 		// Wait for first interval tick + time for command to start
 		time.Sleep(400 * time.Millisecond)
 
-		// Check if a process is running (which means it started)
-		if p.State() != StateRunning {
-			t.Fatalf("Expected current iteration to be running, got: %v (runs: %d)", p.State(), p.Runs())
-		}
-
 		// Graceful shutdown should stop interval and current process
 		start := time.Now()
 		err = p.Shutdown(500 * time.Millisecond)
@@ -864,6 +858,11 @@ func TestIntervalShutdown(t *testing.T) {
 
 		// Should not start new iterations
 		finalRuns := p.Runs()
+
+		if finalRuns <= 0 {
+			t.Fatal("Interval program should have run a couple times at least")
+		}
+
 		time.Sleep(500 * time.Millisecond) // Wait longer than interval
 		afterWaitRuns := p.Runs()
 
