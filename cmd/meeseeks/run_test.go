@@ -35,11 +35,11 @@ func TestRunCommand_ConfigValidation(t *testing.T) {
 			output := stdoutBuf.String() + stderrBuf.String()
 
 			if exitCode != tt.expectedExit {
-				t.Errorf("Expected exit code %d, got %d", tt.expectedExit, exitCode)
+				t.Fatalf("Expected exit code %d, got %d", tt.expectedExit, exitCode)
 			}
 
 			if !strings.Contains(output, tt.errorMessage) {
-				t.Errorf("Expected error message %q, got %q", tt.errorMessage, output)
+				t.Fatalf("Expected error message %q, got %q", tt.errorMessage, output)
 			}
 		})
 	}
@@ -97,7 +97,7 @@ func TestRunCommand_Foreground(t *testing.T) {
 
 	err = cmd.Start()
 	if err != nil {
-		t.Errorf("error starting in foreground: %s", err.Error())
+		t.Fatalf("error starting in foreground: %s", err.Error())
 	}
 
 	// Start goroutines to read from pipes and populate buffers
@@ -129,13 +129,13 @@ func TestRunCommand_Foreground(t *testing.T) {
 	if err != nil && !strings.Contains(err.Error(), "signal") &&
 		!strings.Contains(err.Error(), "interrupt") &&
 		!strings.Contains(err.Error(), "context deadline") {
-		t.Errorf("Unexpected error (ignoring interrupt/timeout): %v", err)
+		t.Fatalf("Unexpected error (ignoring interrupt/timeout): %v", err)
 	}
 
 	output := stdout.String() + stderr.String()
 	expected := "Started meeseeks program_count=1"
 	if !strings.Contains(output, expected) {
-		t.Errorf("Expected output to contain %q, got %q", expected, output)
+		t.Fatalf("Expected output to contain %q, got %q", expected, output)
 	}
 }
 
@@ -179,17 +179,17 @@ func TestRunCommand_Detached(t *testing.T) {
 
 	output := stdout.String() + stderr.String()
 	if !strings.Contains(output, "Started meeseeks (detached)") {
-		t.Errorf("Expected `Started meeseeks (detached)`, got: %q", output)
+		t.Fatalf("Expected `Started meeseeks (detached)`, got: %q", output)
 	}
 
 	if _, err := os.Stat(expectedPidFile); os.IsNotExist(err) {
-		t.Errorf("PID file was not created at %s", expectedPidFile)
+		t.Fatalf("PID file was not created at %s", expectedPidFile)
 	}
 
 	time.Sleep(500 * time.Millisecond)
 
 	if _, err := os.Stat(expectedSocketPath); os.IsNotExist(err) {
-		t.Errorf("Socket file was not created at %s", expectedSocketPath)
+		t.Fatalf("Socket file was not created at %s", expectedSocketPath)
 	}
 
 	var stdoutBuf, stderrBuf bytes.Buffer
@@ -201,25 +201,25 @@ func TestRunCommand_Detached(t *testing.T) {
 		5*time.Second,
 	)
 	if exitCode != 0 {
-		t.Errorf("Expected exit code %d, got %d", 0, exitCode)
+		t.Fatalf("Expected exit code %d, got %d", 0, exitCode)
 	}
 	statusOutput := stdoutBuf.String() + stderrBuf.String()
 
 	if strings.Contains(statusOutput, "meeseeks server not running") {
-		t.Errorf("Status command could not connect to daemon: %q", statusOutput)
+		t.Fatalf("Status command could not connect to daemon: %q", statusOutput)
 	}
 
 	exitCode = runCLICommand(t, []string{"exit"}, nil, nil, 5*time.Second)
 	if exitCode != 0 {
-		t.Errorf("Expected exit code %d, got %d", 0, exitCode)
+		t.Fatalf("Expected exit code %d, got %d", 0, exitCode)
 	}
 
 	if _, err := os.Stat(expectedPidFile); !os.IsNotExist(err) {
-		t.Error("PID file still exists. Stoping meeseeks should remove the PID file")
+		t.Fatal("PID file still exists. Stoping meeseeks should remove the PID file")
 	}
 
 	if _, err := os.Stat(expectedSocketPath); !os.IsNotExist(err) {
-		t.Error("Socket file still exists. Stoping meeseeks should remove the Socket file")
+		t.Fatal("Socket file still exists. Stoping meeseeks should remove the Socket file")
 	}
 
 	var stdoutBuf2, stderrBuf2 bytes.Buffer
@@ -231,11 +231,11 @@ func TestRunCommand_Detached(t *testing.T) {
 		5*time.Second,
 	)
 	if exitCode != 1 {
-		t.Errorf("Expected exit code %d, got %d", 1, exitCode)
+		t.Fatalf("Expected exit code %d, got %d", 1, exitCode)
 	}
 	statusOutput = stdoutBuf2.String() + stderrBuf2.String()
 
 	if !strings.Contains(statusOutput, "meeseeks server not running") {
-		t.Error("Status command should not work after exiting meeseeks")
+		t.Fatal("Status command should not work after exiting meeseeks")
 	}
 }
