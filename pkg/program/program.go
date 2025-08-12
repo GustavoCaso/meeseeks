@@ -93,15 +93,13 @@ func Interval(interval time.Duration) Option {
 }
 
 type program struct {
-	cmd          *exec.Cmd
-	name         string
-	command      string
-	arguments    []string
-	async        bool
-	ctx          context.Context
-	cancel       context.CancelFunc
-	internalDone chan struct{} // Internal completion signal
-	stop         chan struct{} // For stopping interval programs
+	cmd       *exec.Cmd
+	name      string
+	command   string
+	arguments []string
+	async     bool
+	done      chan struct{}
+	stop      chan struct{} // For stopping interval programs
 
 	customStdout  io.Writer
 	customStderr  io.Writer
@@ -207,12 +205,7 @@ func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
 }
 
 func (p *program) signalDone() {
-	if p.cancel != nil {
-		p.cancel()
-	}
-	if p.internalDone != nil {
-		close(p.internalDone)
-	}
+	close(p.done)
 }
 
 func (p *program) start(ctx context.Context) (<-chan struct{}, error) {
@@ -221,13 +214,9 @@ func (p *program) start(ctx context.Context) (<-chan struct{}, error) {
 	p.runResults = append(p.runResults, results)
 	p.dataLock.Unlock()
 
-	// Create execution context for this run
-	p.ctx, p.cancel = context.WithCancel(ctx)
-	p.internalDone = make(chan struct{})
-
 	//nolint:gosec // We accept the arguments the users have manually defined
 	cmd := exec.CommandContext(
-		p.ctx,
+		ctx,
 		p.command,
 		p.arguments...)
 	cmd.Env = append(os.Environ(), p.customEnv...)
@@ -264,21 +253,16 @@ func (p *program) start(ctx context.Context) (<-chan struct{}, error) {
 	} else {
 		cmd.Stdin = inReader
 	}
+	done := make(chan struct{})
 
 	p.cmdLock.Lock()
 	p.cmd = cmd
+	p.done = done
 	p.cmdLock.Unlock()
 
 	if !p.keepStdinOpen {
 		_ = inWriter.Close()
 	}
-
-	// Return a done channel that waits for internal completion signal
-	done := make(chan struct{})
-	go func() {
-		<-p.internalDone
-		close(done)
-	}()
 
 	return done, p.run()
 }
@@ -543,7 +527,7 @@ func (p *program) Shutdown(timeout time.Duration) error {
 	}
 
 	p.cmdLock.Lock()
-	if p.cmd == nil || p.cmd.Process == nil || p.ctx == nil {
+	if p.cmd == nil || p.cmd.Process == nil || p.done == nil {
 		p.cmdLock.Unlock()
 		return nil
 	}
@@ -560,8 +544,12 @@ func (p *program) Shutdown(timeout time.Duration) error {
 	}
 
 	// Wait for the existing monitoring to handle process exit
+	p.cmdLock.Lock()
+	done := p.done
+	p.cmdLock.Unlock()
+
 	select {
-	case <-p.ctx.Done():
+	case <-done:
 		return nil
 	case <-time.After(timeout):
 		// Timeout exceeded, force kill
@@ -571,7 +559,7 @@ func (p *program) Shutdown(timeout time.Duration) error {
 
 func (p *program) forcekill() error {
 	p.cmdLock.Lock()
-	if p.cmd == nil || p.cmd.Process == nil || p.ctx == nil {
+	if p.cmd == nil || p.cmd.Process == nil || p.done == nil {
 		p.cmdLock.Unlock()
 		return nil
 	}
