@@ -376,31 +376,34 @@ func (p *program) readOutput(reader io.Reader, isError bool) {
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		p.dataLock.RLock()
-		currentIndex := len(p.runResults) - 1
-		p.dataLock.RUnlock()
 
 		if isError {
 			p.dataLock.Lock()
-			p.runResults[currentIndex].errorBuffer.WriteString(line + "\n")
-			p.runResults[currentIndex].lastError = line
+			if len(p.runResults) > 0 {
+				currentIndex := len(p.runResults) - 1
+				p.runResults[currentIndex].errorBuffer.WriteString(line + "\n")
+				p.runResults[currentIndex].lastError = line
+			}
 			p.dataLock.Unlock()
 		} else {
 			p.dataLock.Lock()
-			p.runResults[currentIndex].outputBuffer.WriteString(line + "\n")
-			p.runResults[currentIndex].lastLine = line
+			if len(p.runResults) > 0 {
+				currentIndex := len(p.runResults) - 1
+				p.runResults[currentIndex].outputBuffer.WriteString(line + "\n")
+				p.runResults[currentIndex].lastLine = line
+			}
 			p.dataLock.Unlock()
 		}
 	}
 
 	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
 		if isError {
-			p.dataLock.RLock()
-			currentIndex := len(p.runResults) - 1
-			p.dataLock.RUnlock()
 			p.dataLock.Lock()
-			p.runResults[currentIndex].errorBuffer.WriteString("Scanner error: " + err.Error())
-			p.runResults[currentIndex].errorBuffer.WriteString("\n")
+			if len(p.runResults) > 0 {
+				currentIndex := len(p.runResults) - 1
+				p.runResults[currentIndex].errorBuffer.WriteString("Scanner error: " + err.Error())
+				p.runResults[currentIndex].errorBuffer.WriteString("\n")
+			}
 			p.dataLock.Unlock()
 		}
 	}
@@ -457,9 +460,6 @@ func (p *program) Output() string {
 		return ""
 	}
 
-	p.dataLock.RLock()
-	defer p.dataLock.RUnlock()
-
 	return p.runResults[len(p.runResults)-1].outputBuffer.String()
 }
 
@@ -471,9 +471,6 @@ func (p *program) LastLine() string {
 		return ""
 	}
 
-	p.dataLock.RLock()
-	defer p.dataLock.RUnlock()
-
 	return p.runResults[len(p.runResults)-1].lastLine
 }
 
@@ -484,9 +481,6 @@ func (p *program) Error() string {
 	if len(p.runResults) == 0 {
 		return ""
 	}
-
-	p.dataLock.RLock()
-	defer p.dataLock.RUnlock()
 
 	return p.runResults[len(p.runResults)-1].errorBuffer.String()
 }
