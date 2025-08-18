@@ -298,10 +298,9 @@ func TestMeeseek_IntervalPrograms(t *testing.T) {
 			m := New()
 
 			prog := program.New("interval-test", "echo",
-				program.Args("interval"),
-				program.Interval(tt.interval))
+				program.Args("interval"))
 
-			err := m.AddProgram(prog)
+			err := m.AddProgram(prog, tt.interval)
 			if err != nil {
 				t.Fatalf("Failed to add program: %v", err)
 			}

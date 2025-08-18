@@ -70,14 +70,6 @@ func createProgramFromConfig(pc config.ProgramConfig) (program.Program, error) {
 		opts = append(opts, program.KeepStdinOpen())
 	}
 
-	if pc.Interval != "" {
-		interval, err := pc.GetInterval()
-		if err != nil {
-			return nil, fmt.Errorf("invalid interval: %w", err)
-		}
-		opts = append(opts, program.Interval(interval))
-	}
-
 	if pc.Stdout != "" {
 		file, err := os.OpenFile(pc.Stdout, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 		if err != nil {
@@ -134,9 +126,6 @@ func formatStatisticsAsTable(data any, programName string) error {
 		failed := stats.Failed
 		running := stats.Running
 		interval := "no"
-		if stats.HasInterval {
-			interval = stats.Interval.String()
-		}
 
 		fmt.Fprintf(w, "%s\t%d\t%d\t%d\t%d\t%s\t%s\n",
 			truncateString(name, 20),
