@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -25,7 +24,6 @@ type Program interface {
 	Output() string
 	Error() string
 	State() ProcessState
-	Statistics() Statistics
 	Shutdown(timeout time.Duration) error
 }
 
@@ -90,7 +88,6 @@ type program struct {
 	arguments []string
 	async     bool
 	done      chan struct{}
-	stop      chan struct{} // For stopping interval programs
 
 	customStdout  io.Writer
 	customStderr  io.Writer
@@ -447,74 +444,6 @@ func (p *program) forcekill() error {
 	p.dataLock.Unlock()
 	// Don't signal done here - let the monitoring goroutine handle it
 	return err
-}
-
-type Statistics struct {
-	ProgramName       string `json:"program_name"`
-	State             string `json:"state"`
-	TotalRuns         int    `json:"total_runs"`
-	Successful        int    `json:"successful_runs"`
-	Failed            int    `json:"failed_runs"`
-	Running           int    `json:"running"`
-	TotalOutputLines  int    `json:"total_output_lines"`
-	LastSuccessfulRun int    `json:"last_successful_run"`
-	LastError         string `json:"last_error"`
-	LastOutput        string `json:"last_output"`
-}
-
-func (s Statistics) String() string {
-	if s.TotalRuns == 0 {
-		return fmt.Sprintf("[%s] No runs completed yet", s.ProgramName)
-	}
-
-	statisticsMsg := fmt.Sprintf("[%s] total runs: %d, successful: %d, failed: %d",
-		s.ProgramName, s.TotalRuns, s.Successful, s.Failed)
-
-	if s.Running > 0 {
-		statisticsMsg += fmt.Sprintf(", running: %d", s.Running)
-	}
-
-	if s.TotalOutputLines > 0 {
-		statisticsMsg += fmt.Sprintf(", total output lines: %d", s.TotalOutputLines)
-	}
-
-	if s.LastSuccessfulRun >= 0 {
-		statisticsMsg += fmt.Sprintf(", last successful run: #%d", s.LastSuccessfulRun)
-	}
-
-	if s.Failed > 0 && s.LastError != "" {
-		statisticsMsg += fmt.Sprintf(", last error: %s", s.LastError)
-	}
-
-	if s.LastOutput != "" {
-		statisticsMsg += fmt.Sprintf(", last output: %s", s.LastOutput)
-	}
-
-	return statisticsMsg
-}
-
-func (p *program) Statistics() Statistics {
-	var state string
-	switch p.State() {
-	case StateFinished:
-		state = "finished"
-	case StateIdle:
-		state = "idle"
-	case StateError:
-		state = "error"
-	case StateRunning:
-		state = "running"
-	case StateNotStarted:
-		state = "not started"
-	}
-
-	stats := Statistics{
-		ProgramName:       p.name,
-		State:             state,
-		LastSuccessfulRun: -1,
-	}
-
-	return stats
 }
 
 func New(name, command string, opts ...Option) Program {

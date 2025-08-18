@@ -9,6 +9,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/GustavoCaso/meeseeks/internal/config"
+	"github.com/GustavoCaso/meeseeks/pkg/meeseeks"
 	"github.com/GustavoCaso/meeseeks/pkg/program"
 )
 
@@ -94,9 +95,9 @@ func formatStatisticsAsTable(data any, programName string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal data: %w", err)
 	}
-	programStatistics := []program.Statistics{}
+	programStatistics := []meeseeks.ExecutionRecord{}
 	if programName != "" {
-		var programStatistic = program.Statistics{}
+		var programStatistic = meeseeks.ExecutionRecord{}
 
 		err = json.Unmarshal(jsonBytes, &programStatistic)
 		if err != nil {
@@ -105,7 +106,7 @@ func formatStatisticsAsTable(data any, programName string) error {
 
 		programStatistics = append(programStatistics, programStatistic)
 	} else {
-		var programsStatistic = []program.Statistics{}
+		var programsStatistic = []meeseeks.ExecutionRecord{}
 
 		err = json.Unmarshal(jsonBytes, &programsStatistic)
 		if err != nil {

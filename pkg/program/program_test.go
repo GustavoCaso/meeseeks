@@ -485,9 +485,17 @@ func TestMultiplePrograms(t *testing.T) {
 	})
 }
 
-func TestStatistics(t *testing.T) {
-	t.Run("statistics for successful program", func(t *testing.T) {
+// NOTE: Statistics functionality has been moved to the meeseeks orchestrator.
+// Individual programs no longer track their own statistics.
+// These tests are now covered by the meeseeks package tests.
+
+func TestProgramBasicFunctionality(t *testing.T) {
+	t.Run("program tracks state correctly", func(t *testing.T) {
 		p := New("echo-test", "echo", Args("hello world"))
+
+		if p.State() != StateNotStarted {
+			t.Fatalf("Expected initial state to be StateNotStarted, got %v", p.State())
+		}
 
 		done, err := p.Start(t.Context())
 		if err != nil {
@@ -495,43 +503,24 @@ func TestStatistics(t *testing.T) {
 		}
 		<-done
 
-		stats := p.Statistics()
-
-		if stats.ProgramName != "echo-test" {
-			t.Fatalf("Expected program name 'echo-test', got %q", stats.ProgramName)
+		if p.State() != StateFinished {
+			t.Fatalf("Expected final state to be StateFinished, got %v", p.State())
 		}
 
-		if stats.TotalRuns != 1 {
-			t.Fatalf("Expected 1 run, got %d", stats.TotalRuns)
+		if p.Name() != "echo-test" {
+			t.Fatalf("Expected program name 'echo-test', got %q", p.Name())
 		}
 
-		if stats.Successful != 1 {
-			t.Fatalf("Expected 1 successful run, got %d", stats.Successful)
+		if len(p.Output()) == 0 {
+			t.Fatal("Expected some output from echo command")
 		}
 
-		if stats.TotalOutputLines <= 0 {
-			t.Fatalf("Expected at least 1 output line, got %d", stats.TotalOutputLines)
-		}
-
-		if stats.State != "finished" {
-			t.Fatalf("Expected program state to be finished, got %s", stats.State)
-		}
-
-		stringOutput := stats.String()
-		if !strings.Contains(stringOutput, "echo-test") {
-			t.Fatalf("Expected string output to contain program name, got: %q", stringOutput)
-		}
-
-		if stats.LastOutput == "" {
-			t.Fatal("Expected LastOutput to be set")
-		}
-
-		if !strings.Contains(stringOutput, "last output:") {
-			t.Fatalf("Expected string output to contain last output info, got: %q", stringOutput)
+		if p.LastLine() == "" {
+			t.Fatal("Expected LastLine to be set")
 		}
 	})
 
-	t.Run("statistics for failed program", func(t *testing.T) {
+	t.Run("program tracks error state correctly", func(t *testing.T) {
 		p := New("failure-test", "bash", Args("-c", "echo 'before error'; exit 1"))
 
 		done, err := p.Start(t.Context())
@@ -540,54 +529,20 @@ func TestStatistics(t *testing.T) {
 		}
 		<-done
 
-		stats := p.Statistics()
-
-		if stats.TotalRuns != 1 {
-			t.Fatalf("Expected 1 run, got %d", stats.TotalRuns)
+		if p.State() != StateError {
+			t.Fatalf("Expected final state to be StateError, got %v", p.State())
 		}
 
-		if stats.Failed != 1 {
-			t.Fatalf("Expected 1 failed run, got %d", stats.Failed)
+		if p.Error() == "" {
+			t.Fatal("Expected error output to be set")
 		}
 
-		if stats.Successful != 0 {
-			t.Fatalf("Expected 0 successful runs, got %d", stats.Successful)
+		if p.Output() == "" {
+			t.Fatal("Expected standard output to be captured even for failed programs")
 		}
 
-		if stats.LastError == "" {
-			t.Fatal("Expected LastError to be set")
-		}
-
-		if stats.State != "error" {
-			t.Fatalf("Expected program state to be error, got %s", stats.State)
-		}
-
-		stringOutput := stats.String()
-		if !strings.Contains(stringOutput, "failed: 1") {
-			t.Fatalf("Expected string output to show failed runs, got: %q", stringOutput)
-		}
-
-		if stats.LastOutput == "" {
-			t.Fatal("Expected LastOutput to be set even for failed programs")
-		}
-
-		if !strings.Contains(stats.LastOutput, "before error") {
-			t.Fatalf("Expected LastOutput to contain output before error, got: %q", stats.LastOutput)
-		}
-	})
-
-	t.Run("statistics for program with no runs", func(t *testing.T) {
-		p := New("no-run-test", "echo", Args("hello"))
-
-		stats := p.Statistics()
-
-		if stats.TotalRuns != 0 {
-			t.Fatalf("Expected 0 runs, got %d", stats.TotalRuns)
-		}
-
-		stringOutput := stats.String()
-		if !strings.Contains(stringOutput, "No runs completed yet") {
-			t.Fatalf("Expected message about no runs, got: %q", stringOutput)
+		if !strings.Contains(p.Output(), "before error") {
+			t.Fatalf("Expected output to contain 'before error', got: %q", p.Output())
 		}
 	})
 }

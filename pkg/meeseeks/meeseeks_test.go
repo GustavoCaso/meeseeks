@@ -531,3 +531,45 @@ func BenchmarkMeeseek_Statistic(b *testing.B) {
 		m.Statistic("bench-status")
 	}
 }
+
+// Test long-running program statistics while program is still running.
+func TestMeeseek_LongRunningStatistics(t *testing.T) {
+	m := New()
+
+	// Add a long-running program
+	prog := program.New("long-runner", "sleep", program.Args("5"))
+	err := m.AddProgram(prog)
+	if err != nil {
+		t.Fatalf("Failed to add program: %v", err)
+	}
+
+	// Start the program but don't wait for completion
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	m.Start(ctx)
+
+	// Give the program time to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Check statistics while program is still running
+	stats := m.Statistics()
+	if len(stats) != 1 {
+		t.Fatalf("Expected 1 statistic, got %d", len(stats))
+	}
+
+	stat := stats[0]
+	t.Logf("Statistics: TotalRuns=%d, Running=%d, State=%s", stat.TotalRuns, stat.Running, stat.State)
+
+	if stat.TotalRuns != 1 {
+		t.Errorf("Expected TotalRuns=1, got %d", stat.TotalRuns)
+	}
+
+	if stat.Running != 1 {
+		t.Errorf("Expected Running=1, got %d", stat.Running)
+	}
+
+	if stat.State != "running" {
+		t.Errorf("Expected State='running', got %q", stat.State)
+	}
+}
