@@ -213,9 +213,8 @@ func (p *program) start(ctx context.Context) (<-chan struct{}, error) {
 
 func (p *program) run() error {
 	p.cmdLock.Lock()
-	cmd := p.cmd
+	err := p.cmd.Start()
 	p.cmdLock.Unlock()
-	err := cmd.Start()
 
 	if err != nil {
 		p.dataLock.Lock()
