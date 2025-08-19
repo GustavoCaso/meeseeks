@@ -485,11 +485,7 @@ func TestMultiplePrograms(t *testing.T) {
 	})
 }
 
-// NOTE: Statistics functionality has been moved to the meeseeks orchestrator.
-// Individual programs no longer track their own statistics.
-// These tests are now covered by the meeseeks package tests.
-
-func TestProgramBasicFunctionality(t *testing.T) {
+func TestProgramState(t *testing.T) {
 	t.Run("program tracks state correctly", func(t *testing.T) {
 		p := New("echo-test", "echo", Args("hello world"))
 

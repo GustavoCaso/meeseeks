@@ -206,8 +206,6 @@ func (p *program) start(ctx context.Context) (<-chan struct{}, error) {
 		_ = inWriter.Close()
 	}
 
-	p.done = make(chan struct{}, 1)
-
 	return p.done, p.run()
 }
 
@@ -291,6 +289,8 @@ func (p *program) monitorProcess() {
 		)
 	}
 
+	p.exitCode = cmd.ProcessState.ExitCode()
+
 	p.dataLock.Lock()
 	if err != nil {
 		p.errorBuffer.WriteString(err.Error())
@@ -300,7 +300,6 @@ func (p *program) monitorProcess() {
 	} else {
 		p.state = StateFinished
 	}
-	p.exitCode = p.cmd.ProcessState.ExitCode()
 	p.dataLock.Unlock()
 
 	p.signalDone()
@@ -404,7 +403,7 @@ func (p *program) State() ProcessState {
 
 func (p *program) Shutdown(timeout time.Duration) error {
 	p.cmdLock.Lock()
-	if p.cmd == nil || p.cmd.Process == nil || p.done == nil {
+	if p.cmd == nil || p.cmd.Process == nil {
 		p.cmdLock.Unlock()
 		return nil
 	}
@@ -432,7 +431,7 @@ func (p *program) Shutdown(timeout time.Duration) error {
 
 func (p *program) forcekill() error {
 	p.cmdLock.Lock()
-	if p.cmd == nil || p.cmd.Process == nil || p.done == nil {
+	if p.cmd == nil || p.cmd.Process == nil {
 		p.cmdLock.Unlock()
 		return nil
 	}
