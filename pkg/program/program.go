@@ -37,6 +37,15 @@ const (
 	StateError
 )
 
+//nolint:gochecknoglobals // This gloabls is convinient
+var StateToString = map[ProcessState]string{
+	StateNotStarted: "not started",
+	StateRunning:    "running",
+	StateFinished:   "finished",
+	StateIdle:       "idle",
+	StateError:      "error",
+}
+
 type Option func(*program)
 
 func Stdout(o io.Writer) Option {

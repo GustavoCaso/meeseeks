@@ -247,24 +247,9 @@ func (m *meeseek) collectProgramStatistics(info *ProgramInfo, execRecord *execut
 	programName := prog.Name()
 	progState := prog.State()
 
-	// Get current state
-	var state string
-	switch progState {
-	case program.StateFinished:
-		state = "finished"
-	case program.StateIdle:
-		state = "idle"
-	case program.StateError:
-		state = "error"
-	case program.StateRunning:
-		state = "running"
-	case program.StateNotStarted:
-		state = "not started"
-	}
-
 	stats := Statistics{
 		ProgramName: programName,
-		State:       state,
+		State:       program.StateToString[progState],
 		Successful:  execRecord.successful,
 		Failed:      execRecord.failed,
 	}
