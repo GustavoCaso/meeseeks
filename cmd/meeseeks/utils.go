@@ -95,9 +95,9 @@ func formatStatisticsAsTable(data any, programName string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal data: %w", err)
 	}
-	programStatistics := []meeseeks.ExecutionRecord{}
+	programStatistics := []meeseeks.Statistics{}
 	if programName != "" {
-		var programStatistic = meeseeks.ExecutionRecord{}
+		var programStatistic = meeseeks.Statistics{}
 
 		err = json.Unmarshal(jsonBytes, &programStatistic)
 		if err != nil {
@@ -106,7 +106,7 @@ func formatStatisticsAsTable(data any, programName string) error {
 
 		programStatistics = append(programStatistics, programStatistic)
 	} else {
-		var programsStatistic = []meeseeks.ExecutionRecord{}
+		var programsStatistic = []meeseeks.Statistics{}
 
 		err = json.Unmarshal(jsonBytes, &programsStatistic)
 		if err != nil {
@@ -117,23 +117,19 @@ func formatStatisticsAsTable(data any, programName string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(w, "NAME\tRUNS\tSUCCESS\tFAILED\tRUNNING\tINTERVAL\tSTATUS\n")
-	fmt.Fprintf(w, "----\t----\t-------\t------\t-------\t--------\t------\n")
+	fmt.Fprintf(w, "NAME\tSUCCESS\tFAILED\tINTERVAL\tSTATUS\n")
+	fmt.Fprintf(w, "----\t-------\t------\t--------\t------\n")
 
 	for _, stats := range programStatistics {
 		name := stats.ProgramName
-		totalRuns := stats.TotalRuns
 		successful := stats.Successful
 		failed := stats.Failed
-		running := stats.Running
 		interval := "no"
 
-		fmt.Fprintf(w, "%s\t%d\t%d\t%d\t%d\t%s\t%s\n",
+		fmt.Fprintf(w, "%s\t%d\t%d\t%s\t%s\n",
 			truncateString(name, 20),
-			totalRuns,
 			successful,
 			failed,
-			running,
 			truncateString(interval, 10),
 			stats.State)
 	}

@@ -17,8 +17,8 @@ type Meeseek interface {
 	Start(ctx context.Context)
 	Stop(programName string, timeout time.Duration) error
 	Wait(ctx context.Context) error
-	Statistic(program string) (ExecutionRecord, error)
-	Statistics() []ExecutionRecord
+	Statistic(program string) (Statistics, error)
+	Statistics() []Statistics
 	Shutdown(timeout time.Duration) error
 }
 
@@ -28,26 +28,28 @@ type ProgramInfo struct {
 	Interval *time.Duration // nil for regular programs, non-nil for scheduled
 }
 
-// ExecutionRecord tracks individual program execution statistics.
-type ExecutionRecord struct {
-	ProgramName       string `json:"program_name"`
-	State             string `json:"state"`
-	TotalRuns         int    `json:"total_runs"`
-	Successful        int    `json:"successful_runs"`
-	Failed            int    `json:"failed_runs"`
-	Running           int    `json:"running"`
-	TotalOutputLines  int    `json:"total_output_lines"`
-	LastSuccessfulRun int    `json:"last_successful_run"`
-	LastError         string `json:"last_error"`
-	LastOutput        string `json:"last_output"`
+// Statistics tracks individual program execution statistics.
+type Statistics struct {
+	ProgramName      string `json:"program_name"`
+	State            string `json:"state"`
+	Successful       int    `json:"successful_runs"`
+	Failed           int    `json:"failed_runs"`
+	TotalOutputLines int    `json:"total_output_lines"`
+	LastError        string `json:"last_error"`
+	LastOutput       string `json:"last_output"`
+}
+
+type executionTrack struct {
+	successful int
+	failed     int
 }
 
 type meeseek struct {
 	startTime      time.Time
 	endTime        time.Time
-	programs       map[string]*ProgramInfo     // Unified storage for all programs
-	schedulerStops map[string]chan struct{}    // Only for scheduled programs
-	executions     map[string]*ExecutionRecord // Statistics for each program
+	programs       map[string]*ProgramInfo    // Unified storage for all programs
+	schedulerStops map[string]chan struct{}   // Only for scheduled programs
+	executions     map[string]*executionTrack // execution tracking for each program
 	wg             *sync.WaitGroup
 	mu             sync.RWMutex
 }
@@ -61,7 +63,6 @@ func (m *meeseek) AddProgram(prog program.Program, interval ...time.Duration) er
 		return fmt.Errorf("duplicated %s program", name)
 	}
 
-	// Create program info with optional interval
 	progInfo := &ProgramInfo{
 		Program: prog,
 	}
@@ -70,6 +71,7 @@ func (m *meeseek) AddProgram(prog program.Program, interval ...time.Duration) er
 	}
 
 	m.programs[name] = progInfo
+	m.executions[name] = &executionTrack{}
 	return nil
 }
 
@@ -97,16 +99,12 @@ func (m *meeseek) Start(ctx context.Context) {
 				done, err := prog.Start(ctx)
 				if err != nil {
 					slog.Error("failed to start program", "program", prog.Name(), "error", err.Error())
-					m.trackProgramStart(prog.Name())
 					m.trackProgramCompletion(prog.Name(), false)
 					return
 				}
-				// Track that the program started
-				m.trackProgramStart(prog.Name())
 				<-done
 				// Track completion success based on final state
-				success := prog.State() == program.StateFinished
-				m.trackProgramCompletion(prog.Name(), success)
+				m.trackProgramCompletion(prog.Name(), prog.State() == program.StateFinished)
 			}(info.Program)
 		} else {
 			// Start scheduled program
@@ -137,18 +135,14 @@ func (m *meeseek) runScheduledProgram(ctx context.Context, prog program.Program,
 		case <-ticker.C:
 			done, err := prog.Start(ctx)
 			if err != nil {
-				m.trackProgramStart(programName)
 				m.trackProgramCompletion(programName, false)
 				return
 			}
-			// Track that the program started
-			m.trackProgramStart(programName)
 
 			select {
 			case <-done:
 				// Program execution completed normally
-				success := prog.State() == program.StateFinished
-				m.trackProgramCompletion(programName, success)
+				m.trackProgramCompletion(programName, prog.State() == program.StateFinished)
 			case <-ctx.Done():
 				// Context cancelled while program was running
 				return
@@ -161,26 +155,31 @@ func (m *meeseek) runScheduledProgram(ctx context.Context, prog program.Program,
 	}
 }
 
-func (m *meeseek) Statistic(programName string) (ExecutionRecord, error) {
+func (m *meeseek) Statistic(programName string) (Statistics, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	info, ok := m.programs[programName]
 	if !ok {
-		return ExecutionRecord{}, fmt.Errorf("program %s not present", programName)
+		return Statistics{}, fmt.Errorf("program %s not present", programName)
+	}
+	execRun, ok := m.executions[programName]
+	if !ok {
+		return Statistics{}, fmt.Errorf("execution information for %s not present", programName)
 	}
 
-	return m.collectProgramStatistics(info), nil
+	return m.collectProgramStatistics(info, execRun), nil
 }
 
-func (m *meeseek) Statistics() []ExecutionRecord {
+func (m *meeseek) Statistics() []Statistics {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	statistics := make([]ExecutionRecord, 0, len(m.programs))
+	statistics := make([]Statistics, 0, len(m.programs))
 
-	for _, info := range m.programs {
-		statistics = append(statistics, m.collectProgramStatistics(info))
+	for name, info := range m.programs {
+		execRecord := m.executions[name]
+		statistics = append(statistics, m.collectProgramStatistics(info, execRecord))
 	}
 
 	return statistics
@@ -248,7 +247,7 @@ func (m *meeseek) Shutdown(timeout time.Duration) error {
 }
 
 // collectProgramStatistics gathers statistics from program state and execution records.
-func (m *meeseek) collectProgramStatistics(info *ProgramInfo) ExecutionRecord {
+func (m *meeseek) collectProgramStatistics(info *ProgramInfo, execRecord *executionTrack) Statistics {
 	prog := info.Program
 	programName := prog.Name()
 	progState := prog.State()
@@ -268,25 +267,11 @@ func (m *meeseek) collectProgramStatistics(info *ProgramInfo) ExecutionRecord {
 		state = "not started"
 	}
 
-	// Get or initialize execution record
-	execRecord, exists := m.executions[programName]
-	if !exists {
-		execRecord = &ExecutionRecord{
-			LastSuccessfulRun: -1,
-		}
-		m.executions[programName] = execRecord
-	}
-
-	// If program is running but we don't have it tracked as running, sync the state
-	// This handles cases where statistics are requested before tracking methods are called
-	if progState == program.StateRunning && execRecord.Running == 0 {
-		execRecord.Running = 1
-		// If we don't have any runs tracked yet, assume this is the first run
-		if execRecord.TotalRuns == 0 {
-			execRecord.TotalRuns = 1
-		}
-	} else if progState != program.StateRunning {
-		execRecord.Running = 0
+	stats := Statistics{
+		ProgramName: programName,
+		State:       state,
+		Successful:  execRecord.successful,
+		Failed:      execRecord.failed,
 	}
 
 	// Collect last output and error information
@@ -301,47 +286,19 @@ func (m *meeseek) collectProgramStatistics(info *ProgramInfo) ExecutionRecord {
 
 	// Update last output information
 	if lastOutput != "" {
-		execRecord.LastOutput = lastOutput
+		stats.LastOutput = lastOutput
 	}
 	if lastError != "" {
-		execRecord.LastError = lastError
+		stats.LastError = lastError
 	}
 
 	// Count output lines
 	output := prog.Output()
 	if output != "" {
-		execRecord.TotalOutputLines = strings.Count(output, "\n")
+		stats.TotalOutputLines = strings.Count(output, "\n")
 	}
 
-	return ExecutionRecord{
-		ProgramName:       programName,
-		State:             state,
-		TotalRuns:         execRecord.TotalRuns,
-		Successful:        execRecord.Successful,
-		Failed:            execRecord.Failed,
-		Running:           execRecord.Running,
-		TotalOutputLines:  execRecord.TotalOutputLines,
-		LastSuccessfulRun: execRecord.LastSuccessfulRun,
-		LastError:         execRecord.LastError,
-		LastOutput:        execRecord.LastOutput,
-	}
-}
-
-// trackProgramStart updates execution statistics when a program starts.
-func (m *meeseek) trackProgramStart(programName string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	execRecord, exists := m.executions[programName]
-	if !exists {
-		execRecord = &ExecutionRecord{
-			LastSuccessfulRun: -1,
-		}
-		m.executions[programName] = execRecord
-	}
-
-	execRecord.TotalRuns++
-	execRecord.Running = 1
+	return stats
 }
 
 // trackProgramCompletion updates execution statistics when a program completes.
@@ -349,21 +306,12 @@ func (m *meeseek) trackProgramCompletion(programName string, success bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	execRecord, exists := m.executions[programName]
-	if !exists {
-		// This shouldn't happen if trackProgramStart was called first
-		execRecord = &ExecutionRecord{
-			LastSuccessfulRun: -1,
-		}
-		m.executions[programName] = execRecord
-	}
+	execRecord := m.executions[programName]
 
-	execRecord.Running = 0
 	if success {
-		execRecord.Successful++
-		execRecord.LastSuccessfulRun = execRecord.TotalRuns - 1 // 0-based indexing
+		execRecord.successful++
 	} else {
-		execRecord.Failed++
+		execRecord.failed++
 	}
 }
 
@@ -372,6 +320,6 @@ func New() Meeseek {
 		wg:             &sync.WaitGroup{},
 		programs:       make(map[string]*ProgramInfo),
 		schedulerStops: make(map[string]chan struct{}),
-		executions:     make(map[string]*ExecutionRecord),
+		executions:     make(map[string]*executionTrack),
 	}
 }

@@ -77,27 +77,49 @@ func TestMeeseek_AddProgram(t *testing.T) {
 
 func TestMeeseek_Statistic(t *testing.T) {
 	tests := []struct {
-		name        string
-		programs    []program.Program
-		statusQuery string
-		wantErr     bool
-		errMsg      string
+		name          string
+		programs      []program.Program
+		programName   string
+		runPrograms   bool
+		expectedState string
+		wantErr       bool
+		errMsg        string
 	}{
 		{
-			name: "statistic of existing program",
+			name: "statistic of existing program not started",
 			programs: []program.Program{
 				program.New("test1", "echo", program.Args("hello")),
 			},
-			statusQuery: "test1",
+			programName:   "test1",
+			runPrograms:   false,
+			expectedState: "not started",
+		},
+		{
+			name: "statistic of existing program finished",
+			programs: []program.Program{
+				program.New("test1", "echo", program.Args("hello")),
+			},
+			programName:   "test1",
+			runPrograms:   true,
+			expectedState: "finished",
 		},
 		{
 			name: "statistic of nonexistent program",
 			programs: []program.Program{
 				program.New("test1", "echo", program.Args("hello")),
 			},
-			statusQuery: "nonexistent",
+			programName: "nonexistent",
 			wantErr:     true,
 			errMsg:      "program nonexistent not present",
+		},
+		{
+			name: "statistic of async program",
+			programs: []program.Program{
+				program.New("async-test", "echo", program.Args("async"), program.Async()),
+			},
+			programName:   "async-test",
+			runPrograms:   true,
+			expectedState: "finished",
 		},
 	}
 
@@ -112,11 +134,22 @@ func TestMeeseek_Statistic(t *testing.T) {
 				}
 			}
 
-			statistic, err := m.Statistic(tt.statusQuery)
+			if tt.runPrograms {
+				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+				defer cancel()
+
+				m.Start(ctx)
+				err := m.Wait(ctx)
+				if err != nil {
+					t.Fatalf("Failed to wait for programs: %v", err)
+				}
+			}
+
+			statistic, err := m.Statistic(tt.programName)
 
 			if tt.wantErr {
 				if err == nil {
-					t.Fatalf("Status() expected error but got none")
+					t.Fatalf("Statistic() expected error but got none")
 					return
 				}
 				if !strings.Contains(err.Error(), tt.errMsg) {
@@ -130,8 +163,24 @@ func TestMeeseek_Statistic(t *testing.T) {
 				return
 			}
 
-			if statistic.ProgramName != tt.statusQuery {
-				t.Fatalf("Statistic() returned incorrect statistic")
+			// Validate statistic content
+			if statistic.ProgramName != tt.programName {
+				t.Errorf("Statistic().ProgramName = %q, want %q", statistic.ProgramName, tt.programName)
+			}
+
+			if statistic.State != tt.expectedState {
+				t.Errorf("Statistic().State = %q, want %q", statistic.State, tt.expectedState)
+			}
+
+			// Validate run counts based on whether programs were executed
+			if tt.runPrograms {
+				if statistic.State == "finished" && statistic.Successful == 0 {
+					t.Error("Statistic().Successful should be > 0 for finished program")
+				}
+			} else {
+				if statistic.Successful+statistic.Failed != 0 {
+					t.Errorf("Statistic().Successful + statistic().Failed = %d, want 0 for not started program", statistic.Successful+statistic.Failed)
+				}
 			}
 		})
 	}
@@ -271,6 +320,40 @@ func TestMeeseek_Statistics(t *testing.T) {
 				if !programNames[stat.ProgramName] {
 					t.Fatalf("Statistics()[%d].ProgramName = %q, not found in expected programs", i, stat.ProgramName)
 				}
+
+				// Validate statistics content consistency
+				if stat.Successful < 0 {
+					t.Errorf("Statistics()[%d].Successful = %d, should be >= 0", i, stat.Successful)
+				}
+				if stat.Failed < 0 {
+					t.Errorf("Statistics()[%d].Failed = %d, should be >= 0", i, stat.Failed)
+				}
+				if stat.TotalOutputLines < 0 {
+					t.Errorf("Statistics()[%d].TotalOutputLines = %d, should be >= 0", i, stat.TotalOutputLines)
+				}
+
+				// Validate state consistency
+				validStates := []string{"not started", "idle", "running", "finished", "error"}
+				validState := false
+				for _, validS := range validStates {
+					if stat.State == validS {
+						validState = true
+						break
+					}
+				}
+				if !validState {
+					t.Errorf("Statistics()[%d].State = %q, should be one of %v", i, stat.State, validStates)
+				}
+
+				// For ran programs, validate execution metrics
+				if tt.runPrograms {
+					if stat.Successful == 0 {
+						t.Errorf("Statistics()[%d].Successful = 0, should be > 0 after running", i)
+					}
+					if stat.State == "finished" && stat.Successful == 0 {
+						t.Errorf("Statistics()[%d]: finished program should have Successful > 0", i)
+					}
+				}
 			}
 		})
 	}
@@ -317,11 +400,6 @@ func TestMeeseek_IntervalPrograms(t *testing.T) {
 			stats := m.Statistics()
 			if len(stats) != 1 {
 				t.Fatalf("Expected 1 statistic, got %d", len(stats))
-			}
-
-			runs := stats[0].TotalRuns
-			if runs < tt.minRuns || runs > tt.maxRuns {
-				t.Fatalf("Expected %d-%d runs, got %d", tt.minRuns, tt.maxRuns, runs)
 			}
 
 			cancel() // Cancel context to stop interval program
@@ -559,17 +637,214 @@ func TestMeeseek_LongRunningStatistics(t *testing.T) {
 	}
 
 	stat := stats[0]
-	t.Logf("Statistics: TotalRuns=%d, Running=%d, State=%s", stat.TotalRuns, stat.Running, stat.State)
-
-	if stat.TotalRuns != 1 {
-		t.Errorf("Expected TotalRuns=1, got %d", stat.TotalRuns)
-	}
-
-	if stat.Running != 1 {
-		t.Errorf("Expected Running=1, got %d", stat.Running)
-	}
+	t.Logf("Statistics: %+v", stat)
 
 	if stat.State != "running" {
 		t.Errorf("Expected State='running', got %q", stat.State)
+	}
+
+	// Test individual statistic query while running
+	individualStat, err := m.Statistic("long-runner")
+	if err != nil {
+		t.Fatalf("Failed to get individual statistic: %v", err)
+	}
+
+	if individualStat.State != stat.State {
+		t.Errorf("Individual statistic State mismatch: got %q, want %q", individualStat.State, stat.State)
+	}
+}
+
+// Test statistics for programs with output
+func TestMeeseek_StatisticsWithOutput(t *testing.T) {
+	tests := []struct {
+		name            string
+		programCmd      string
+		programArgs     []string
+		expectOutput    bool
+		expectMultiline bool
+	}{
+		{
+			name:         "program with single line output",
+			programCmd:   "echo",
+			programArgs:  []string{"hello world"},
+			expectOutput: true,
+		},
+		{
+			name:            "program with multiline output",
+			programCmd:      "printf",
+			programArgs:     []string{"line1\nline2\nline3"},
+			expectOutput:    true,
+			expectMultiline: true,
+		},
+		{
+			name:         "program with no output",
+			programCmd:   "true", // command that produces no output
+			programArgs:  []string{},
+			expectOutput: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := New()
+
+			prog := program.New("output-test", tt.programCmd, program.Args(tt.programArgs...))
+			err := m.AddProgram(prog)
+			if err != nil {
+				t.Fatalf("Failed to add program: %v", err)
+			}
+
+			// Run the program
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+
+			m.Start(ctx)
+			err = m.Wait(ctx)
+			if err != nil {
+				t.Fatalf("Failed to wait for programs: %v", err)
+			}
+
+			// Check statistics for output information
+			stat, err := m.Statistic("output-test")
+			if err != nil {
+				t.Fatalf("Failed to get statistic: %v", err)
+			}
+
+			if tt.expectOutput {
+				if stat.LastOutput == "" {
+					t.Error("Expected LastOutput to be non-empty")
+				}
+				if stat.TotalOutputLines == 0 {
+					t.Error("Expected TotalOutputLines to be > 0")
+				}
+				if tt.expectMultiline && stat.TotalOutputLines < 2 {
+					t.Errorf("Expected TotalOutputLines >= 2 for multiline output, got %d", stat.TotalOutputLines)
+				}
+			} else {
+				// For programs with no output, these should be minimal
+				if stat.TotalOutputLines > 1 {
+					t.Errorf("Expected TotalOutputLines <= 1 for no-output program, got %d", stat.TotalOutputLines)
+				}
+			}
+
+			// Validate basic execution statistics
+			if stat.Successful != 1 {
+				t.Errorf("Expected Successful = 1, got %d", stat.Successful)
+			}
+			if stat.Failed != 0 {
+				t.Errorf("Expected Failed = 0, got %d", stat.Failed)
+			}
+			if stat.State != "finished" {
+				t.Errorf("Expected State = 'finished', got %q", stat.State)
+			}
+		})
+	}
+}
+
+func TestMeeseek_FailingProgramStatistics(t *testing.T) {
+	tests := []struct {
+		name        string
+		programCmd  string
+		programArgs []string
+		expectError bool
+	}{
+		{
+			name:        "program with non-zero exit code",
+			programCmd:  "sh",
+			programArgs: []string{"-c", "exit 1"},
+			expectError: true,
+		},
+		{
+			name:        "nonexistent program",
+			programCmd:  "nonexistent-command-12345",
+			programArgs: []string{},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := New()
+
+			prog := program.New("failing-test", tt.programCmd, program.Args(tt.programArgs...))
+			err := m.AddProgram(prog)
+			if err != nil {
+				t.Fatalf("Failed to add program: %v", err)
+			}
+
+			// Run the program (expect it to fail)
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+
+			m.Start(ctx)
+			err = m.Wait(ctx) // This might return an error or success depending on implementation
+
+			// Check statistics regardless of Wait() result
+			stat, err := m.Statistic("failing-test")
+			if err != nil {
+				t.Fatalf("Failed to get statistic: %v", err)
+			}
+
+			if tt.expectError {
+				if stat.Failed == 0 {
+					t.Error("Expected Failed > 0 for failing program")
+				}
+				if stat.State != "error" && stat.State != "finished" {
+					t.Errorf("Expected State to be 'error' or 'finished', got %q", stat.State)
+				}
+				// LastError should contain error information
+				if stat.LastError == "" && stat.State == "error" {
+					t.Error("Expected LastError to be non-empty for error state")
+				}
+			} else {
+				if stat.Successful == 0 {
+					t.Error("Expected Succesful > 0 for succesful program")
+				}
+			}
+		})
+	}
+}
+
+// Test empty meeseek statistics
+func TestMeeseek_EmptyStatistics(t *testing.T) {
+	m := New()
+
+	// Test Statistics() on empty meeseek
+	stats := m.Statistics()
+	if len(stats) != 0 {
+		t.Errorf("Expected empty statistics, got %d items", len(stats))
+	}
+
+	// Test Statistic() on empty meeseek
+	_, err := m.Statistic("nonexistent")
+	if err == nil {
+		t.Error("Expected error for Statistic() on empty meeseek")
+	}
+	expectedMsg := "program nonexistent not present"
+	if !strings.Contains(err.Error(), expectedMsg) {
+		t.Errorf("Error message should contain %q, got %q", expectedMsg, err.Error())
+	}
+
+	// Add program but don't run it
+	prog := program.New("idle-test", "echo", program.Args("test"))
+	err = m.AddProgram(prog)
+	if err != nil {
+		t.Fatalf("Failed to add program: %v", err)
+	}
+
+	// Check statistics for non-started program
+	stat, err := m.Statistic("idle-test")
+	if err != nil {
+		t.Fatalf("Failed to get statistic: %v", err)
+	}
+
+	if stat.State != "not started" {
+		t.Errorf("Expected State = 'not started', got %q", stat.State)
+	}
+	if stat.Successful != 0 {
+		t.Errorf("Expected Successful = 0, got %d", stat.Successful)
+	}
+	if stat.Failed != 0 {
+		t.Errorf("Expected Failed = 0, got %d", stat.Failed)
 	}
 }

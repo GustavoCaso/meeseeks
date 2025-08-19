@@ -17,15 +17,15 @@ func TestStatusCommand(t *testing.T) {
 			name:         "status format table",
 			args:         []string{"status"},
 			expectedExit: 0,
-			shouldContain: `NAME                RUNS  SUCCESS  FAILED  RUNNING  INTERVAL  STATUS
-----                ----  -------  ------  -------  --------  ------
-test-echo-detached  1     0        0       1        no        running`,
+			shouldContain: `NAME                SUCCESS  FAILED  INTERVAL  STATUS
+----                -------  ------  --------  ------
+test-echo-detached  0        0       no        running`,
 		},
 		{
 			name:          "status format table single program",
 			args:          []string{"status", "test-echo-detached"},
 			expectedExit:  0,
-			shouldContain: `test-echo-detached  1     0        0       1        no        running`,
+			shouldContain: `test-echo-detached  0        0       no        running`,
 		},
 		{
 			name:          "status format json",

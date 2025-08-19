@@ -206,6 +206,8 @@ func (p *program) start(ctx context.Context) (<-chan struct{}, error) {
 		_ = inWriter.Close()
 	}
 
+	p.done = make(chan struct{}, 1)
+
 	return p.done, p.run()
 }
 
@@ -449,7 +451,6 @@ func New(name, command string, opts ...Option) Program {
 	p := &program{
 		name:    name,
 		command: command,
-		done:    make(chan struct{}, 1),
 	}
 
 	for _, opt := range opts {
