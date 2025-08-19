@@ -327,7 +327,7 @@ func (p *program) readOutput(reader io.Reader, isError bool) {
 			p.dataLock.Lock()
 			p.errorBuffer.WriteString("Scanner error: " + err.Error())
 			p.errorBuffer.WriteString("\n")
-			p.dataLock.Lock()
+			p.dataLock.Unlock()
 		}
 	}
 }
