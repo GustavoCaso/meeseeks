@@ -440,7 +440,6 @@ func TestMeeseek_StatisticsWithOutput(t *testing.T) {
 					t.Errorf("Expected TotalOutputLines >= 2 for multiline output, got %d", stat.TotalOutputLines)
 				}
 			} else if stat.TotalOutputLines > 1 {
-
 				t.Errorf("Expected TotalOutputLines <= 1 for no-output program, got %d", stat.TotalOutputLines)
 			}
 
