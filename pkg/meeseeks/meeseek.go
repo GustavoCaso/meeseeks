@@ -81,14 +81,7 @@ func (m *meeseek) Start(ctx context.Context) {
 
 	m.startTime = time.Now()
 
-	// Count regular programs for WaitGroup
-	regularCount := 0
-	for _, info := range m.programs {
-		if info.Interval == nil {
-			regularCount++
-		}
-	}
-	m.wg.Add(regularCount)
+	m.wg.Add(len(m.programs))
 
 	// Start all programs
 	for _, info := range m.programs {
@@ -96,6 +89,7 @@ func (m *meeseek) Start(ctx context.Context) {
 			// Start regular program
 			go func(prog program.Program) {
 				defer m.wg.Done()
+
 				done, err := prog.Start(ctx)
 				if err != nil {
 					slog.Error("failed to start program", "program", prog.Name(), "error", err.Error())
@@ -119,6 +113,7 @@ func (m *meeseek) runScheduledProgram(ctx context.Context, prog program.Program,
 	programName := prog.Name()
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	defer m.wg.Done()
 
 	// Create a stop channel for this scheduled program
 	stop := make(chan struct{})
