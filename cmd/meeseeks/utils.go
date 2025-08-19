@@ -10,6 +10,7 @@ import (
 
 	"github.com/GustavoCaso/meeseeks/internal/config"
 	"github.com/GustavoCaso/meeseeks/internal/logger"
+	"github.com/GustavoCaso/meeseeks/pkg/meeseeks"
 	"github.com/GustavoCaso/meeseeks/pkg/program"
 )
 
@@ -71,14 +72,6 @@ func createProgramFromConfig(pc config.ProgramConfig, logger *logger.Logger) (pr
 		opts = append(opts, program.KeepStdinOpen())
 	}
 
-	if pc.Interval != "" {
-		interval, err := pc.GetInterval()
-		if err != nil {
-			return nil, fmt.Errorf("invalid interval: %w", err)
-		}
-		opts = append(opts, program.Interval(interval))
-	}
-
 	if pc.Stdout != "" {
 		file, err := os.OpenFile(pc.Stdout, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 		if err != nil {
@@ -105,9 +98,9 @@ func formatStatisticsAsTable(data any, programName string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal data: %w", err)
 	}
-	programStatistics := []program.Statistics{}
+	programStatistics := []meeseeks.Statistics{}
 	if programName != "" {
-		var programStatistic = program.Statistics{}
+		var programStatistic = meeseeks.Statistics{}
 
 		err = json.Unmarshal(jsonBytes, &programStatistic)
 		if err != nil {
@@ -116,7 +109,7 @@ func formatStatisticsAsTable(data any, programName string) error {
 
 		programStatistics = append(programStatistics, programStatistic)
 	} else {
-		var programsStatistic = []program.Statistics{}
+		var programsStatistic = []meeseeks.Statistics{}
 
 		err = json.Unmarshal(jsonBytes, &programsStatistic)
 		if err != nil {
@@ -127,26 +120,19 @@ func formatStatisticsAsTable(data any, programName string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(w, "NAME\tRUNS\tSUCCESS\tFAILED\tRUNNING\tINTERVAL\tSTATUS\n")
-	fmt.Fprintf(w, "----\t----\t-------\t------\t-------\t--------\t------\n")
+	fmt.Fprintf(w, "NAME\tSUCCESS\tFAILED\tINTERVAL\tSTATUS\n")
+	fmt.Fprintf(w, "----\t-------\t------\t--------\t------\n")
 
 	for _, stats := range programStatistics {
 		name := stats.ProgramName
-		totalRuns := stats.TotalRuns
 		successful := stats.Successful
 		failed := stats.Failed
-		running := stats.Running
 		interval := "no"
-		if stats.HasInterval {
-			interval = stats.Interval.String()
-		}
 
-		fmt.Fprintf(w, "%s\t%d\t%d\t%d\t%d\t%s\t%s\n",
+		fmt.Fprintf(w, "%s\t%d\t%d\t%s\t%s\n",
 			truncateString(name, 20),
-			totalRuns,
 			successful,
 			failed,
-			running,
 			truncateString(interval, 10),
 			stats.State)
 	}

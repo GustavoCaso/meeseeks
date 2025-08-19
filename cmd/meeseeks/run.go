@@ -153,8 +153,19 @@ func startServer(
 			return nil, fmt.Errorf("failed to create program %s: %w", programConfig.Name, err)
 		}
 
-		if addErr := s.AddProgram(prog); addErr != nil {
-			return nil, fmt.Errorf("failed to add program %s: %w", programConfig.Name, addErr)
+		// Check if this program has an interval - pass it to AddProgram
+		if programConfig.Interval != "" {
+			interval, intervalErr := programConfig.GetInterval()
+			if intervalErr != nil {
+				return nil, fmt.Errorf("failed to parse interval for program %s: %w", programConfig.Name, intervalErr)
+			}
+			if addErr := s.AddProgram(prog, interval); addErr != nil {
+				return nil, fmt.Errorf("failed to add scheduled program %s: %w", programConfig.Name, addErr)
+			}
+		} else {
+			if addErr := s.AddProgram(prog); addErr != nil {
+				return nil, fmt.Errorf("failed to add program %s: %w", programConfig.Name, addErr)
+			}
 		}
 	}
 

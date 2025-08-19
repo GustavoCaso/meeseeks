@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,32 +13,65 @@ import (
 )
 
 type Meeseek interface {
-	AddProgram(program.Program) error
+	AddProgram(prog program.Program, interval ...time.Duration) error
 	Start(ctx context.Context)
 	Stop(programName string, timeout time.Duration) error
 	Wait(ctx context.Context) error
-	Statistic(program string) (program.Statistics, error)
-	Statistics() []program.Statistics
+	Statistic(program string) (Statistics, error)
+	Statistics() []Statistics
 	Shutdown(timeout time.Duration) error
 }
 
-type meeseek struct {
-	startTime time.Time
-	endTime   time.Time
-	programs  map[string]program.Program
-	wg        *sync.WaitGroup
-	mu        sync.RWMutex
+// ProgramInfo holds program metadata for unified storage.
+type ProgramInfo struct {
+	Program  program.Program
+	Interval *time.Duration // nil for regular programs, non-nil for scheduled
 }
 
-func (m *meeseek) AddProgram(p program.Program) error {
+// Statistics tracks individual program execution statistics.
+type Statistics struct {
+	ProgramName      string `json:"program_name"`
+	State            string `json:"state"`
+	Successful       int    `json:"successful_runs"`
+	Failed           int    `json:"failed_runs"`
+	TotalOutputLines int    `json:"total_output_lines"`
+	LastError        string `json:"last_error"`
+	LastOutput       string `json:"last_output"`
+}
+
+type executionTrack struct {
+	successful int
+	failed     int
+}
+
+type meeseek struct {
+	startTime      time.Time
+	endTime        time.Time
+	programs       map[string]*ProgramInfo    // Unified storage for all programs
+	schedulerStops map[string]chan struct{}   // Only for scheduled programs
+	executions     map[string]*executionTrack // execution tracking for each program
+	wg             *sync.WaitGroup
+	mu             sync.RWMutex
+}
+
+func (m *meeseek) AddProgram(prog program.Program, interval ...time.Duration) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, ok := m.programs[p.Name()]; ok {
-		return fmt.Errorf("duplicated %s program", p.Name())
+	name := prog.Name()
+	if _, exists := m.programs[name]; exists {
+		return fmt.Errorf("duplicated %s program", name)
 	}
 
-	m.programs[p.Name()] = p
+	progInfo := &ProgramInfo{
+		Program: prog,
+	}
+	if len(interval) > 0 && interval[0] > 0 {
+		progInfo.Interval = &interval[0]
+	}
+
+	m.programs[name] = progInfo
+	m.executions[name] = &executionTrack{}
 	return nil
 }
 
@@ -46,39 +80,101 @@ func (m *meeseek) Start(ctx context.Context) {
 	defer m.mu.RUnlock()
 
 	m.startTime = time.Now()
+
 	m.wg.Add(len(m.programs))
 
-	for _, p := range m.programs {
-		go func(prog program.Program) {
+	// Start all programs
+	for _, info := range m.programs {
+		if info.Interval == nil {
+			// Start regular program
+			go func(prog program.Program) {
+				defer m.wg.Done()
+
+				done, err := prog.Start(ctx)
+				if err != nil {
+					slog.Error("failed to start program", "program", prog.Name(), "error", err.Error())
+					m.trackProgramCompletion(prog.Name(), false)
+					return
+				}
+				<-done
+				// Track completion success based on final state
+				m.trackProgramCompletion(prog.Name(), prog.State() == program.StateFinished)
+			}(info.Program)
+		} else {
+			// Start scheduled program
+			go func(progInfo *ProgramInfo) {
+				m.runScheduledProgram(ctx, progInfo.Program, *progInfo.Interval)
+			}(info)
+		}
+	}
+}
+
+func (m *meeseek) runScheduledProgram(ctx context.Context, prog program.Program, interval time.Duration) {
+	programName := prog.Name()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	defer m.wg.Done()
+
+	// Create a stop channel for this scheduled program
+	stop := make(chan struct{})
+	m.mu.Lock()
+	m.schedulerStops[programName] = stop
+	m.mu.Unlock()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-stop:
+			return
+		case <-ticker.C:
 			done, err := prog.Start(ctx)
 			if err != nil {
-				slog.Error("failed to start program", "program", prog.Name(), "error", err.Error())
+				m.trackProgramCompletion(programName, false)
+				return
 			}
-			<-done
-			m.wg.Done()
-		}(p)
+
+			select {
+			case <-done:
+				// Program execution completed normally
+				m.trackProgramCompletion(programName, prog.State() == program.StateFinished)
+			case <-ctx.Done():
+				// Context cancelled while program was running
+				return
+			case <-stop:
+				// Stop signal while program was running - shutdown the current execution
+				_ = prog.Shutdown(5 * time.Second)
+				return
+			}
+		}
 	}
 }
 
-func (m *meeseek) Statistic(programName string) (program.Statistics, error) {
+func (m *meeseek) Statistic(programName string) (Statistics, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	if _, ok := m.programs[programName]; !ok {
-		return program.Statistics{}, fmt.Errorf("program %s not present", programName)
+	info, ok := m.programs[programName]
+	if !ok {
+		return Statistics{}, fmt.Errorf("program %s not present", programName)
+	}
+	execRun, ok := m.executions[programName]
+	if !ok {
+		return Statistics{}, fmt.Errorf("execution information for %s not present", programName)
 	}
 
-	return m.programs[programName].Statistics(), nil
+	return m.collectProgramStatistics(info, execRun), nil
 }
 
-func (m *meeseek) Statistics() []program.Statistics {
+func (m *meeseek) Statistics() []Statistics {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	statistics := []program.Statistics{}
+	statistics := make([]Statistics, 0, len(m.programs))
 
-	for _, p := range m.programs {
-		statistics = append(statistics, p.Statistics())
+	for name, info := range m.programs {
+		execRecord := m.executions[name]
+		statistics = append(statistics, m.collectProgramStatistics(info, execRecord))
 	}
 
 	return statistics
@@ -104,26 +200,106 @@ func (m *meeseek) Wait(ctx context.Context) error {
 }
 
 func (m *meeseek) Stop(programName string, timeout time.Duration) error {
-	if _, ok := m.programs[programName]; !ok {
+	m.mu.RLock()
+	info, ok := m.programs[programName]
+	m.mu.RUnlock()
+
+	if !ok {
 		return fmt.Errorf("program %s not present", programName)
 	}
 
-	return m.programs[programName].Shutdown(timeout)
+	if info.Interval == nil {
+		// Regular program - shutdown directly
+		return info.Program.Shutdown(timeout)
+	}
+
+	// Scheduled program - stop via channel
+	m.mu.Lock()
+	if stop, exists := m.schedulerStops[programName]; exists {
+		close(stop)
+		delete(m.schedulerStops, programName)
+	}
+	m.mu.Unlock()
+	return nil
 }
 
 func (m *meeseek) Shutdown(timeout time.Duration) error {
-	errs := []error{}
+	// Stop all scheduled programs
+	m.mu.Lock()
+	for _, stop := range m.schedulerStops {
+		close(stop)
+	}
+	m.schedulerStops = make(map[string]chan struct{})
+	m.mu.Unlock()
 
-	for _, p := range m.programs {
-		errs = append(errs, p.Shutdown(timeout))
+	errs := make([]error, 0, len(m.programs))
+
+	for _, info := range m.programs {
+		errs = append(errs, info.Program.Shutdown(timeout))
 	}
 
 	return errors.Join(errs...)
 }
 
+// collectProgramStatistics gathers statistics from program state and execution records.
+func (m *meeseek) collectProgramStatistics(info *ProgramInfo, execRecord *executionTrack) Statistics {
+	prog := info.Program
+	programName := prog.Name()
+	progState := prog.State()
+
+	stats := Statistics{
+		ProgramName: programName,
+		State:       program.StateToString[progState],
+		Successful:  execRecord.successful,
+		Failed:      execRecord.failed,
+	}
+
+	// Collect last output and error information
+	lastOutput := prog.LastLine()
+	lastError := ""
+	if progState == program.StateError {
+		lastError = strings.TrimSpace(prog.Error())
+		if len(lastError) > 200 { // Limit error message length for readability
+			lastError = lastError[:200] + "..."
+		}
+	}
+
+	// Update last output information
+	if lastOutput != "" {
+		stats.LastOutput = lastOutput
+	}
+	if lastError != "" {
+		stats.LastError = lastError
+	}
+
+	// Count output lines
+	output := prog.Output()
+	if output != "" {
+		stats.TotalOutputLines = strings.Count(output, "\n")
+	}
+
+	return stats
+}
+
+// trackProgramCompletion updates execution statistics when a program completes.
+func (m *meeseek) trackProgramCompletion(programName string, success bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	execRecord := m.executions[programName]
+
+	if success {
+		execRecord.successful++
+	} else {
+		execRecord.failed++
+	}
+}
+
 func New() Meeseek {
 	return &meeseek{
-		wg:       &sync.WaitGroup{},
-		programs: map[string]program.Program{},
+		wg:             &sync.WaitGroup{},
+		programs:       make(map[string]*ProgramInfo),
+		schedulerStops: make(map[string]chan struct{}),
+		executions:     make(map[string]*executionTrack),
 	}
 }

@@ -111,8 +111,8 @@ func (s *Server) Stop() error {
 	return errors.Join(errs...)
 }
 
-func (s *Server) AddProgram(prog program.Program) error {
-	return s.meeseeks.AddProgram(prog)
+func (s *Server) AddProgram(prog program.Program, interval ...time.Duration) error {
+	return s.meeseeks.AddProgram(prog, interval...)
 }
 
 func (s *Server) StartPrograms(ctx context.Context) {
