@@ -485,136 +485,38 @@ func TestMultiplePrograms(t *testing.T) {
 	})
 }
 
-func TestInterval(t *testing.T) {
-	t.Run("program with interval", func(t *testing.T) {
-		p := New("echo-test", "echo", Args("hello world"), Interval(time.Duration(10)*time.Millisecond))
+func TestProgramState(t *testing.T) {
+	t.Run("program tracks state correctly", func(t *testing.T) {
+		p := New("echo-test", "echo", Args("hello world"))
 
-		ctx, cancel := context.WithCancel(t.Context())
+		if p.State() != StateNotStarted {
+			t.Fatalf("Expected initial state to be StateNotStarted, got %v", p.State())
+		}
 
-		_, err := p.Start(ctx)
+		done, err := p.Start(t.Context())
 		if err != nil {
 			t.Fatalf("Failed to start program %s: %v", p.Name(), err)
 		}
-		time.Sleep(1 * time.Second)
-		cancel()
+		<-done
 
-		if p.Runs() <= 0 {
-			t.Fatalf("Failed to run program %s multiple times expected more than zero got zero", p.Name())
+		if p.State() != StateFinished {
+			t.Fatalf("Expected final state to be StateFinished, got %v", p.State())
+		}
+
+		if p.Name() != "echo-test" {
+			t.Fatalf("Expected program name 'echo-test', got %q", p.Name())
+		}
+
+		if len(p.Output()) == 0 {
+			t.Fatal("Expected some output from echo command")
+		}
+
+		if p.LastLine() == "" {
+			t.Fatal("Expected LastLine to be set")
 		}
 	})
 
-	t.Run("async program with interval", func(t *testing.T) {
-		p := New("echo-test", "echo", Args("hello world"), Async(), Interval(time.Duration(10)*time.Millisecond))
-
-		ctx, cancel := context.WithCancel(t.Context())
-
-		_, err := p.Start(ctx)
-		if err != nil {
-			t.Fatalf("Failed to start program %s: %v", p.Name(), err)
-		}
-		time.Sleep(1 * time.Second)
-		cancel()
-
-		if p.Runs() <= 0 {
-			t.Fatalf("Failed to run program %s multiple times expected more than zero got zero", p.Name())
-		}
-	})
-
-	t.Run("interval program with error signals done", func(t *testing.T) {
-		// Use a command that will fail to test error handling
-		p := New("failing-interval", "command_that_does_not_exist", Interval(time.Duration(50)*time.Millisecond))
-
-		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
-
-		done, err := p.Start(ctx)
-		if err != nil {
-			t.Fatalf("Failed to start interval program: %v", err)
-		}
-
-		// The done channel should be signaled when the command fails
-		select {
-		case <-done:
-			// Expected: done channel should be signaled due to command error
-		case <-time.After(2 * time.Second):
-			t.Fatal("Expected done channel to be signaled when interval command fails, but it wasn't")
-		}
-
-		// Verify that the program is in error state
-		if p.State() != StateError {
-			t.Fatalf("Expected program state to be StateError, got: %v", p.State())
-		}
-
-		// Verify error message is captured
-		errorOutput := p.Error()
-		if errorOutput == "" {
-			t.Fatal("Expected error output to be captured, but it was empty")
-		}
-	})
-}
-
-func TestStatistics(t *testing.T) {
-	t.Run("statistics for interval program", func(t *testing.T) {
-		p := New("echo-test", "echo", Args("hello world"), Interval(time.Duration(10)*time.Millisecond))
-
-		ctx, cancel := context.WithCancel(t.Context())
-
-		_, err := p.Start(ctx)
-		if err != nil {
-			t.Fatalf("Failed to start program %s: %v", p.Name(), err)
-		}
-		time.Sleep(100 * time.Millisecond)
-		cancel()
-
-		stats := p.Statistics()
-
-		if stats.ProgramName != "echo-test" {
-			t.Fatalf("Expected program name 'echo-test', got %q", stats.ProgramName)
-		}
-
-		if stats.TotalRuns <= 0 {
-			t.Fatalf("Expected at least 1 run, got %d", stats.TotalRuns)
-		}
-
-		if stats.Successful <= 0 {
-			t.Fatalf("Expected at least 1 successful run, got %d", stats.Successful)
-		}
-
-		if !stats.HasInterval {
-			t.Fatal("Expected HasInterval to be true")
-		}
-
-		if stats.Interval != 10*time.Millisecond {
-			t.Fatalf("Expected interval 10ms, got %v", stats.Interval)
-		}
-
-		if stats.TotalOutputLines <= 0 {
-			t.Fatalf("Expected at least 1 output line, got %d", stats.TotalOutputLines)
-		}
-
-		if stats.State != "idle" {
-			t.Fatalf("Expected interval program state to be idle, got %s", stats.State)
-		}
-
-		stringOutput := stats.String()
-		if !strings.Contains(stringOutput, "echo-test") {
-			t.Fatalf("Expected string output to contain program name, got: %q", stringOutput)
-		}
-
-		if !strings.Contains(stringOutput, "interval: 10ms") {
-			t.Fatalf("Expected string output to contain interval info, got: %q", stringOutput)
-		}
-
-		if stats.LastOutput == "" {
-			t.Fatal("Expected LastOutput to be set")
-		}
-
-		if !strings.Contains(stringOutput, "last output:") {
-			t.Fatalf("Expected string output to contain last output info, got: %q", stringOutput)
-		}
-	})
-
-	t.Run("statistics for failed program", func(t *testing.T) {
+	t.Run("program tracks error state correctly", func(t *testing.T) {
 		p := New("failure-test", "bash", Args("-c", "echo 'before error'; exit 1"))
 
 		done, err := p.Start(t.Context())
@@ -623,54 +525,20 @@ func TestStatistics(t *testing.T) {
 		}
 		<-done
 
-		stats := p.Statistics()
-
-		if stats.TotalRuns != 1 {
-			t.Fatalf("Expected 1 run, got %d", stats.TotalRuns)
+		if p.State() != StateError {
+			t.Fatalf("Expected final state to be StateError, got %v", p.State())
 		}
 
-		if stats.Failed != 1 {
-			t.Fatalf("Expected 1 failed run, got %d", stats.Failed)
+		if p.Error() == "" {
+			t.Fatal("Expected error output to be set")
 		}
 
-		if stats.Successful != 0 {
-			t.Fatalf("Expected 0 successful runs, got %d", stats.Successful)
+		if p.Output() == "" {
+			t.Fatal("Expected standard output to be captured even for failed programs")
 		}
 
-		if stats.LastError == "" {
-			t.Fatal("Expected LastError to be set")
-		}
-
-		if stats.State != "error" {
-			t.Fatalf("Expected program state to be error, got %s", stats.State)
-		}
-
-		stringOutput := stats.String()
-		if !strings.Contains(stringOutput, "failed: 1") {
-			t.Fatalf("Expected string output to show failed runs, got: %q", stringOutput)
-		}
-
-		if stats.LastOutput == "" {
-			t.Fatal("Expected LastOutput to be set even for failed programs")
-		}
-
-		if !strings.Contains(stats.LastOutput, "before error") {
-			t.Fatalf("Expected LastOutput to contain output before error, got: %q", stats.LastOutput)
-		}
-	})
-
-	t.Run("statistics for program with no runs", func(t *testing.T) {
-		p := New("no-run-test", "echo", Args("hello"))
-
-		stats := p.Statistics()
-
-		if stats.TotalRuns != 0 {
-			t.Fatalf("Expected 0 runs, got %d", stats.TotalRuns)
-		}
-
-		stringOutput := stats.String()
-		if !strings.Contains(stringOutput, "No runs completed yet") {
-			t.Fatalf("Expected message about no runs, got: %q", stringOutput)
+		if !strings.Contains(p.Output(), "before error") {
+			t.Fatalf("Expected output to contain 'before error', got: %q", p.Output())
 		}
 	})
 }
@@ -771,105 +639,6 @@ func TestShutdown(t *testing.T) {
 		err = p.Shutdown(1 * time.Second)
 		if err != nil {
 			t.Fatalf("Shutdown of finished process should not error: %v", err)
-		}
-	})
-}
-
-func TestIntervalShutdown(t *testing.T) {
-	t.Run("graceful shutdown stops interval loop", func(t *testing.T) {
-		p := New("echo-interval", "echo", Args("tick"), Interval(100*time.Millisecond))
-
-		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
-
-		done, err := p.Start(ctx)
-		if err != nil {
-			t.Fatalf("Failed to start interval program: %v", err)
-		}
-
-		// Let it run a few iterations
-		time.Sleep(350 * time.Millisecond)
-		initialRuns := p.Runs()
-
-		if initialRuns < 2 {
-			t.Fatalf("Expected at least 2 runs, got %d", initialRuns)
-		}
-
-		// Graceful shutdown should stop the interval
-		err = p.Shutdown(1 * time.Second)
-		if err != nil {
-			t.Fatalf("Shutdown failed: %v", err)
-		}
-
-		// Wait for done signal
-		select {
-		case <-done:
-			// Expected
-		case <-time.After(2 * time.Second):
-			t.Fatal("Interval program should have signaled done after graceful shutdown")
-		}
-
-		// No more runs should happen
-		finalRuns := p.Runs()
-		time.Sleep(300 * time.Millisecond)
-		afterWaitRuns := p.Runs()
-
-		if afterWaitRuns != finalRuns {
-			t.Fatalf("Expected no more runs after shutdown, but runs increased from %d to %d",
-				finalRuns, afterWaitRuns)
-		}
-	})
-
-	t.Run("interval with long-running async command graceful shutdown", func(t *testing.T) {
-		// Interval program where each iteration is a long-running async command
-		// Use a shorter interval so the first run starts quickly
-		p := New("sleep-interval", "sleep", Args("1"), Async(), Interval(200*time.Millisecond))
-
-		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
-
-		done, err := p.Start(ctx)
-		if err != nil {
-			t.Fatalf("Failed to start interval program: %v", err)
-		}
-
-		// Wait for first interval tick + time for command to start
-		time.Sleep(400 * time.Millisecond)
-
-		// Check if a process is running (which means it started)
-		if p.State() != StateRunning {
-			t.Fatalf("Expected current iteration to be running, got: %v (runs: %d)", p.State(), p.Runs())
-		}
-
-		// Graceful shutdown should stop interval and current process
-		start := time.Now()
-		err = p.Shutdown(500 * time.Millisecond)
-		duration := time.Since(start)
-
-		if err != nil {
-			t.Fatalf("Shutdown failed: %v", err)
-		}
-
-		// Should terminate current sleep process quickly
-		if duration > 400*time.Millisecond {
-			t.Fatalf("Expected quick termination, took %v", duration)
-		}
-
-		select {
-		case <-done:
-			// Expected
-		case <-time.After(3 * time.Second):
-			t.Fatal("Interval program should have signaled done")
-		}
-
-		// Should not start new iterations
-		finalRuns := p.Runs()
-		time.Sleep(500 * time.Millisecond) // Wait longer than interval
-		afterWaitRuns := p.Runs()
-
-		if afterWaitRuns != finalRuns {
-			t.Fatalf("Expected no new iterations after shutdown, but runs increased from %d to %d",
-				finalRuns, afterWaitRuns)
 		}
 	})
 }

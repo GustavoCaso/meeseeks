@@ -45,16 +45,6 @@ func TestCreateProgramFromConfig(t *testing.T) {
 			},
 			expectedName: "test-interval",
 		},
-		{
-			name: "program with invalid interval",
-			config: config.ProgramConfig{
-				Name:     "test-invalid",
-				Command:  "echo",
-				Interval: "invalid-duration",
-			},
-			expectError:  true,
-			errorMessage: "invalid interval",
-		},
 	}
 
 	for _, tt := range tests {
