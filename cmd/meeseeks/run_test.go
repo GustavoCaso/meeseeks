@@ -31,7 +31,7 @@ func TestRunCommand_ConfigValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var stdoutBuf, stderrBuf bytes.Buffer
-			exitCode := runCLICommand(t, tt.args, &stdoutBuf, &stderrBuf, 5*time.Second)
+			exitCode := runCLICommand(tt.args, &stdoutBuf, &stderrBuf, 5*time.Second)
 			output := stdoutBuf.String() + stderrBuf.String()
 
 			if exitCode != tt.expectedExit {
@@ -69,11 +69,19 @@ func TestRunCommand_Foreground(t *testing.T) {
 		t.Fatalf("Failed to create test config file: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "go", "run", ".")
 	cmd.Args = append(cmd.Args, []string{"run", "-config", configFile}...)
+
+	// Set process group to ensure we can kill child processes
+	// Running test creates a chain of processes:
+	// 1. go run . (parent)
+	// 2. The compiled meeseeks binary (child)
+	// 3. Potentially other child processes started by meeseeks
+	// By using syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL), we kill the entire process group
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	// Use pipes instead of bytes.Buffer to avoid deadlock.
 	// When using bytes.Buffer directly with cmd.Stdout/Stderr, the process can block
@@ -112,13 +120,21 @@ func TestRunCommand_Foreground(t *testing.T) {
 		stderr.ReadFrom(stderrPipe)
 	}()
 
-	// Send SIGTERM after a short delay to gracefully stop the daemon
-	go func() {
-		time.Sleep(500 * time.Millisecond)
+	// Send SIGTERM after allowing time for startup message
+	terminateProcess := func() {
+		time.Sleep(1 * time.Second) // Give more time for startup
 		if cmd.Process != nil {
-			cmd.Process.Signal(syscall.SIGTERM)
+			// First try SIGTERM to the process group
+			syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+
+			// Give it time to exit gracefully, then force kill the process group
+			time.Sleep(300 * time.Millisecond)
+			if cmd.Process != nil {
+				syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			}
 		}
-	}()
+	}
+	go terminateProcess()
 
 	err = cmd.Wait()
 
@@ -129,7 +145,7 @@ func TestRunCommand_Foreground(t *testing.T) {
 	if err != nil && !strings.Contains(err.Error(), "signal") &&
 		!strings.Contains(err.Error(), "interrupt") &&
 		!strings.Contains(err.Error(), "context deadline") {
-		t.Fatalf("Unexpected error (ignoring interrupt/timeout): %v", err)
+		t.Fatalf("Unexpected error (ignoring interrupt/timeout/killed): %v", err)
 	}
 
 	output := stdout.String() + stderr.String()
@@ -161,7 +177,6 @@ func TestRunCommand_Detached(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	exitCode := runCLICommand(
-		t,
 		[]string{"run", "-d", "-config", configFile},
 		&stdout,
 		&stderr,
@@ -194,7 +209,6 @@ func TestRunCommand_Detached(t *testing.T) {
 
 	var stdoutBuf, stderrBuf bytes.Buffer
 	exitCode = runCLICommand(
-		t,
 		[]string{"status"},
 		&stdoutBuf,
 		&stderrBuf,
@@ -209,7 +223,7 @@ func TestRunCommand_Detached(t *testing.T) {
 		t.Fatalf("Status command could not connect to daemon: %q", statusOutput)
 	}
 
-	exitCode = runCLICommand(t, []string{"exit"}, nil, nil, 5*time.Second)
+	exitCode = runCLICommand([]string{"exit"}, nil, nil, 5*time.Second)
 	if exitCode != 0 {
 		t.Fatalf("Expected exit code %d, got %d", 0, exitCode)
 	}
@@ -224,7 +238,6 @@ func TestRunCommand_Detached(t *testing.T) {
 
 	var stdoutBuf2, stderrBuf2 bytes.Buffer
 	exitCode = runCLICommand(
-		t,
 		[]string{"status"},
 		&stdoutBuf2,
 		&stderrBuf2,

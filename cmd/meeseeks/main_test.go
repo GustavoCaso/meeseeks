@@ -16,7 +16,7 @@ func TestMainCommands(t *testing.T) {
 			name: "no command",
 			test: func(t *testing.T) {
 				var stdoutBuf, stderrBuf bytes.Buffer
-				exitCode := runCLICommand(t, []string{}, &stdoutBuf, &stderrBuf, 5*time.Second)
+				exitCode := runCLICommand([]string{}, &stdoutBuf, &stderrBuf, 5*time.Second)
 				output := stdoutBuf.String() + stderrBuf.String()
 
 				if exitCode != 1 {
@@ -43,7 +43,7 @@ func TestMainCommands(t *testing.T) {
 			name: "unknown command",
 			test: func(t *testing.T) {
 				var stdoutBuf, stderrBuf bytes.Buffer
-				exitCode := runCLICommand(t, []string{"unknown"}, &stdoutBuf, &stderrBuf, 5*time.Second)
+				exitCode := runCLICommand([]string{"unknown"}, &stdoutBuf, &stderrBuf, 5*time.Second)
 				output := stdoutBuf.String() + stderrBuf.String()
 
 				if exitCode != 1 {
@@ -59,7 +59,7 @@ func TestMainCommands(t *testing.T) {
 			name: "version command",
 			test: func(t *testing.T) {
 				var stdoutBuf, stderrBuf bytes.Buffer
-				exitCode := runCLICommand(t, []string{"version"}, &stdoutBuf, &stderrBuf, 5*time.Second)
+				exitCode := runCLICommand([]string{"version"}, &stdoutBuf, &stderrBuf, 5*time.Second)
 				output := stdoutBuf.String() + stderrBuf.String()
 
 				if exitCode != 0 {
