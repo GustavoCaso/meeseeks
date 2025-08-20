@@ -34,7 +34,7 @@ type Response struct {
 
 func New(sockPath string, logger *logger.Logger) *Server {
 	s := &Server{
-		meeseeks: meeseeks.New(),
+		meeseeks: meeseeks.New(meeseeks.Logger(logger)),
 		sockPath: sockPath,
 		logger:   logger,
 	}

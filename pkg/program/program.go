@@ -11,15 +11,9 @@ import (
 	"sync"
 	"syscall"
 	"time"
-)
 
-type Log interface {
-	Debug(msg string, args ...any)
-	Info(msg string, args ...any)
-	Warn(msg string, args ...any)
-	Error(msg string, args ...any)
-	Fatal(msg string, args ...any)
-}
+	"github.com/GustavoCaso/meeseeks/pkg/logger"
+)
 
 type Program interface {
 	Async() bool
@@ -97,7 +91,7 @@ func Async() Option {
 	}
 }
 
-func Logger(logger Log) Option {
+func Logger(logger logger.Logger) Option {
 	return func(p *program) {
 		p.logger = logger
 	}
@@ -128,7 +122,7 @@ type program struct {
 	cmdLock  sync.Mutex
 
 	pipes  *pipes
-	logger Log
+	logger logger.Logger
 }
 
 type pipes struct {
