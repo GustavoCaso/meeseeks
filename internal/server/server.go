@@ -79,8 +79,8 @@ func (s *Server) Start(_ context.Context) error {
 	s.running = true
 
 	go func() {
-		if err = s.server.Serve(listener); err != nil {
-			s.logger.Error("Failed to start server", "error", err)
+		if err = s.server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			s.logger.Fatal("Failed to start server", "error", err)
 		}
 	}()
 
