@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/GustavoCaso/meeseeks/internal/logger"
 	"github.com/GustavoCaso/meeseeks/pkg/program"
 )
 
@@ -45,10 +46,12 @@ func TestDaemon_StartStop(t *testing.T) {
 		},
 	}
 
+	logger := logger.New()
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			sockPath := tt.setup()
-			d := New(sockPath)
+			d := New(sockPath, logger)
 
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
@@ -101,7 +104,7 @@ func TestDaemon_StartStop(t *testing.T) {
 func TestDaemon_AddProgramAndStart(t *testing.T) {
 	tmpDir := t.TempDir()
 	sockPath := filepath.Join(tmpDir, "test.sock")
-	d := New(sockPath)
+	d := New(sockPath, logger.New())
 
 	// Add a test program
 	prog := program.New("test-program", "echo", program.Args("hello"))
@@ -135,7 +138,7 @@ func TestServer_HTTPHandlers(t *testing.T) {
 	os.Remove(sockPath)
 	defer os.Remove(sockPath)
 
-	s := New(sockPath)
+	s := New(sockPath, logger.New())
 
 	// Add test programs
 	prog1 := program.New("test-program1", "echo", program.Args("hello"))
@@ -271,7 +274,7 @@ func TestClient_SendRequest(t *testing.T) {
 	sockPath := filepath.Join(tmpDir, "test.sock")
 
 	// Start daemon
-	d := New(sockPath)
+	d := New(sockPath, logger.New())
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
@@ -376,7 +379,7 @@ func TestDaemon_IntegrationWithRealSocket(t *testing.T) {
 	os.Remove(sockPath)
 
 	// Start daemon
-	d := New(sockPath)
+	d := New(sockPath, logger.New())
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
@@ -433,7 +436,7 @@ func TestDaemon_ConcurrentConnections(t *testing.T) {
 	os.Remove(sockPath)
 
 	// Start daemon
-	d := New(sockPath)
+	d := New(sockPath, logger.New())
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
@@ -501,7 +504,7 @@ func BenchmarkServer_HandleRequest(b *testing.B) {
 	os.Remove(sockPath)
 	defer os.Remove(sockPath)
 
-	s := New(sockPath)
+	s := New(sockPath, logger.New())
 	prog := program.New("bench-program", "echo", program.Args("benchmark"))
 	s.AddProgram(prog)
 

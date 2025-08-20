@@ -5,13 +5,14 @@ import (
 	"context"
 	"errors"
 	"io"
-	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/GustavoCaso/meeseeks/pkg/logger"
 )
 
 type Program interface {
@@ -90,6 +91,12 @@ func Async() Option {
 	}
 }
 
+func Logger(logger logger.Logger) Option {
+	return func(p *program) {
+		p.logger = logger
+	}
+}
+
 type program struct {
 	cmd       *exec.Cmd
 	name      string
@@ -114,7 +121,8 @@ type program struct {
 	dataLock sync.RWMutex
 	cmdLock  sync.Mutex
 
-	pipes *pipes
+	pipes  *pipes
+	logger logger.Logger
 }
 
 type pipes struct {
@@ -273,30 +281,34 @@ func (p *program) monitorProcess() {
 	err := cmd.Wait()
 
 	writersErr := p.pipes.closeWriters()
-	//nolint:sloglint //currently working on adding support for custom logger
+
 	if writersErr != nil {
-		slog.Error(
-			"error closing writers",
-			"program",
-			p.name,
-			"error",
-			writersErr.Error(),
-		)
+		if p.logger != nil {
+			p.logger.Error(
+				"error closing writers",
+				"program",
+				p.name,
+				"error",
+				writersErr.Error(),
+			)
+		}
 	}
 
 	// Wait for readers to finish processing all data
 	wg.Wait()
 
 	readersErr := p.pipes.closeReaders()
-	//nolint:sloglint //currently working on adding support for custom logger
+
 	if readersErr != nil {
-		slog.Error(
-			"error closing readers",
-			"program",
-			p.name,
-			"error",
-			readersErr.Error(),
-		)
+		if p.logger != nil {
+			p.logger.Error(
+				"error closing readers",
+				"program",
+				p.name,
+				"error",
+				readersErr.Error(),
+			)
+		}
 	}
 
 	p.exitCode = cmd.ProcessState.ExitCode()

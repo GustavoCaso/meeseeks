@@ -9,6 +9,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/GustavoCaso/meeseeks/internal/config"
+	"github.com/GustavoCaso/meeseeks/internal/logger"
 	"github.com/GustavoCaso/meeseeks/pkg/meeseeks"
 	"github.com/GustavoCaso/meeseeks/pkg/program"
 )
@@ -56,7 +57,7 @@ func writePidFile(pidFile string, pid int) error {
 	return os.WriteFile(pidFile, []byte(strconv.Itoa(pid)), 0600)
 }
 
-func createProgramFromConfig(pc config.ProgramConfig) (program.Program, error) {
+func createProgramFromConfig(pc config.ProgramConfig, logger *logger.Logger) (program.Program, error) {
 	var opts []program.Option
 
 	if len(pc.Args) > 0 {
@@ -86,6 +87,8 @@ func createProgramFromConfig(pc config.ProgramConfig) (program.Program, error) {
 		}
 		opts = append(opts, program.Stderr(file))
 	}
+
+	opts = append(opts, program.Logger(logger))
 
 	return program.New(pc.Name, pc.Command, opts...), nil
 }

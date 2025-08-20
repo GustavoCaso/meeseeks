@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/GustavoCaso/meeseeks/internal/logger"
 	"github.com/GustavoCaso/meeseeks/internal/server"
 )
 
-func stopCommand(args []string) error {
+func stopCommand(args []string, _ *logger.Logger) error {
 	fs := flag.NewFlagSet("stop", flag.ExitOnError)
 	timeout := fs.String(
 		"timeout",

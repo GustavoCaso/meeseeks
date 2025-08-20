@@ -133,7 +133,7 @@ func TestRunCommand_Foreground(t *testing.T) {
 	}
 
 	output := stdout.String() + stderr.String()
-	expected := "Started meeseeks program_count=1"
+	expected := "\"Started meeseeks\""
 	if !strings.Contains(output, expected) {
 		t.Fatalf("Expected output to contain %q, got %q", expected, output)
 	}

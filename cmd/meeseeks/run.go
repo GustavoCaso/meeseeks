@@ -4,19 +4,100 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
 	"syscall"
 
 	"github.com/GustavoCaso/meeseeks/internal/config"
+	"github.com/GustavoCaso/meeseeks/internal/logger"
 	"github.com/GustavoCaso/meeseeks/internal/server"
 )
 
-func runCommand(args []string) error {
+type cmd struct {
+	configPath string
+	cfg        *config.Config
+	pidFile    string
+	socketPath string
+	logger     *logger.Logger
+	detach     bool
+}
+
+func (c *cmd) run() error {
+	if c.detach {
+		return c.runDetached()
+	}
+
+	return c.runForeground()
+}
+
+func (c *cmd) runDetached() error {
+	//nolint:gosec // the arguments are provided by the user
+	cmd := exec.Command(os.Args[0], "run", "-config", c.configPath)
+	cmd.Env = os.Environ()
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setsid: true,
+	}
+
+	cmd.Stdin = nil
+	stdoutFile, stdoutErr := getInternalStdoutFile()
+	if stdoutErr != nil {
+		c.logger.Warn("Failed to create log file for meeseeks, using /dev/null", "error", stdoutErr.Error())
+		cmd.Stdout = nil
+		cmd.Stderr = nil
+	}
+	cmd.Stdout = stdoutFile
+	cmd.Stderr = stdoutFile
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start meeseeks process: %w", err)
+	}
+
+	if err := writePidFile(c.pidFile, cmd.Process.Pid); err != nil {
+		return fmt.Errorf("failed to write PID file: %w", err)
+	}
+
+	c.logger.Info("Started meeseeks (detached)", "pid", cmd.Process.Pid, "program_count", len(c.cfg.Programs))
+
+	_ = cmd.Process.Release()
+
+	return nil
+}
+
+func (c *cmd) runForeground() error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	s, err := startServer(ctx, c.cfg, c.logger, c.socketPath)
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		c.logger.Info("Started meeseeks", "program_count", len(c.cfg.Programs))
+
+		if waitErr := s.Wait(ctx); waitErr != nil {
+			c.logger.Warn("Wait completed with error", "error", waitErr)
+		}
+	}()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	<-sigChan
+	c.logger.Info("Received signal, shutting down...")
+	err = s.Stop()
+	if err != nil {
+		c.logger.Warn("Error stopping the server.", "error", err.Error())
+	}
+	_ = os.Remove(c.pidFile)
+
+	return nil
+}
+
+func runCommand(args []string, logger *logger.Logger) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
-	configFile := fs.String(
+	configPath := fs.String(
 		"config",
 		"",
 		"Path to configuration file (defaults to $MEESEEKS_CONFIG_DIR/config.yaml or ~/.meeseeks/config.yaml)",
@@ -34,11 +115,11 @@ func runCommand(args []string) error {
 		return err
 	}
 
-	if *configFile == "" {
-		*configFile = getDefaultConfigPath()
+	if *configPath == "" {
+		*configPath = getDefaultConfigPath()
 	}
 
-	cfg, err := config.LoadConfig(*configFile)
+	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
@@ -46,86 +127,28 @@ func runCommand(args []string) error {
 	sockPath := getSocketPath()
 	pidFile := getPidFile()
 
-	if *detach {
-		return runDetached(pidFile, *configFile, cfg)
+	cmd := &cmd{
+		configPath: *configPath,
+		cfg:        cfg,
+		pidFile:    pidFile,
+		socketPath: sockPath,
+		logger:     logger,
+		detach:     *detach,
 	}
 
-	return runForeground(cfg, sockPath, pidFile)
+	return cmd.run()
 }
 
-func runDetached(pidFile, configFile string, cfg *config.Config) error {
-	//nolint:gosec // the arguments are provided by the user
-	cmd := exec.Command(os.Args[0], "run", "-config", configFile)
-	cmd.Env = os.Environ()
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setsid: true,
-	}
-
-	cmd.Stdin = nil
-	stdoutFile, stdoutErr := getInternalStdoutFile()
-	if stdoutErr != nil {
-		//nolint:sloglint //currently working on adding support for custom logger
-		slog.Warn("Failed to create log file for meeseeks, using /dev/null", "error", stdoutErr.Error())
-		cmd.Stdout = nil
-		cmd.Stderr = nil
-	}
-	cmd.Stdout = stdoutFile
-	cmd.Stderr = stdoutFile
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start meeseeks process: %w", err)
-	}
-
-	if err := writePidFile(pidFile, cmd.Process.Pid); err != nil {
-		return fmt.Errorf("failed to write PID file: %w", err)
-	}
-
-	//nolint:sloglint //currently working on adding support for custom logger
-	slog.Info("Started meeseeks (detached)", "pid", cmd.Process.Pid, "program_count", len(cfg.Programs))
-
-	_ = cmd.Process.Release()
-
-	return nil
-}
-
-func runForeground(cfg *config.Config, sockPath, pidFile string) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	s, err := startServer(ctx, cfg, sockPath)
-	if err != nil {
-		return err
-	}
-
-	go func() {
-		slog.Info("Started meeseeks", "program_count", len(cfg.Programs))
-
-		if waitErr := s.Wait(ctx); waitErr != nil {
-			slog.Warn("Wait completed with error", "error", waitErr)
-		}
-	}()
-
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	<-sigChan
-	//nolint:sloglint //currently working on adding support for custom logger
-	slog.Info("Received signal, shutting down...")
-	err = s.Stop()
-	if err != nil {
-		//nolint:sloglint //currently working on adding support for custom logger
-		slog.Warn("Error stopping the server.", "error", err.Error())
-	}
-	_ = os.Remove(pidFile)
-
-	return nil
-}
-
-func startServer(ctx context.Context, cfg *config.Config, sockPath string) (*server.Server, error) {
-	s := server.New(sockPath)
+func startServer(
+	ctx context.Context,
+	cfg *config.Config,
+	logger *logger.Logger,
+	sockPath string,
+) (*server.Server, error) {
+	s := server.New(sockPath, logger)
 
 	for _, programConfig := range cfg.Programs {
-		prog, err := createProgramFromConfig(programConfig)
+		prog, err := createProgramFromConfig(programConfig, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create program %s: %w", programConfig.Name, err)
 		}

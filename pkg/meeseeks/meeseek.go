@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/GustavoCaso/meeseeks/pkg/logger"
 	"github.com/GustavoCaso/meeseeks/pkg/program"
 )
 
@@ -52,6 +52,7 @@ type meeseek struct {
 	executions     map[string]*executionTrack // execution tracking for each program
 	wg             *sync.WaitGroup
 	mu             sync.RWMutex
+	logger         logger.Logger
 }
 
 func (m *meeseek) AddProgram(prog program.Program, interval ...time.Duration) error {
@@ -88,17 +89,7 @@ func (m *meeseek) Start(ctx context.Context) {
 		if info.Interval == nil {
 			// Start regular program
 			go func(prog program.Program) {
-				defer m.wg.Done()
-
-				done, err := prog.Start(ctx)
-				if err != nil {
-					slog.Error("failed to start program", "program", prog.Name(), "error", err.Error())
-					m.trackProgramCompletion(prog.Name(), false)
-					return
-				}
-				<-done
-				// Track completion success based on final state
-				m.trackProgramCompletion(prog.Name(), prog.State() == program.StateFinished)
+				m.runOneTimeProgram(ctx, prog)
 			}(info.Program)
 		} else {
 			// Start scheduled program
@@ -107,6 +98,31 @@ func (m *meeseek) Start(ctx context.Context) {
 			}(info)
 		}
 	}
+}
+
+func (m *meeseek) runOneTimeProgram(ctx context.Context, prog program.Program) {
+	defer m.wg.Done()
+
+	done, err := prog.Start(ctx)
+	if err != nil {
+		if m.logger != nil {
+			m.logger.Error("program failed", "program", prog.Name(), "error", err.Error())
+		}
+		m.trackProgramCompletion(prog.Name(), false)
+		return
+	}
+	<-done
+	if m.logger != nil {
+		m.logger.Info(
+			"program executed",
+			"program",
+			prog.Name(),
+			"state",
+			program.StateToString[prog.State()],
+		)
+	}
+	// Track completion success based on final state
+	m.trackProgramCompletion(prog.Name(), prog.State() == program.StateFinished)
 }
 
 func (m *meeseek) runScheduledProgram(ctx context.Context, prog program.Program, interval time.Duration) {
@@ -130,6 +146,9 @@ func (m *meeseek) runScheduledProgram(ctx context.Context, prog program.Program,
 		case <-ticker.C:
 			done, err := prog.Start(ctx)
 			if err != nil {
+				if m.logger != nil {
+					m.logger.Error("interval program failed", "program", prog.Name(), "error", err.Error())
+				}
 				m.trackProgramCompletion(programName, false)
 				return
 			}
@@ -137,6 +156,15 @@ func (m *meeseek) runScheduledProgram(ctx context.Context, prog program.Program,
 			select {
 			case <-done:
 				// Program execution completed normally
+				if m.logger != nil {
+					m.logger.Info(
+						"interval program executed",
+						"program",
+						prog.Name(),
+						"state",
+						program.StateToString[prog.State()],
+					)
+				}
 				m.trackProgramCompletion(programName, prog.State() == program.StateFinished)
 			case <-ctx.Done():
 				// Context cancelled while program was running
@@ -295,11 +323,25 @@ func (m *meeseek) trackProgramCompletion(programName string, success bool) {
 	}
 }
 
-func New() Meeseek {
-	return &meeseek{
+type Option func(*meeseek)
+
+func Logger(logger logger.Logger) Option {
+	return func(m *meeseek) {
+		m.logger = logger
+	}
+}
+
+func New(opts ...Option) Meeseek {
+	m := &meeseek{
 		wg:             &sync.WaitGroup{},
 		programs:       make(map[string]*ProgramInfo),
 		schedulerStops: make(map[string]chan struct{}),
 		executions:     make(map[string]*executionTrack),
 	}
+
+	for _, opt := range opts {
+		opt(m)
+	}
+
+	return m
 }
