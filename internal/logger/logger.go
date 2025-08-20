@@ -3,6 +3,7 @@ package logger
 import (
 	"log/slog"
 	"os"
+	"time"
 )
 
 type Logger struct {
@@ -11,13 +12,22 @@ type Logger struct {
 }
 
 func New() *Logger {
+	replacer := func(_ []string, a slog.Attr) slog.Attr {
+		if a.Key == slog.TimeKey {
+			a.Value = slog.StringValue(a.Value.Time().Format(time.RFC822))
+		}
+		return a
+	}
+
 	regularHandler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level:     slog.LevelDebug,
-		AddSource: false,
+		Level:       slog.LevelDebug,
+		AddSource:   false,
+		ReplaceAttr: replacer,
 	})
 	errorHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level:     slog.LevelError,
-		AddSource: false,
+		Level:       slog.LevelError,
+		AddSource:   false,
+		ReplaceAttr: replacer,
 	})
 
 	return &Logger{
