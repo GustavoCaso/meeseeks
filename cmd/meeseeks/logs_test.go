@@ -5,8 +5,6 @@ import (
 )
 
 func TestLogsCommand_Validation(t *testing.T) {
-	ensureNoDaemonRunning(t)
-
 	tests := []commandTestCase{
 		{
 			name:          "logs without program name",
@@ -33,7 +31,7 @@ func TestLogsCommand(t *testing.T) {
     args: ["-c", "echo 'test log message'; sleep 30"]
 `
 
-	newTestDetachedDaemon(t, configContent)
+	newTestServer(t, configContent)
 
 	tests := []commandTestCase{
 		{

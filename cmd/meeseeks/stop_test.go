@@ -5,8 +5,6 @@ import (
 )
 
 func TestStopCommand_Validation(t *testing.T) {
-	ensureNoDaemonRunning(t)
-
 	tests := []commandTestCase{
 		{
 			name:          "stop without program",
@@ -29,7 +27,7 @@ func TestStopCommand_MissingProgramName(t *testing.T) {
     args: ["30"]
 `
 
-	newTestDetachedDaemon(t, configContent)
+	newTestServer(t, configContent)
 
 	tests := []commandTestCase{
 		{
