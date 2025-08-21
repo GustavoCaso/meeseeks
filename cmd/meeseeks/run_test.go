@@ -69,7 +69,7 @@ func TestRunCommand_Foreground(t *testing.T) {
 		t.Fatalf("Failed to create test config file: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "go", "run", ".")
