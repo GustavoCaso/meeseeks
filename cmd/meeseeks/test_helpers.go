@@ -15,13 +15,12 @@ import (
 
 // runCLICommand runs CLI commands as subprocess.
 func runCLICommand(
-	t *testing.T,
 	args []string,
 	stdoutBuf io.Writer,
 	stderrBuf io.Writer,
 	timeout time.Duration,
 ) int {
-	ctx, cancel := context.WithTimeout(t.Context(), timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "go", "run", ".")
@@ -83,7 +82,6 @@ func (d *testDetachedDaemon) start() {
 
 	var stdout, stderr bytes.Buffer
 	exitCode := runCLICommand(
-		d.t,
 		[]string{"run", "-d", "-config", d.configFile},
 		&stdout,
 		&stderr,
@@ -121,14 +119,15 @@ func (d *testDetachedDaemon) stop() {
 	}
 
 	// Try to exit gracefully first
-	exitCode := runCLICommand(d.t, []string{"exit"}, nil, nil, 5*time.Second)
-	if exitCode != 0 && exitCode != 1 { // exit might return 1 if already stopped
-		d.t.Logf("Unexpected exit code during daemon cleanup: %d", exitCode)
+	exitCode := runCLICommand([]string{"exit"}, nil, nil, 5*time.Second)
+	if exitCode != 0 {
+		d.t.Errorf("Unexpected exit code during daemon cleanup: %d", exitCode)
 	}
 
-	// Ensure cleanup by removing PID and socket files
+	// Force cleanup by removing PID and socket files
 	expectedPidFile := getPidFile()
 	expectedSocketPath := getSocketPath()
+
 	os.Remove(expectedPidFile)
 	os.Remove(expectedSocketPath)
 
@@ -162,7 +161,7 @@ func runCommandTests(t *testing.T, tests []commandTestCase) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var stdoutBuf, stderrBuf bytes.Buffer
-			exitCode := runCLICommand(t, tt.args, &stdoutBuf, &stderrBuf, 5*time.Second)
+			exitCode := runCLICommand(tt.args, &stdoutBuf, &stderrBuf, 5*time.Second)
 			output := stdoutBuf.String() + stderrBuf.String()
 
 			if exitCode != tt.expectedExit {
@@ -179,7 +178,7 @@ func runCommandTests(t *testing.T, tests []commandTestCase) {
 // testCommandHelp tests the help functionality for a command.
 func testCommandHelp(t *testing.T, command string, expectedMessages []string) {
 	var stdoutBuf, stderrBuf bytes.Buffer
-	exitCode := runCLICommand(t, []string{command, "-h"}, &stdoutBuf, &stderrBuf, 5*time.Second)
+	exitCode := runCLICommand([]string{command, "-h"}, &stdoutBuf, &stderrBuf, 5*time.Second)
 	output := stdoutBuf.String() + stderrBuf.String()
 
 	if exitCode != 0 {
