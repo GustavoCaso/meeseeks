@@ -11,6 +11,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/GustavoCaso/meeseeks/internal/config"
+	"github.com/GustavoCaso/meeseeks/internal/logger"
 )
 
 // runCLICommand runs CLI commands as subprocess.
@@ -44,15 +47,10 @@ func runCLICommand(
 	return exitCode
 }
 
-// testDetachedDaemon manages a detached daemon for testing.
-type testDetachedDaemon struct {
-	t          *testing.T
-	configFile string
-	started    bool
-}
+// newTestServer creates and starts a server with the given config content.
+func newTestServer(t *testing.T, configContent string) {
+	t.Helper()
 
-// newTestDetachedDaemon creates and starts a detached daemon with the given config content.
-func newTestDetachedDaemon(t *testing.T, configContent string) {
 	tmpDir := t.TempDir()
 	configFile := filepath.Join(tmpDir, "test-config.yaml")
 
@@ -60,92 +58,26 @@ func newTestDetachedDaemon(t *testing.T, configContent string) {
 		t.Fatalf("Failed to create test config file: %v", err)
 	}
 
-	daemon := &testDetachedDaemon{
-		t:          t,
-		configFile: configFile,
+	cfg, err := config.LoadConfig(configFile)
+	if err != nil {
+		t.Fatalf("failed to load test config: %v", err)
 	}
 
-	daemon.start()
-}
+	// Make sure running tests while having a production
+	// instance of meeseeks running do not cause problems
+	customDir := "/tmp/meeseeks"
+	t.Setenv("MEESEEKS_CONFIG_DIR", customDir)
 
-// start starts the detached daemon.
-func (d *testDetachedDaemon) start() {
-	if d.started {
-		return
+	server, err := startServer(t.Context(), cfg, logger.New(), getSocketPath())
+	if err != nil {
+		t.Fatalf("failed to start test server: %v", err)
 	}
 
-	expectedPidFile := getPidFile()
-	expectedSocketPath := getSocketPath()
-
-	os.Remove(expectedPidFile)
-	os.Remove(expectedSocketPath)
-
-	var stdout, stderr bytes.Buffer
-	exitCode := runCLICommand(
-		[]string{"run", "-d", "-config", d.configFile},
-		&stdout,
-		&stderr,
-		15*time.Second,
-	)
-
-	if exitCode != 0 {
-		d.t.Fatalf(
-			"Failed to start daemon: exit code %d\nStdout: %s\nStderr: %s\nConfig: %s\nPID file: %s\nSocket: %s",
-			exitCode,
-			stdout.String(),
-			stderr.String(),
-			d.configFile,
-			getPidFile(),
-			getSocketPath(),
-		)
-	}
-
-	d.started = true
-
-	// Set up cleanup - use defer instead of Cleanup to ensure immediate cleanup
-	// after test function completes, not after all subtests
-	d.t.Cleanup(func() {
-		d.stop()
+	// Set up cleanup
+	t.Cleanup(func() {
+		os.RemoveAll(customDir)
+		server.Stop()
 	})
-
-	// Give daemon time to fully start
-	time.Sleep(500 * time.Millisecond)
-}
-
-// stop stops the detached daemon.
-func (d *testDetachedDaemon) stop() {
-	if !d.started {
-		return
-	}
-
-	// Try to exit gracefully first
-	exitCode := runCLICommand([]string{"exit"}, nil, nil, 5*time.Second)
-	if exitCode != 0 {
-		d.t.Errorf("Unexpected exit code during daemon cleanup: %d", exitCode)
-	}
-
-	// Force cleanup by removing PID and socket files
-	expectedPidFile := getPidFile()
-	expectedSocketPath := getSocketPath()
-
-	os.Remove(expectedPidFile)
-	os.Remove(expectedSocketPath)
-
-	d.started = false
-}
-
-// ensureNoDaemonRunning ensures no daemon is running - useful for validation tests.
-func ensureNoDaemonRunning(t *testing.T) {
-	expectedPidFile := getPidFile()
-	expectedSocketPath := getSocketPath()
-
-	if _, err := os.Stat(expectedPidFile); !os.IsNotExist(err) {
-		t.Fatal("PID file still exists. Stoping meeseeks should remove the PID file")
-	}
-
-	if _, err := os.Stat(expectedSocketPath); !os.IsNotExist(err) {
-		t.Fatal("Socket file still exists. Stoping meeseeks should remove the Socket file")
-	}
 }
 
 // commandTestCase represents a test case for command testing.
@@ -158,6 +90,8 @@ type commandTestCase struct {
 
 // runCommandTests runs a set of command test cases.
 func runCommandTests(t *testing.T, tests []commandTestCase) {
+	t.Helper()
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var stdoutBuf, stderrBuf bytes.Buffer
@@ -177,6 +111,8 @@ func runCommandTests(t *testing.T, tests []commandTestCase) {
 
 // testCommandHelp tests the help functionality for a command.
 func testCommandHelp(t *testing.T, command string, expectedMessages []string) {
+	t.Helper()
+
 	var stdoutBuf, stderrBuf bytes.Buffer
 	exitCode := runCLICommand([]string{command, "-h"}, &stdoutBuf, &stderrBuf, 5*time.Second)
 	output := stdoutBuf.String() + stderrBuf.String()

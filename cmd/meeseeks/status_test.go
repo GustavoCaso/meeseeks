@@ -10,7 +10,7 @@ func TestStatusCommand(t *testing.T) {
     command: "sleep"
     args: ["30"]
 `
-	newTestDetachedDaemon(t, configContent)
+	newTestServer(t, configContent)
 
 	tests := []commandTestCase{
 		{
@@ -51,8 +51,6 @@ test-echo-detached  0        0       no        running`,
 }
 
 func TestStatusCommand_Validation(t *testing.T) {
-	ensureNoDaemonRunning(t)
-
 	tests := []commandTestCase{
 		{
 			name:          "status with no daemon running",
