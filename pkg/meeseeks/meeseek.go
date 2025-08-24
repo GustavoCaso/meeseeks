@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -38,11 +40,14 @@ type Statistics struct {
 	LastError        string `json:"last_error"`
 	LastOutput       string `json:"last_output"`
 	Interval         string `json:"interval,omitempty"`
+	LastRunAt        string `json:"last_run_at"`
+	NextRunAt        string `json:"next_run,omitempty"`
 }
 
 type executionTrack struct {
 	successful int
 	failed     int
+	lastRunAt  time.Time
 }
 
 type meeseek struct {
@@ -132,12 +137,23 @@ func (m *meeseek) runScheduledProgram(ctx context.Context, prog program.Program,
 	defer ticker.Stop()
 	defer m.wg.Done()
 
-	// Create a stop channel for this scheduled program
+	// Create and register stop channel early to avoid race conditions
 	stop := make(chan struct{})
 	m.mu.Lock()
 	m.schedulerStops[programName] = stop
 	m.mu.Unlock()
 
+	// Cleanup stop channel on exit
+	defer func() {
+		m.mu.Lock()
+		delete(m.schedulerStops, programName)
+		m.mu.Unlock()
+	}()
+
+	// Execute the program immediately first
+	m.executeScheduledProgram(ctx, prog, "initial")
+
+	// Main interval loop
 	for {
 		select {
 		case <-ctx.Done():
@@ -145,37 +161,58 @@ func (m *meeseek) runScheduledProgram(ctx context.Context, prog program.Program,
 		case <-stop:
 			return
 		case <-ticker.C:
-			done, err := prog.Start(ctx)
-			if err != nil {
-				if m.logger != nil {
-					m.logger.Error("interval program failed", "program", prog.Name(), "error", err.Error())
-				}
-				m.trackProgramCompletion(programName, false)
-				return
-			}
-
-			select {
-			case <-done:
-				// Program execution completed normally
-				if m.logger != nil {
-					m.logger.Info(
-						"interval program executed",
-						"program",
-						prog.Name(),
-						"state",
-						program.StateToString[prog.State()],
-					)
-				}
-				m.trackProgramCompletion(programName, prog.State() == program.StateFinished)
-			case <-ctx.Done():
-				// Context cancelled while program was running
-				return
-			case <-stop:
-				// Stop signal while program was running - shutdown the current execution
-				_ = prog.Shutdown(5 * time.Second)
-				return
-			}
+			m.executeScheduledProgram(ctx, prog, "interval")
 		}
+	}
+}
+
+// executeScheduledProgram handles execution of a scheduled program with consistent error handling.
+func (m *meeseek) executeScheduledProgram(ctx context.Context, prog program.Program, executionType string) {
+	programName := prog.Name()
+
+	// Check if we should stop before starting execution
+	m.mu.RLock()
+	stop, exists := m.schedulerStops[programName]
+	m.mu.RUnlock()
+
+	if !exists {
+		// Stop channel was deleted, scheduler is shutting down
+		return
+	}
+
+	done, err := prog.Start(ctx)
+	if err != nil {
+		if m.logger != nil {
+			m.logger.Error("scheduled program failed to start",
+				"program", prog.Name(),
+				"execution_type", executionType,
+				"error", err.Error())
+		}
+		m.trackProgramCompletion(programName, false)
+		// Continue running for interval programs even if one execution fails
+		return
+	}
+
+	select {
+	case <-done:
+		// Program execution completed normally
+		success := prog.State() == program.StateFinished
+		if m.logger != nil {
+			m.logger.Info(
+				"scheduled program executed",
+				"program", prog.Name(),
+				"execution_type", executionType,
+				"state", program.StateToString[prog.State()],
+			)
+		}
+		m.trackProgramCompletion(programName, success)
+	case <-ctx.Done():
+		// Context cancelled while program was running
+		return
+	case <-stop:
+		// Stop signal while program was running - shutdown gracefully
+		_ = prog.Shutdown(5 * time.Second)
+		return
 	}
 }
 
@@ -199,11 +236,13 @@ func (m *meeseek) Statistics() []Statistics {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	statistics := make([]Statistics, 0, len(m.programs))
+	statistics := make([]Statistics, len(m.programs))
+	keys := slices.Sorted(maps.Keys(m.programs))
 
-	for name, info := range m.programs {
-		execRecord := m.executions[name]
-		statistics = append(statistics, m.collectProgramStatistics(info, execRecord))
+	for i, key := range keys {
+		info := m.programs[key]
+		execRecord := m.executions[key]
+		statistics[i] = m.collectProgramStatistics(info, execRecord)
 	}
 
 	return statistics
@@ -244,11 +283,19 @@ func (m *meeseek) Stop(programName string, timeout time.Duration) error {
 
 	// Scheduled program - stop via channel
 	m.mu.Lock()
-	if stop, exists := m.schedulerStops[programName]; exists {
-		close(stop)
-		delete(m.schedulerStops, programName)
-	}
+	stop, exists := m.schedulerStops[programName]
 	m.mu.Unlock()
+
+	if exists {
+		select {
+		case <-stop:
+			// Channel already closed
+		default:
+			close(stop)
+		}
+		// Note: cleanup is handled by the defer in runScheduledProgram
+	}
+
 	return nil
 }
 
@@ -256,7 +303,12 @@ func (m *meeseek) Shutdown(timeout time.Duration) error {
 	// Stop all scheduled programs
 	m.mu.Lock()
 	for _, stop := range m.schedulerStops {
-		close(stop)
+		select {
+		case <-stop:
+			// Channel already closed
+		default:
+			close(stop)
+		}
 	}
 	m.schedulerStops = make(map[string]chan struct{})
 	m.mu.Unlock()
@@ -281,10 +333,12 @@ func (m *meeseek) collectProgramStatistics(info *ProgramInfo, execRecord *execut
 		State:       program.StateToString[progState],
 		Successful:  execRecord.successful,
 		Failed:      execRecord.failed,
+		LastRunAt:   execRecord.lastRunAt.Format(time.DateTime),
 	}
 
 	if info.Interval != nil {
 		stats.Interval = info.Interval.String()
+		stats.NextRunAt = execRecord.lastRunAt.Add(*info.Interval).Format(time.DateTime)
 	}
 
 	// Collect last output and error information
@@ -326,6 +380,7 @@ func (m *meeseek) trackProgramCompletion(programName string, success bool) {
 	} else {
 		execRecord.failed++
 	}
+	execRecord.lastRunAt = time.Now()
 }
 
 type Option func(*meeseek)
