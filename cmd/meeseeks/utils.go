@@ -120,25 +120,30 @@ func formatStatisticsAsTable(data any, programName string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(w, "NAME\tSUCCESS\tFAILED\tINTERVAL\tSTATUS\n")
-	fmt.Fprintf(w, "----\t-------\t------\t--------\t------\n")
+	fmt.Fprintf(w, "NAME\tSUCCESS\tFAILED\tINTERVAL\tSTATUS\tLAST RUN AT\tNEXT RUN\n")
+	fmt.Fprintf(w, "----\t-------\t------\t--------\t------\t-----------\t--------\n")
 
 	for _, stats := range programStatistics {
 		name := stats.ProgramName
 		successful := stats.Successful
 		failed := stats.Failed
+		lastRunAt := stats.LastRunAt
+		nextRunAt := stats.NextRunAt
 		interval := "no"
 
 		if stats.Interval != "" {
 			interval = stats.Interval
 		}
 
-		fmt.Fprintf(w, "%s\t%d\t%d\t%s\t%s\n",
+		fmt.Fprintf(w, "%s\t%d\t%d\t%s\t%s\t%s\t%s\n",
 			truncateString(name, 20),
 			successful,
 			failed,
 			truncateString(interval, 10),
-			stats.State)
+			stats.State,
+			lastRunAt,
+			nextRunAt,
+		)
 	}
 
 	return w.Flush()

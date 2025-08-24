@@ -18,20 +18,22 @@ func TestStatusCommand(t *testing.T) {
 
 	tests := []commandTestCase{
 		{
-			name:         "status format table",
-			args:         []string{"status"},
-			expectedExit: 0,
-			shouldContain: `NAME                SUCCESS  FAILED  INTERVAL  STATUS
-----                -------  ------  --------  ------
-test-echo-detached  0        0       no        running
-interval echo       0        0       12h0m0s   not started
-`,
+			name:          "status format table headers",
+			args:          []string{"status"},
+			expectedExit:  0,
+			shouldContain: `NAME                SUCCESS  FAILED  INTERVAL  STATUS    LAST RUN AT          NEXT RUN`,
 		},
 		{
 			name:          "status format table single program",
 			args:          []string{"status", "test-echo-detached"},
 			expectedExit:  0,
 			shouldContain: `test-echo-detached  0        0       no        running`,
+		},
+		{
+			name:          "status format table interval program",
+			args:          []string{"status", "interval echo"},
+			expectedExit:  0,
+			shouldContain: `interval echo  1        0       12h0m0s   finished`,
 		},
 		{
 			name:          "status format json",
