@@ -37,6 +37,7 @@ type Statistics struct {
 	TotalOutputLines int    `json:"total_output_lines"`
 	LastError        string `json:"last_error"`
 	LastOutput       string `json:"last_output"`
+	Interval         string `json:"interval,omitempty"`
 }
 
 type executionTrack struct {
@@ -280,6 +281,10 @@ func (m *meeseek) collectProgramStatistics(info *ProgramInfo, execRecord *execut
 		State:       program.StateToString[progState],
 		Successful:  execRecord.successful,
 		Failed:      execRecord.failed,
+	}
+
+	if info.Interval != nil {
+		stats.Interval = info.Interval.String()
 	}
 
 	// Collect last output and error information
