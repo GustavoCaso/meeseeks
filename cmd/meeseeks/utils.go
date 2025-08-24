@@ -129,6 +129,10 @@ func formatStatisticsAsTable(data any, programName string) error {
 		failed := stats.Failed
 		interval := "no"
 
+		if stats.Interval != "" {
+			interval = stats.Interval
+		}
+
 		fmt.Fprintf(w, "%s\t%d\t%d\t%s\t%s\n",
 			truncateString(name, 20),
 			successful,

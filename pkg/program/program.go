@@ -34,7 +34,6 @@ const (
 	StateNotStarted ProcessState = iota
 	StateRunning
 	StateFinished
-	StateIdle
 	StateError
 )
 
@@ -43,7 +42,6 @@ var StateToString = map[ProcessState]string{
 	StateNotStarted: "not started",
 	StateRunning:    "running",
 	StateFinished:   "finished",
-	StateIdle:       "idle",
 	StateError:      "error",
 }
 

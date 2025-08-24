@@ -9,6 +9,10 @@ func TestStatusCommand(t *testing.T) {
   - name: "test-echo-detached"
     command: "sleep"
     args: ["30"]
+  - name: "interval echo"
+    command: "echo"
+    args: ["hello world"]
+    interval: 12h
 `
 	newTestServer(t, configContent)
 
@@ -19,7 +23,9 @@ func TestStatusCommand(t *testing.T) {
 			expectedExit: 0,
 			shouldContain: `NAME                SUCCESS  FAILED  INTERVAL  STATUS
 ----                -------  ------  --------  ------
-test-echo-detached  0        0       no        running`,
+test-echo-detached  0        0       no        running
+interval echo       0        0       12h0m0s   not started
+`,
 		},
 		{
 			name:          "status format table single program",
