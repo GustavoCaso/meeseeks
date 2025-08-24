@@ -9,14 +9,20 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
+
+	"github.com/GustavoCaso/meeseeks/internal/logger"
 )
 
 // darwinService implements LoginService for macOS using LaunchAgent.
-type darwinService struct{}
+type darwinService struct {
+	logger *logger.Logger
+}
 
 // getPlatformService returns the macOS-specific login service implementation.
-func getPlatformService() Service {
-	return &darwinService{}
+func getPlatformService(logger *logger.Logger) Service {
+	return &darwinService{
+		logger: logger,
+	}
 }
 
 const label = "com.meeseeks"
@@ -129,12 +135,23 @@ func (d *darwinService) Disable() error {
 		return fmt.Errorf("service %s not found", plistPath)
 	}
 
-	// Unload the service using launchctl (ignore errors as it might not be loaded)
-	cmd := exec.Command("launchctl", "unload", plistPath)
-	_, _ = cmd.CombinedOutput()
+	userID, err := exec.Command("id", "-u").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("fail to get user id: %w", err)
+	}
+
+	iD := strings.TrimSpace(string(userID))
+
+	//nolint:gosec // the arguments are provided by the user
+	cmd := exec.Command("launchctl", "bootout", fmt.Sprintf("gui/%s", iD), plistPath)
+	output, err := cmd.CombinedOutput()
+
+	if err != nil {
+		d.logger.Warn("Error unloading the service", "error", err.Error(), "message", string(output))
+	}
 
 	// Remove the plist file
-	if err := os.Remove(plistPath); err != nil {
+	if err = os.Remove(plistPath); err != nil {
 		return fmt.Errorf("failed to remove plist file: %w", err)
 	}
 
@@ -159,9 +176,11 @@ func (d *darwinService) Status() (ServiceStatus, error) {
 		return status, fmt.Errorf("fail to get user id: %w", err)
 	}
 
+	iD := strings.TrimSpace(string(userID))
+
 	// Check if service is running using launchctl list
 	//nolint:gosec // the arguments are controlled by us
-	cmd := exec.Command("launchctl", "print-disabled", fmt.Sprintf("gui/%s", string(userID)))
+	cmd := exec.Command("launchctl", "print-disabled", fmt.Sprintf("gui/%s", iD))
 	output, err := cmd.CombinedOutput()
 
 	if err != nil {
@@ -171,8 +190,12 @@ func (d *darwinService) Status() (ServiceStatus, error) {
 	expectedString := fmt.Sprintf("\"%s\" => enabled", label)
 	// Service is loaded, check if it's running
 	outputStr := string(output)
-	if strings.Contains(outputStr, expectedString) {
+
+	// If the label does not show or the it shows as enabled the service is running
+	if !strings.Contains(outputStr, label) || strings.Contains(outputStr, expectedString) {
 		status.Running = true
+	} else {
+		return status, nil
 	}
 
 	// Try to get last run time from log file

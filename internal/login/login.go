@@ -2,6 +2,8 @@ package login
 
 import (
 	"time"
+
+	"github.com/GustavoCaso/meeseeks/internal/logger"
 )
 
 type Defintion string
@@ -52,6 +54,6 @@ type ServiceStatus struct {
 
 // GetService returns the appropriate Service implementation
 // for the current operating system.
-func GetService() Service {
-	return getPlatformService()
+func GetService(logger *logger.Logger) Service {
+	return getPlatformService(logger)
 }

@@ -6,7 +6,7 @@ import (
 
 func TestRunAtLoginCommand_Help(t *testing.T) {
 	testCommandHelp(t, []string{"run-at-login"}, []string{
-		"Usage: meeseeks run-at-login <subcommand> [options]",
+		"Usage: meeseeks run-at-login <subcommand>",
 		"Manage automatic startup of meeseeks at user login",
 		"enable",
 		"disable",

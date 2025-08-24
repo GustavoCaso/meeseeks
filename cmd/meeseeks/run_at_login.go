@@ -7,10 +7,11 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/GustavoCaso/meeseeks/internal/logger"
 	"github.com/GustavoCaso/meeseeks/internal/login"
 )
 
-func runAtLoginCommand(args []string) error {
+func runAtLoginCommand(args []string, logger *logger.Logger) error {
 	if len(args) < 1 {
 		printRunAtLoginUsage()
 		return errors.New("subcommand required")
@@ -25,25 +26,29 @@ func runAtLoginCommand(args []string) error {
 	subcommand := args[0]
 	subcommandArgs := args[1:]
 
+	// Get platform-specific login service
+	service := login.GetService(logger)
+
 	switch subcommand {
 	case "enable":
-		return runAtLoginEnableCommand(subcommandArgs)
+		return runAtLoginEnableCommand(service, subcommandArgs)
 	case "disable":
-		return runAtLoginDisableCommand(subcommandArgs)
+		return runAtLoginDisableCommand(service, subcommandArgs)
 	case "status":
-		return runAtLoginStatusCommand(subcommandArgs)
+		return runAtLoginStatusCommand(service, subcommandArgs)
 	default:
 		printRunAtLoginUsage()
 		return fmt.Errorf("unknown subcommand: %s", subcommand)
 	}
 }
 
-func runAtLoginEnableCommand(args []string) error {
+func runAtLoginEnableCommand(service login.Service, args []string) error {
 	fs := flag.NewFlagSet("run-at-login enable", flag.ExitOnError)
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: meeseeks run-at-login enable\n\n")
 		fmt.Fprintf(os.Stderr, "Configure meeseeks to start automatically at login\n\n")
+		fs.PrintDefaults()
 	}
 
 	if err := fs.Parse(args); err != nil {
@@ -81,9 +86,6 @@ func runAtLoginEnableCommand(args []string) error {
 		ConfigDir:      absConfigDir,
 	}
 
-	// Get platform-specific login service
-	service := login.GetService()
-
 	serviceDefnition, createErr := service.Create(loginConfig)
 
 	if createErr != nil {
@@ -101,7 +103,7 @@ func runAtLoginEnableCommand(args []string) error {
 	return nil
 }
 
-func runAtLoginDisableCommand(args []string) error {
+func runAtLoginDisableCommand(service login.Service, args []string) error {
 	fs := flag.NewFlagSet("run-at-login disable", flag.ExitOnError)
 
 	fs.Usage = func() {
@@ -114,9 +116,6 @@ func runAtLoginDisableCommand(args []string) error {
 		return err
 	}
 
-	// Get platform-specific login service
-	service := login.GetService()
-
 	// Disable the service
 	if err := service.Disable(); err != nil {
 		return fmt.Errorf("failed to disable login service: %w", err)
@@ -127,7 +126,7 @@ func runAtLoginDisableCommand(args []string) error {
 	return nil
 }
 
-func runAtLoginStatusCommand(args []string) error {
+func runAtLoginStatusCommand(service login.Service, args []string) error {
 	fs := flag.NewFlagSet("run-at-login status", flag.ExitOnError)
 
 	fs.Usage = func() {
@@ -139,9 +138,6 @@ func runAtLoginStatusCommand(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-
-	// Get platform-specific login service
-	service := login.GetService()
 
 	// Get service status
 	status, err := service.Status()
@@ -164,7 +160,7 @@ func runAtLoginStatusCommand(args []string) error {
 }
 
 func printRunAtLoginUsage() {
-	fmt.Fprintf(os.Stderr, "Usage: meeseeks run-at-login <subcommand> [options]\n\n")
+	fmt.Fprintf(os.Stderr, "Usage: meeseeks run-at-login <subcommand>\n\n")
 	fmt.Fprintf(os.Stderr, "Manage automatic startup of meeseeks at user login\n\n")
 	fmt.Fprintf(os.Stderr, "Subcommands:\n")
 	fmt.Fprintf(os.Stderr, "  enable   Configure meeseeks to start automatically at login\n")

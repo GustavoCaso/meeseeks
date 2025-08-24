@@ -31,7 +31,7 @@ func main() {
 	case "exit":
 		cmdErr = exitCommand(args, logger)
 	case "run-at-login":
-		cmdErr = runAtLoginCommand(args)
+		cmdErr = runAtLoginCommand(args, logger)
 	case "version":
 		fmt.Fprintln(os.Stdout, "meeseeks version 1.0.0")
 	case "-h", "--help":

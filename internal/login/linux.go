@@ -2,11 +2,17 @@
 
 package login
 
-// TODO
-type linuxService struct{}
+import "github.com/GustavoCaso/meeseeks/internal/logger"
 
-func getPlatformService() Service {
-	return &linuxService{}
+// TODO
+type linuxService struct {
+	logger *logger.Logger
+}
+
+func getPlatformService(logger *logger.Logger) Service {
+	return &linuxService{
+		logger: logger,
+	}
 }
 
 func (d *linuxService) Create(ServiceConfig) (Defintion, error) {
