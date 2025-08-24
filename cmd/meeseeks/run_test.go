@@ -46,7 +46,7 @@ func TestRunCommand_ConfigValidation(t *testing.T) {
 }
 
 func TestRunCommand_Help(t *testing.T) {
-	testCommandHelp(t, "run", []string{
+	testCommandHelp(t, []string{"run"}, []string{
 		"Usage: meeseeks run [options]",
 		"Start programs from configuration file",
 		"-config",
@@ -227,6 +227,9 @@ func TestRunCommand_Detached(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("Expected exit code %d, got %d", 0, exitCode)
 	}
+
+	// Wait for process cleanup to complete after exit signal
+	time.Sleep(1 * time.Second)
 
 	if _, err := os.Stat(expectedPidFile); !os.IsNotExist(err) {
 		t.Fatal("PID file still exists. Stoping meeseeks should remove the PID file")

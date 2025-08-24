@@ -15,40 +15,35 @@ func main() {
 
 	command := os.Args[1]
 	args := os.Args[2:]
+	var cmdErr error
 
 	logger := logger.New()
 
 	switch command {
 	case "run":
-		if err := runCommand(args, logger); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
+		cmdErr = runCommand(args, logger)
 	case "status":
-		if err := statusCommand(args, logger); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
+		cmdErr = statusCommand(args, logger)
 	case "logs":
-		if err := logsCommand(args, logger); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
+		cmdErr = logsCommand(args, logger)
 	case "stop":
-		if err := stopCommand(args, logger); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
+		cmdErr = stopCommand(args, logger)
 	case "exit":
-		if err := exitCommand(args, logger); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
+		cmdErr = exitCommand(args, logger)
+	case "run-at-login":
+		cmdErr = runAtLoginCommand(args, logger)
 	case "version":
 		fmt.Fprintln(os.Stdout, "meeseeks version 1.0.0")
+	case "-h", "--help":
+		printUsage()
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", command)
 		printUsage()
+		os.Exit(1)
+	}
+
+	if cmdErr != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", cmdErr)
 		os.Exit(1)
 	}
 }
@@ -56,10 +51,12 @@ func main() {
 func printUsage() {
 	fmt.Fprintf(os.Stderr, "Usage: meeseeks <command> [options]\n\n")
 	fmt.Fprintf(os.Stderr, "Commands:\n")
-	fmt.Fprintf(os.Stderr, "  run     Start programs from config file\n")
-	fmt.Fprintf(os.Stderr, "  status  Show status of running programs\n")
-	fmt.Fprintf(os.Stderr, "  logs    Show logs for a specific program\n")
-	fmt.Fprintf(os.Stderr, "  stop    Stop running programs\n")
-	fmt.Fprintf(os.Stderr, "  version Show version information\n")
+	fmt.Fprintf(os.Stderr, "  run           Start programs from config file\n")
+	fmt.Fprintf(os.Stderr, "  status        Show status of running programs\n")
+	fmt.Fprintf(os.Stderr, "  logs          Show logs for a specific program\n")
+	fmt.Fprintf(os.Stderr, "  stop          Stop running programs\n")
+	fmt.Fprintf(os.Stderr, "  run-at-login  Manage automatic startup at user login\n")
+	fmt.Fprintf(os.Stderr, "  exit          Stop meeseeks program\n")
+	fmt.Fprintf(os.Stderr, "  version       Show version information\n")
 	fmt.Fprintf(os.Stderr, "\nUse 'meeseeks <command> -h' for more information about a command.\n")
 }

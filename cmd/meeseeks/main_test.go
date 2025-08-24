@@ -25,11 +25,12 @@ func TestMainCommands(t *testing.T) {
 
 				expectedMessages := []string{
 					"Usage: meeseeks <command>",
-					"run     Start programs from config file",
-					"status  Show status of running programs",
-					"logs    Show logs for a specific program",
-					"stop    Stop running programs",
-					"version Show version information",
+					"run           Start programs from config file",
+					"status        Show status of running programs",
+					"logs          Show logs for a specific program",
+					"stop          Stop running programs",
+					"run-at-login  Manage automatic startup at user login",
+					"version       Show version information",
 				}
 
 				for _, msg := range expectedMessages {
