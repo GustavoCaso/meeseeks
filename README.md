@@ -11,7 +11,7 @@ A simple and lightweight process manager for Go applications. Meeseeks can be us
 - **Dual Usage**: CLI tool and Go package
 - **Process Management**: Start, stop, and monitor multiple processes
 - **Daemon Mode**: Run processes in the background with Docker Compose-like commands
-- **Auto-Start at Login**: Cross-platform service management for macOS, Linux, and Windows
+- **Auto-Start at Login**: Cross-platform service management for macOS, Linux (TODO), and Windows (TODO)
 - **Configuration Files**: YAML and JSON support
 - **Scheduled Execution**: Run processes at intervals
 - **Real-time Monitoring**: Process status, logs, and statistics
