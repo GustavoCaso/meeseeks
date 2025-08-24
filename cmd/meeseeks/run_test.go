@@ -228,6 +228,9 @@ func TestRunCommand_Detached(t *testing.T) {
 		t.Fatalf("Expected exit code %d, got %d", 0, exitCode)
 	}
 
+	// Wait for process cleanup to complete after exit signal
+	time.Sleep(1 * time.Second)
+
 	if _, err := os.Stat(expectedPidFile); !os.IsNotExist(err) {
 		t.Fatal("PID file still exists. Stoping meeseeks should remove the PID file")
 	}
