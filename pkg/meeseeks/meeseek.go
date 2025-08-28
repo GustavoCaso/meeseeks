@@ -14,6 +14,8 @@ import (
 	"github.com/GustavoCaso/meeseeks/pkg/program"
 )
 
+const intervalCheckDuration = 1 * time.Second
+
 type Meeseek interface {
 	AddProgram(prog program.Program, interval ...time.Duration) error
 	Start(ctx context.Context)
@@ -133,7 +135,7 @@ func (m *meeseek) runOneTimeProgram(ctx context.Context, prog program.Program) {
 
 func (m *meeseek) runScheduledProgram(ctx context.Context, prog program.Program, interval time.Duration) {
 	programName := prog.Name()
-	ticker := time.NewTicker(interval)
+	ticker := time.NewTicker(intervalCheckDuration)
 	defer ticker.Stop()
 	defer m.wg.Done()
 
@@ -161,7 +163,21 @@ func (m *meeseek) runScheduledProgram(ctx context.Context, prog program.Program,
 		case <-stop:
 			return
 		case <-ticker.C:
-			m.executeScheduledProgram(ctx, prog, "interval")
+			m.mu.RLock()
+			exec := m.executions[prog.Name()]
+			m.mu.RUnlock()
+
+			// We strip the monotonomic clock information using Round(0) because in some system
+			// will stop if the computer goes to sleep. That way we ensure calling now.Sub() is
+			// accurate
+			now := time.Now().Round(0)
+			strippedLastRunAt := exec.lastRunAt.Round(0)
+			timeSinceLastRun := now.Sub(strippedLastRunAt)
+			execute := timeSinceLastRun >= interval
+
+			if execute {
+				m.executeScheduledProgram(ctx, prog, "interval")
+			}
 		}
 	}
 }

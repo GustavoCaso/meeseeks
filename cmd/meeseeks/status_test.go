@@ -59,6 +59,11 @@ func TestStatusCommand(t *testing.T) {
 }
 
 func TestStatusCommand_Validation(t *testing.T) {
+	// Make sure running tests while having a production
+	// instance of meeseeks running do not cause problems
+	customDir := "/tmp/meeseeks"
+	t.Setenv("MEESEEKS_CONFIG_DIR", customDir)
+
 	tests := []commandTestCase{
 		{
 			name:          "status with no daemon running",
