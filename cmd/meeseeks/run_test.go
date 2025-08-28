@@ -55,6 +55,11 @@ func TestRunCommand_Help(t *testing.T) {
 }
 
 func TestRunCommand_Foreground(t *testing.T) {
+	// Make sure running tests while having a production
+	// instance of meeseeks running do not cause problems
+	customDir := "/tmp/meeseeks"
+	t.Setenv("MEESEEKS_CONFIG_DIR", customDir)
+
 	tmpDir := t.TempDir()
 	configFile := filepath.Join(tmpDir, "test-config.yaml")
 
@@ -74,6 +79,7 @@ func TestRunCommand_Foreground(t *testing.T) {
 
 	cmd := exec.CommandContext(ctx, "go", "run", ".")
 	cmd.Args = append(cmd.Args, []string{"run", "-config", configFile}...)
+	cmd.Env = os.Environ()
 
 	// Set process group to ensure we can kill child processes
 	// Running test creates a chain of processes:
@@ -156,6 +162,11 @@ func TestRunCommand_Foreground(t *testing.T) {
 }
 
 func TestRunCommand_Detached(t *testing.T) {
+	// Make sure running tests while having a production
+	// instance of meeseeks running do not cause problems
+	customDir := "/tmp/meeseeks"
+	t.Setenv("MEESEEKS_CONFIG_DIR", customDir)
+
 	tmpDir := t.TempDir()
 	configFile := filepath.Join(tmpDir, "test-detached-config.yaml")
 

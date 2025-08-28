@@ -28,6 +28,7 @@ func runCLICommand(
 
 	cmd := exec.CommandContext(ctx, "go", "run", ".")
 	cmd.Args = append(cmd.Args, args...)
+	cmd.Env = os.Environ()
 
 	cmd.Stdout = stdoutBuf
 	cmd.Stderr = stderrBuf
