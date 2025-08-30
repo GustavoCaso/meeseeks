@@ -461,8 +461,15 @@ func (p *program) forcekill() error {
 	p.dataLock.Lock()
 	p.state = StateError
 	p.dataLock.Unlock()
-	// Don't signal done here - let the monitoring goroutine handle it
-	return err
+
+	if err != nil {
+		if errors.Is(err, os.ErrProcessDone) {
+			return nil
+		}
+		return err
+	}
+
+	return nil
 }
 
 func New(name, command string, opts ...Option) Program {

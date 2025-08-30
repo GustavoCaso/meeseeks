@@ -16,20 +16,35 @@ import (
 
 const intervalCheckDuration = 1 * time.Second
 
+type Program interface {
+	program.Program
+	Interval() *time.Duration
+}
+
+type meeseekProgram struct {
+	program.Program
+	interval *time.Duration
+}
+
+func (m *meeseekProgram) Interval() *time.Duration {
+	return m.interval
+}
+
+func NewProgram(prog program.Program, interval *time.Duration) Program {
+	return &meeseekProgram{
+		Program:  prog,
+		interval: interval,
+	}
+}
+
 type Meeseek interface {
-	AddProgram(prog program.Program, interval ...time.Duration) error
+	AddProgram(Program) error
 	Start(ctx context.Context)
 	Stop(programName string, timeout time.Duration) error
 	Wait(ctx context.Context) error
 	Statistic(program string) (Statistics, error)
 	Statistics() []Statistics
 	Shutdown(timeout time.Duration) error
-}
-
-// ProgramInfo holds program metadata for unified storage.
-type ProgramInfo struct {
-	Program  program.Program
-	Interval *time.Duration // nil for regular programs, non-nil for scheduled
 }
 
 // Statistics tracks individual program execution statistics.
@@ -55,7 +70,7 @@ type executionTrack struct {
 type meeseek struct {
 	startTime      time.Time
 	endTime        time.Time
-	programs       map[string]*ProgramInfo    // Unified storage for all programs
+	programs       map[string]Program         // Unified storage for all programs
 	schedulerStops map[string]chan struct{}   // Only for scheduled programs
 	executions     map[string]*executionTrack // execution tracking for each program
 	wg             *sync.WaitGroup
@@ -63,7 +78,7 @@ type meeseek struct {
 	logger         logger.Logger
 }
 
-func (m *meeseek) AddProgram(prog program.Program, interval ...time.Duration) error {
+func (m *meeseek) AddProgram(prog Program) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -72,14 +87,7 @@ func (m *meeseek) AddProgram(prog program.Program, interval ...time.Duration) er
 		return fmt.Errorf("duplicated %s program", name)
 	}
 
-	progInfo := &ProgramInfo{
-		Program: prog,
-	}
-	if len(interval) > 0 && interval[0] > 0 {
-		progInfo.Interval = &interval[0]
-	}
-
-	m.programs[name] = progInfo
+	m.programs[name] = prog
 	m.executions[name] = &executionTrack{}
 	return nil
 }
@@ -90,25 +98,25 @@ func (m *meeseek) Start(ctx context.Context) {
 
 	m.startTime = time.Now()
 
-	m.wg.Add(len(m.programs))
-
 	// Start all programs
-	for _, info := range m.programs {
-		if info.Interval == nil {
-			// Start regular program
-			go func(prog program.Program) {
-				m.runOneTimeProgram(ctx, prog)
-			}(info.Program)
-		} else {
-			// Start scheduled program
-			go func(progInfo *ProgramInfo) {
-				m.runScheduledProgram(ctx, progInfo.Program, *progInfo.Interval)
-			}(info)
-		}
+	for _, program := range m.programs {
+		m.wg.Add(1)
+		go func(prog Program) {
+			m.runProgram(ctx, prog)
+		}(program)
 	}
 }
 
-func (m *meeseek) runOneTimeProgram(ctx context.Context, prog program.Program) {
+func (m *meeseek) runProgram(ctx context.Context, prog Program) {
+	interval := prog.Interval()
+	if interval != nil && *interval > 0 {
+		m.runScheduledProgram(ctx, prog)
+	} else {
+		m.runOneTimeProgram(ctx, prog)
+	}
+}
+
+func (m *meeseek) runOneTimeProgram(ctx context.Context, prog Program) {
 	defer m.wg.Done()
 
 	done, err := prog.Start(ctx)
@@ -133,9 +141,11 @@ func (m *meeseek) runOneTimeProgram(ctx context.Context, prog program.Program) {
 	m.trackProgramCompletion(prog.Name(), prog.State() == program.StateFinished)
 }
 
-func (m *meeseek) runScheduledProgram(ctx context.Context, prog program.Program, interval time.Duration) {
+func (m *meeseek) runScheduledProgram(ctx context.Context, prog Program) {
 	programName := prog.Name()
+	interval := *prog.Interval()
 	ticker := time.NewTicker(intervalCheckDuration)
+
 	defer ticker.Stop()
 	defer m.wg.Done()
 
@@ -236,7 +246,7 @@ func (m *meeseek) Statistic(programName string) (Statistics, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	info, ok := m.programs[programName]
+	program, ok := m.programs[programName]
 	if !ok {
 		return Statistics{}, fmt.Errorf("program %s not present", programName)
 	}
@@ -245,7 +255,7 @@ func (m *meeseek) Statistic(programName string) (Statistics, error) {
 		return Statistics{}, fmt.Errorf("execution information for %s not present", programName)
 	}
 
-	return m.collectProgramStatistics(info, execRun), nil
+	return m.collectProgramStatistics(program, execRun), nil
 }
 
 func (m *meeseek) Statistics() []Statistics {
@@ -256,9 +266,9 @@ func (m *meeseek) Statistics() []Statistics {
 	keys := slices.Sorted(maps.Keys(m.programs))
 
 	for i, key := range keys {
-		info := m.programs[key]
+		program := m.programs[key]
 		execRecord := m.executions[key]
-		statistics[i] = m.collectProgramStatistics(info, execRecord)
+		statistics[i] = m.collectProgramStatistics(program, execRecord)
 	}
 
 	return statistics
@@ -285,16 +295,16 @@ func (m *meeseek) Wait(ctx context.Context) error {
 
 func (m *meeseek) Stop(programName string, timeout time.Duration) error {
 	m.mu.RLock()
-	info, ok := m.programs[programName]
+	program, ok := m.programs[programName]
 	m.mu.RUnlock()
 
 	if !ok {
 		return fmt.Errorf("program %s not present", programName)
 	}
 
-	if info.Interval == nil {
+	if program.Interval() == nil {
 		// Regular program - shutdown directly
-		return info.Program.Shutdown(timeout)
+		return program.Shutdown(timeout)
 	}
 
 	// Scheduled program - stop via channel
@@ -331,16 +341,15 @@ func (m *meeseek) Shutdown(timeout time.Duration) error {
 
 	errs := make([]error, 0, len(m.programs))
 
-	for _, info := range m.programs {
-		errs = append(errs, info.Program.Shutdown(timeout))
+	for _, program := range m.programs {
+		errs = append(errs, program.Shutdown(timeout))
 	}
 
 	return errors.Join(errs...)
 }
 
 // collectProgramStatistics gathers statistics from program state and execution records.
-func (m *meeseek) collectProgramStatistics(info *ProgramInfo, execRecord *executionTrack) Statistics {
-	prog := info.Program
+func (m *meeseek) collectProgramStatistics(prog Program, execRecord *executionTrack) Statistics {
 	programName := prog.Name()
 	progState := prog.State()
 
@@ -352,9 +361,11 @@ func (m *meeseek) collectProgramStatistics(info *ProgramInfo, execRecord *execut
 		LastRunAt:   execRecord.lastRunAt.Format(time.DateTime),
 	}
 
-	if info.Interval != nil {
-		stats.Interval = info.Interval.String()
-		stats.NextRunAt = execRecord.lastRunAt.Add(*info.Interval).Format(time.DateTime)
+	interval := prog.Interval()
+
+	if interval != nil && *interval > 0 {
+		stats.Interval = interval.String()
+		stats.NextRunAt = execRecord.lastRunAt.Add(*interval).Format(time.DateTime)
 	}
 
 	// Collect last output and error information
@@ -410,7 +421,7 @@ func Logger(logger logger.Logger) Option {
 func New(opts ...Option) Meeseek {
 	m := &meeseek{
 		wg:             &sync.WaitGroup{},
-		programs:       make(map[string]*ProgramInfo),
+		programs:       make(map[string]Program),
 		schedulerStops: make(map[string]chan struct{}),
 		executions:     make(map[string]*executionTrack),
 	}

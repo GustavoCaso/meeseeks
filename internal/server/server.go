@@ -14,7 +14,6 @@ import (
 
 	"github.com/GustavoCaso/meeseeks/internal/logger"
 	"github.com/GustavoCaso/meeseeks/pkg/meeseeks"
-	"github.com/GustavoCaso/meeseeks/pkg/program"
 )
 
 type Server struct {
@@ -111,8 +110,8 @@ func (s *Server) Stop() error {
 	return errors.Join(errs...)
 }
 
-func (s *Server) AddProgram(prog program.Program, interval ...time.Duration) error {
-	return s.meeseeks.AddProgram(prog, interval...)
+func (s *Server) AddProgram(prog meeseeks.Program) error {
+	return s.meeseeks.AddProgram(prog)
 }
 
 func (s *Server) StartPrograms(ctx context.Context) {

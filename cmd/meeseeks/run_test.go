@@ -55,10 +55,7 @@ func TestRunCommand_Help(t *testing.T) {
 }
 
 func TestRunCommand_Foreground(t *testing.T) {
-	// Make sure running tests while having a production
-	// instance of meeseeks running do not cause problems
-	customDir := "/tmp/meeseeks"
-	t.Setenv("MEESEEKS_CONFIG_DIR", customDir)
+	setMeeseeksConfigDirForTest(t)
 
 	tmpDir := t.TempDir()
 	configFile := filepath.Join(tmpDir, "test-config.yaml")
@@ -162,10 +159,7 @@ func TestRunCommand_Foreground(t *testing.T) {
 }
 
 func TestRunCommand_Detached(t *testing.T) {
-	// Make sure running tests while having a production
-	// instance of meeseeks running do not cause problems
-	customDir := "/tmp/meeseeks"
-	t.Setenv("MEESEEKS_CONFIG_DIR", customDir)
+	setMeeseeksConfigDirForTest(t)
 
 	tmpDir := t.TempDir()
 	configFile := filepath.Join(tmpDir, "test-detached-config.yaml")
