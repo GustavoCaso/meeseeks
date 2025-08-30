@@ -48,6 +48,25 @@ func runCLICommand(
 	return exitCode
 }
 
+func setMeeseeksConfigDirForTest(t *testing.T) {
+	t.Helper()
+
+	// Make sure running tests while having a production
+	// instance of meeseeks running do not cause problems
+	customDir := "/tmp/meeseeks"
+
+	err := os.MkdirAll(customDir, 0750)
+	if err != nil {
+		t.Fatalf("error creating temp folder for tests %s", err.Error())
+	}
+
+	t.Setenv("MEESEEKS_CONFIG_DIR", customDir)
+
+	t.Cleanup(func() {
+		os.RemoveAll(customDir)
+	})
+}
+
 // newTestServer creates and starts a server with the given config content.
 func newTestServer(t *testing.T, configContent string) {
 	t.Helper()
@@ -64,11 +83,6 @@ func newTestServer(t *testing.T, configContent string) {
 		t.Fatalf("failed to load test config: %v", err)
 	}
 
-	// Make sure running tests while having a production
-	// instance of meeseeks running do not cause problems
-	customDir := "/tmp/meeseeks"
-	t.Setenv("MEESEEKS_CONFIG_DIR", customDir)
-
 	server, err := startServer(t.Context(), cfg, logger.New(), getSocketPath())
 	if err != nil {
 		t.Fatalf("failed to start test server: %v", err)
@@ -76,7 +90,6 @@ func newTestServer(t *testing.T, configContent string) {
 
 	// Set up cleanup
 	t.Cleanup(func() {
-		os.RemoveAll(customDir)
 		server.Stop()
 	})
 }

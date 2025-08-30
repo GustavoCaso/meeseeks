@@ -47,11 +47,6 @@ type Meeseek interface {
 	Shutdown(timeout time.Duration) error
 }
 
-// ProgramInfo holds program metadata for unified storage.
-type ProgramInfo struct {
-	Program  program.Program
-	Interval *time.Duration // nil for regular programs, non-nil for scheduled
-}
 
 // Statistics tracks individual program execution statistics.
 type Statistics struct {
@@ -106,6 +101,7 @@ func (m *meeseek) Start(ctx context.Context) {
 
 	// Start all programs
 	for _, program := range m.programs {
+		m.wg.Add(1)
 		go func(prog Program) {
 			m.runProgram(ctx, prog)
 		}(program)
@@ -113,7 +109,6 @@ func (m *meeseek) Start(ctx context.Context) {
 }
 
 func (m *meeseek) runProgram(ctx context.Context, prog Program) {
-	m.wg.Add(1)
 	interval := prog.Interval()
 	if interval != nil && *interval > 0 {
 		m.runScheduledProgram(ctx, prog)

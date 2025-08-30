@@ -48,7 +48,7 @@ func TestMeeseek_AddProgram(t *testing.T) {
 
 			var err error
 			for _, prog := range tt.programs {
-				err = m.AddProgram(prog)
+				err = m.AddProgram(NewProgram(prog, nil))
 				if err != nil && !tt.wantErr {
 					t.Fatalf("AddProgram() unexpected error = %v", err)
 					return
@@ -120,7 +120,7 @@ func TestMeeseek_Statistic(t *testing.T) {
 			m := New()
 
 			for _, prog := range tt.programs {
-				err := m.AddProgram(prog)
+				err := m.AddProgram(NewProgram(prog, nil))
 				if err != nil {
 					t.Fatalf("Failed to add program: %v", err)
 				}
@@ -206,7 +206,7 @@ func TestMeeseek_StartAndWait(t *testing.T) {
 			m := New()
 
 			for _, prog := range tt.programs {
-				err := m.AddProgram(prog)
+				err := m.AddProgram(NewProgram(prog, nil))
 				if err != nil {
 					t.Fatalf("Failed to add program: %v", err)
 				}
@@ -270,7 +270,7 @@ func TestMeeseek_Statistics(t *testing.T) {
 			m := New()
 
 			for _, prog := range tt.programs {
-				err := m.AddProgram(prog)
+				err := m.AddProgram(NewProgram(prog, nil))
 				if err != nil {
 					t.Fatalf("Failed to add program: %v", err)
 				}
@@ -342,7 +342,7 @@ func TestMeeseek_LongRunningStatistics(t *testing.T) {
 	m := New()
 
 	prog := program.New("long-runner", "sleep", program.Args("5"))
-	err := m.AddProgram(prog)
+	err := m.AddProgram(NewProgram(prog, nil))
 	if err != nil {
 		t.Fatalf("Failed to add program: %v", err)
 	}
@@ -410,7 +410,7 @@ func TestMeeseek_StatisticsWithOutput(t *testing.T) {
 			m := New()
 
 			prog := program.New("output-test", tt.programCmd, program.Args(tt.programArgs...))
-			err := m.AddProgram(prog)
+			err := m.AddProgram(NewProgram(prog, nil))
 			if err != nil {
 				t.Fatalf("Failed to add program: %v", err)
 			}
@@ -482,7 +482,7 @@ func TestMeeseek_FailingProgramStatistics(t *testing.T) {
 			m := New()
 
 			prog := program.New("failing-test", tt.programCmd, program.Args(tt.programArgs...))
-			err := m.AddProgram(prog)
+			err := m.AddProgram(NewProgram(prog, nil))
 			if err != nil {
 				t.Fatalf("Failed to add program: %v", err)
 			}
@@ -540,7 +540,7 @@ func TestMeeseek_IntervalPrograms(t *testing.T) {
 			prog := program.New("interval-test", "echo",
 				program.Args("interval"))
 
-			err := m.AddProgram(prog, tt.interval)
+			err := m.AddProgram(NewProgram(prog, &tt.interval))
 			if err != nil {
 				t.Fatalf("Failed to add program: %v", err)
 			}
@@ -572,7 +572,7 @@ func TestMeeseek_ConcurrentAccess(t *testing.T) {
 		go func(id int) {
 			progName := "concurrent-" + string(rune('0'+id))
 			prog := program.New(progName, "echo", program.Args("test"))
-			err := m.AddProgram(prog)
+			err := m.AddProgram(NewProgram(prog, nil))
 			results <- err
 		}(i)
 	}
@@ -610,7 +610,7 @@ func TestMeeseek_ContextCancellation(t *testing.T) {
 	m := New()
 
 	prog := program.New("cancelable", "sleep", program.Args("10"))
-	err := m.AddProgram(prog)
+	err := m.AddProgram(NewProgram(prog, nil))
 	if err != nil {
 		t.Fatalf("Failed to add program: %v", err)
 	}
@@ -674,7 +674,7 @@ func TestMeeseek_Stop(t *testing.T) {
 			m := New()
 
 			for _, prog := range tt.programs {
-				err := m.AddProgram(prog)
+				err := m.AddProgram(NewProgram(prog, nil))
 				if err != nil {
 					t.Fatalf("Failed to add program: %v", err)
 				}
@@ -720,7 +720,8 @@ func TestMeeseek_Stop(t *testing.T) {
 func TestMeeseek_Stop_Same_Program_Multiple_Times(t *testing.T) {
 	m := New()
 	prog := program.New("interval1", "echo", program.Args("test"))
-	err := m.AddProgram(prog, 50*time.Millisecond)
+	interval := 50 * time.Millisecond
+	err := m.AddProgram(NewProgram(prog, &interval))
 	if err != nil {
 		t.Fatalf("Failed to add program: %v", err)
 	}
@@ -785,12 +786,12 @@ func TestMeeseek_WaitWithIntervalPrograms_ContextCancellation(t *testing.T) {
 			for _, pc := range tt.programs {
 				prog := program.New(pc.name, pc.cmd, program.Args(pc.args...))
 				if pc.interval > 0 {
-					err := m.AddProgram(prog, pc.interval)
+					err := m.AddProgram(NewProgram(prog, &pc.interval))
 					if err != nil {
 						t.Fatalf("Failed to add interval program %s: %v", pc.name, err)
 					}
 				} else {
-					err := m.AddProgram(prog)
+					err := m.AddProgram(NewProgram(prog, nil))
 					if err != nil {
 						t.Fatalf("Failed to add regular program %s: %v", pc.name, err)
 					}
@@ -875,12 +876,12 @@ func TestMeeseek_WaitWithIntervalPrograms_Stop(t *testing.T) {
 			for _, pc := range tt.programs {
 				prog := program.New(pc.name, pc.cmd, program.Args(pc.args...))
 				if pc.interval > 0 {
-					err := m.AddProgram(prog, pc.interval)
+					err := m.AddProgram(NewProgram(prog, &pc.interval))
 					if err != nil {
 						t.Fatalf("Failed to add interval program %s: %v", pc.name, err)
 					}
 				} else {
-					err := m.AddProgram(prog)
+					err := m.AddProgram(NewProgram(prog, nil))
 					if err != nil {
 						t.Fatalf("Failed to add regular program %s: %v", pc.name, err)
 					}
@@ -974,12 +975,12 @@ func TestMeeseek_WaitWithIntervalPrograms_Shutdown(t *testing.T) {
 			for _, pc := range tt.programs {
 				prog := program.New(pc.name, pc.cmd, program.Args(pc.args...))
 				if pc.interval > 0 {
-					err := m.AddProgram(prog, pc.interval)
+					err := m.AddProgram(NewProgram(prog, &pc.interval))
 					if err != nil {
 						t.Fatalf("Failed to add interval program %s: %v", pc.name, err)
 					}
 				} else {
-					err := m.AddProgram(prog)
+					err := m.AddProgram(NewProgram(prog, nil))
 					if err != nil {
 						t.Fatalf("Failed to add regular program %s: %v", pc.name, err)
 					}
@@ -1024,7 +1025,7 @@ func TestMeeseek_IntervalPrograms_ConcurrentOperations(t *testing.T) {
 		prog := program.New(progName, "echo", program.Args("concurrent-test"))
 		duration := 30 + i*10
 		interval := time.Duration(duration) * time.Millisecond
-		err := m.AddProgram(prog, interval)
+		err := m.AddProgram(NewProgram(prog, &interval))
 		if err != nil {
 			t.Fatalf("Failed to add interval program %s: %v", progName, err)
 		}
