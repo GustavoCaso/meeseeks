@@ -12,6 +12,7 @@ import (
 	"github.com/GustavoCaso/meeseeks/internal/config"
 	"github.com/GustavoCaso/meeseeks/internal/logger"
 	"github.com/GustavoCaso/meeseeks/internal/server"
+	"github.com/GustavoCaso/meeseeks/pkg/meeseeks"
 )
 
 type cmd struct {
@@ -153,19 +154,21 @@ func startServer(
 			return nil, fmt.Errorf("failed to create program %s: %w", programConfig.Name, err)
 		}
 
+		var p meeseeks.Program
+
 		// Check if this program has an interval - pass it to AddProgram
 		if programConfig.Interval != "" {
 			interval, intervalErr := programConfig.GetInterval()
 			if intervalErr != nil {
 				return nil, fmt.Errorf("failed to parse interval for program %s: %w", programConfig.Name, intervalErr)
 			}
-			if addErr := s.AddProgram(prog, interval); addErr != nil {
-				return nil, fmt.Errorf("failed to add scheduled program %s: %w", programConfig.Name, addErr)
-			}
+			p = meeseeks.NewProgram(prog, &interval)
 		} else {
-			if addErr := s.AddProgram(prog); addErr != nil {
-				return nil, fmt.Errorf("failed to add program %s: %w", programConfig.Name, addErr)
-			}
+			p = meeseeks.NewProgram(prog, nil)
+		}
+
+		if addErr := s.AddProgram(p); addErr != nil {
+			return nil, fmt.Errorf("failed to add scheduled program %s: %w", programConfig.Name, addErr)
 		}
 	}
 
