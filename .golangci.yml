@@ -440,3 +440,6 @@ linters:
           - noctx
           - wrapcheck
           - gocognit
+      - path: 'pkg/meeseeks/meeseek.go'
+        linters:
+          - errname

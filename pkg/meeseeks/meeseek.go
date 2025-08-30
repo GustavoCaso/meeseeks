@@ -47,7 +47,6 @@ type Meeseek interface {
 	Shutdown(timeout time.Duration) error
 }
 
-
 // Statistics tracks individual program execution statistics.
 type Statistics struct {
 	ProgramName      string `json:"program_name"`
