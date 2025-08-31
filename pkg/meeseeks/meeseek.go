@@ -156,7 +156,7 @@ func (m *meeseek) Programs() []string {
 //
 // If an error happens while shutdown of previous programs we log the error but continue the reload process.
 func (m *meeseek) Reload(ctx context.Context, programs []Program, deadline time.Duration) {
-	if len(programs) <= 0 {
+	if len(programs) == 0 {
 		return
 	}
 

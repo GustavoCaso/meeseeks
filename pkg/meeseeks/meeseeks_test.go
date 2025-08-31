@@ -1096,9 +1096,7 @@ func TestMeeseekReload(t *testing.T) {
 		expectedPrograms          []string
 		verifyStatisticsPreserved bool
 		preservedProgramName      string
-		expectBlocking            bool
 		shortTimeout              bool
-		verifyWaitBehavior        bool
 	}{
 		{
 			name: "basic reload with statistics preservation",
@@ -1158,17 +1156,6 @@ func TestMeeseekReload(t *testing.T) {
 			verifyStatisticsPreserved: false,
 		},
 		{
-			name: "blocking behavior verification",
-			initialPrograms: []Program{
-				NewProgram(program.New("long-runner", "sleep", program.Args("2")), nil),
-			},
-			reloadPrograms: []Program{
-				NewProgram(program.New("new-prog", "echo", program.Args("hello")), nil),
-			},
-			expectedPrograms: []string{"new-prog [echo hello]"},
-			expectBlocking:   true,
-		},
-		{
 			name: "short timeout handling",
 			initialPrograms: []Program{
 				NewProgram(program.New("slow-shutdown", "sleep", program.Args("2")), nil),
@@ -1178,17 +1165,6 @@ func TestMeeseekReload(t *testing.T) {
 			},
 			expectedPrograms: []string{"fast-program [echo hello]"},
 			shortTimeout:     true,
-		},
-		{
-			name: "wait continues after reload",
-			initialPrograms: []Program{
-				NewProgram(program.New("initial", "sleep", program.Args("0.1")), &interval50ms),
-			},
-			reloadPrograms: []Program{
-				NewProgram(program.New("reloaded", "sleep", program.Args("0.2")), nil),
-			},
-			expectedPrograms:   []string{"reloaded [sleep 0.2]"},
-			verifyWaitBehavior: true,
 		},
 	}
 
@@ -1223,60 +1199,11 @@ func TestMeeseekReload(t *testing.T) {
 				}
 			}
 
-			// Test blocking behavior
-			if tt.expectBlocking {
-				reloadDone := make(chan bool, 1)
-				go func() {
-					timeout := 3 * time.Second
-					if tt.shortTimeout {
-						timeout = 10 * time.Millisecond
-					}
-					m.Reload(ctx, tt.reloadPrograms, timeout)
-					reloadDone <- true
-				}()
-
-				// Try to access statistics during reload - should block
-				statsDone := make(chan bool, 1)
-				go func() {
-					_ = m.Statistics()
-					statsDone <- true
-				}()
-
-				select {
-				case <-statsDone:
-					t.Fatal("Statistics should be blocked and not complete before reload")
-				case <-reloadDone:
-					// Good! Reload finished first, proving statistics was blocked
-				case <-time.After(5 * time.Second):
-					t.Fatal("Test timed out")
-				}
-			} else if tt.verifyWaitBehavior {
-				// Test that Wait() continues to wait during reload
-				waitDone := make(chan bool, 1)
-				go func() {
-					m.Wait(ctx)
-					waitDone <- true
-				}()
-
-				reloadDone := make(chan bool, 1)
-				go func() {
-					m.Reload(ctx, tt.reloadPrograms, 2*time.Second)
-					reloadDone <- true
-				}()
-
-				select {
-				case <-waitDone:
-					t.Fatal("Wait returned while calling shutdown. This should not happen")
-				case <-reloadDone:
-					// Wait is still waiting (correctly)
-				}
-			} else {
-				timeout := 2 * time.Second
-				if tt.shortTimeout {
-					timeout = 10 * time.Millisecond
-				}
-				m.Reload(ctx, tt.reloadPrograms, timeout)
+			timeout := 2 * time.Second
+			if tt.shortTimeout {
+				timeout = 10 * time.Millisecond
 			}
+			m.Reload(ctx, tt.reloadPrograms, timeout)
 
 			// Verify program list
 			currentPrograms := m.Programs()
@@ -1301,6 +1228,106 @@ func TestMeeseekReload(t *testing.T) {
 				t.Fatalf("Shutdown failed: %v", err)
 			}
 		})
+	}
+}
+
+func TestMeeseekReload_BlockingOperations(t *testing.T) {
+	interval50ms := 50 * time.Millisecond
+	initialPrograms := []Program{
+		NewProgram(program.New("long-runner", "sleep", program.Args("2")), &interval50ms),
+	}
+	reloadPrograms := []Program{
+		NewProgram(program.New("new-prog", "echo", program.Args("hello")), nil),
+	}
+
+	m := New()
+	ctx := t.Context()
+
+	for _, p := range initialPrograms {
+		err := m.AddProgram(p)
+		if err != nil {
+			t.Fatalf("Failed to add initial program: %v", err)
+		}
+	}
+
+	m.Start(ctx)
+	time.Sleep(200 * time.Millisecond) // Let programs execute
+
+	reloadDone := make(chan bool, 1)
+	go func() {
+		m.Reload(ctx, reloadPrograms, 2*time.Second)
+		reloadDone <- true
+	}()
+
+	// Try to access statistics during reload - should block
+	statsDone := make(chan bool, 1)
+	go func() {
+		_ = m.Statistics()
+		statsDone <- true
+	}()
+
+	select {
+	case <-statsDone:
+		t.Fatal("Statistics should be blocked and not complete before reload")
+	case <-reloadDone:
+		// Good! Reload finished first, proving statistics was blocked
+	case <-time.After(3 * time.Second):
+		t.Fatal("Test timed out")
+	}
+
+	err := m.Shutdown(1 * time.Second)
+	if err != nil {
+		t.Fatalf("Shutdown failed: %v", err)
+	}
+}
+
+func TestMeeseekReload_WaitDoNotExistWhileReloading(t *testing.T) {
+	interval50ms := 50 * time.Millisecond
+	initialPrograms := []Program{
+		NewProgram(program.New("long-runner", "sleep", program.Args("2")), &interval50ms),
+	}
+	reloadPrograms := []Program{
+		NewProgram(program.New("new-prog", "echo", program.Args("hello")), nil),
+	}
+
+	m := New()
+	ctx := t.Context()
+
+	for _, p := range initialPrograms {
+		err := m.AddProgram(p)
+		if err != nil {
+			t.Fatalf("Failed to add initial program: %v", err)
+		}
+	}
+
+	m.Start(ctx)
+	time.Sleep(200 * time.Millisecond) // Let programs execute
+
+	// Test that Wait() continues to wait during reload
+	waitDone := make(chan bool, 1)
+	go func() {
+		m.Wait(ctx)
+		waitDone <- true
+	}()
+
+	reloadDone := make(chan bool, 1)
+	go func() {
+		m.Reload(ctx, reloadPrograms, 2*time.Second)
+		reloadDone <- true
+	}()
+
+	select {
+	case <-waitDone:
+		t.Fatal("Wait returned while calling shutdown. This should not happen")
+	case <-reloadDone:
+	// Wait is still waiting (correctly)
+	case <-time.After(3 * time.Second):
+		t.Fatal("Test timed out")
+	}
+
+	err := m.Shutdown(1 * time.Second)
+	if err != nil {
+		t.Fatalf("Shutdown failed: %v", err)
 	}
 }
 
