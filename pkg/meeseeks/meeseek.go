@@ -150,48 +150,11 @@ func (m *meeseek) Programs() []string {
 
 // Reload performs a hot reload of the meeseeks configuration with new programs.
 //
-// BLOCKING BEHAVIOR & DATA INTEGRITY:
 // This method prioritizes data integrity over operational availability by holding an exclusive
 // lock for the entire reload duration. This means ALL other operations (Statistics, Status,
-// AddProgram, etc.) are blocked until reload completes. This design choice ensures:
-// - Atomic state transitions (no partial reload states)
-// - Consistent program state during complex shutdown/restart sequences
-// - Prevention of race conditions during program comparison and state management
+// AddProgram, etc.) are blocked until reload completes.
 //
-// OPERATIONAL PHASES:
-// 1. COMPARISON PHASE: Compare new programs with existing programs to determine:
-//
-//   - Programs to remove (not in new config)
-//
-//   - Programs to restart (changed configuration)
-//
-//   - Programs to preserve (identical configuration with execution history)
-//
-//     2. SHUTDOWN PHASE: Stop all currently running programs gracefully within deadline.
-//     Programs that don't stop within the deadline are forcibly terminated.
-//     Shutdown errors are logged but do not prevent reload from continuing.
-//
-//     3. STATE CLEANUP PHASE: Remove execution statistics for programs that were
-//     removed or changed, while preserving statistics for identical programs.
-//
-//     4. RESTART PHASE: Repopulate program map with new configuration and start
-//     all programs with fresh goroutines and scheduler channels.
-//
-// STATISTICS PRESERVATION:
-// Programs with identical configuration (determined by semantic comparison) retain their
-// execution statistics across reload. This enables tracking long-running program metrics
-// through configuration changes that don't affect the specific program.
-//
-// THREAD SAFETY:
-// - Holds write lock during comparison and state modification phases
-// - Releases lock during potentially long shutdown phase to allow program cleanup
-// - Re-acquires lock for final state updates and restart
-// - Uses WaitGroup to coordinate with other meeseeks lifecycle operations
-//
-// PARAMETERS:
-// - ctx: Context for starting new programs after reload
-// - programs: New program configuration to replace current programs
-// - deadline: Maximum time to wait for graceful shutdown of existing programs.
+// If an error happens while shutdown of previous programs we log the error but continue the reload process.
 func (m *meeseek) Reload(ctx context.Context, programs []Program, deadline time.Duration) {
 	if len(programs) <= 0 {
 		return
@@ -203,8 +166,7 @@ func (m *meeseek) Reload(ctx context.Context, programs []Program, deadline time.
 	}
 
 	m.mu.Lock()
-	// If the program is in the old configuration
-	// but not in the new one we have to stop it and remove its state
+
 	removeState := []string{}
 	keepState := []string{}
 
@@ -213,7 +175,6 @@ func (m *meeseek) Reload(ctx context.Context, programs []Program, deadline time.
 		if !exists {
 			removeState = append(removeState, name)
 		} else {
-			// Use semantic comparison instead of reflect.DeepEqual
 			if oldProgram.Equal(newProgram) {
 				keepState = append(keepState, name)
 			} else {

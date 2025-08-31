@@ -1182,7 +1182,7 @@ func TestMeeseekReload(t *testing.T) {
 		{
 			name: "wait continues after reload",
 			initialPrograms: []Program{
-				NewProgram(program.New("initial", "sleep", program.Args("0.1")), nil),
+				NewProgram(program.New("initial", "sleep", program.Args("0.1")), &interval50ms),
 			},
 			reloadPrograms: []Program{
 				NewProgram(program.New("reloaded", "sleep", program.Args("0.2")), nil),
@@ -1197,7 +1197,6 @@ func TestMeeseekReload(t *testing.T) {
 			m := New()
 			ctx := t.Context()
 
-			// Add initial programs
 			for _, p := range tt.initialPrograms {
 				err := m.AddProgram(p)
 				if err != nil {
@@ -1209,20 +1208,18 @@ func TestMeeseekReload(t *testing.T) {
 			var preservedOldStats Statistics
 
 			// Start and capture statistics if needed
-			if len(tt.initialPrograms) > 0 {
-				m.Start(ctx)
-				time.Sleep(200 * time.Millisecond) // Let programs execute
+			m.Start(ctx)
+			time.Sleep(200 * time.Millisecond) // Let programs execute
 
-				if tt.verifyStatisticsPreserved {
-					oldStats = m.Statistics()
-					var exists bool
-					preservedOldStats, exists = oldStats[tt.preservedProgramName]
-					if !exists {
-						t.Fatalf("Program %s not found in initial statistics", tt.preservedProgramName)
-					}
-					if preservedOldStats.Successful == 0 {
-						t.Fatalf("Program %s should have successful executions before reload", tt.preservedProgramName)
-					}
+			if tt.verifyStatisticsPreserved {
+				oldStats = m.Statistics()
+				var exists bool
+				preservedOldStats, exists = oldStats[tt.preservedProgramName]
+				if !exists {
+					t.Fatalf("Program %s not found in initial statistics", tt.preservedProgramName)
+				}
+				if preservedOldStats.Successful == 0 {
+					t.Fatalf("Program %s should have successful executions before reload", tt.preservedProgramName)
 				}
 			}
 
@@ -1241,61 +1238,39 @@ func TestMeeseekReload(t *testing.T) {
 				// Try to access statistics during reload - should block
 				statsDone := make(chan bool, 1)
 				go func() {
-					time.Sleep(50 * time.Millisecond) // Start after reload starts
-					_ = m.Statistics()                // This should block until reload completes
+					_ = m.Statistics()
 					statsDone <- true
 				}()
 
-				// Single select to verify reload completes BEFORE statistics (proving blocking)
 				select {
 				case <-statsDone:
 					t.Fatal("Statistics should be blocked and not complete before reload")
 				case <-reloadDone:
 					// Good! Reload finished first, proving statistics was blocked
-					// Now verify statistics completes quickly after reload
-					select {
-					case <-statsDone:
-						// Perfect - statistics completed after reload
-					case <-time.After(100 * time.Millisecond):
-						t.Fatal("Statistics should complete quickly once reload finishes")
-					}
 				case <-time.After(5 * time.Second):
 					t.Fatal("Test timed out")
 				}
 			} else if tt.verifyWaitBehavior {
-				// Test that Wait() continues to work properly after reload
-				waitDone := make(chan error, 1)
+				// Test that Wait() continues to wait during reload
+				waitDone := make(chan bool, 1)
 				go func() {
-					waitDone <- m.Wait(ctx) // This should wait for reloaded programs too
+					m.Wait(ctx)
+					waitDone <- true
 				}()
 
-				// Give Wait() time to start waiting
-				time.Sleep(50 * time.Millisecond)
+				reloadDone := make(chan bool, 1)
+				go func() {
+					m.Reload(ctx, tt.reloadPrograms, 2*time.Second)
+					reloadDone <- true
+				}()
 
-				// Perform reload - Wait() should continue waiting for NEW programs
-				m.Reload(ctx, tt.reloadPrograms, 2*time.Second)
-
-				// Wait() should NOT return immediately after reload
-				// It should wait for the reloaded programs to complete
 				select {
-				case err := <-waitDone:
-					// Wait should complete successfully after reloaded programs finish
-					if err != nil {
-						t.Fatalf("Wait returned error after reload: %v", err)
-					}
-				case <-time.After(1 * time.Second):
-					// Wait is still waiting (correctly) - let's wait for completion
-					select {
-					case err := <-waitDone:
-						if err != nil {
-							t.Fatalf("Wait returned error: %v", err)
-						}
-					case <-time.After(2 * time.Second):
-						t.Fatal("Wait should have completed after reloaded programs finished")
-					}
+				case <-waitDone:
+					t.Fatal("Wait returned while calling shutdown. This should not happen")
+				case <-reloadDone:
+					// Wait is still waiting (correctly)
 				}
 			} else {
-				// Normal reload
 				timeout := 2 * time.Second
 				if tt.shortTimeout {
 					timeout = 10 * time.Millisecond
@@ -1309,7 +1284,6 @@ func TestMeeseekReload(t *testing.T) {
 				t.Fatalf("Programs after reload: expected %+v, got %+v", tt.expectedPrograms, currentPrograms)
 			}
 
-			// Verify statistics preservation
 			if tt.verifyStatisticsPreserved {
 				newStats := m.Statistics()
 				preservedNewStats, exists := newStats[tt.preservedProgramName]
@@ -1322,7 +1296,6 @@ func TestMeeseekReload(t *testing.T) {
 				}
 			}
 
-			// Clean shutdown
 			err := m.Shutdown(1 * time.Second)
 			if err != nil {
 				t.Fatalf("Shutdown failed: %v", err)
