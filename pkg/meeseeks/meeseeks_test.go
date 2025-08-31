@@ -3,6 +3,7 @@ package meeseeks
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1081,6 +1082,252 @@ func TestMeeseek_IntervalPrograms_ConcurrentOperations(t *testing.T) {
 	err := m.Wait(ctx)
 	if err != nil && !strings.Contains(err.Error(), "context cancelled") {
 		t.Errorf("Wait after shutdown returned unexpected error: %v", err)
+	}
+}
+
+func TestMeeseekReload(t *testing.T) {
+	interval50ms := 50 * time.Millisecond
+	interval100ms := 100 * time.Millisecond
+
+	tests := []struct {
+		name                      string
+		initialPrograms           []Program
+		reloadPrograms            []Program
+		expectedPrograms          []string
+		verifyStatisticsPreserved bool
+		preservedProgramName      string
+		expectBlocking            bool
+		shortTimeout              bool
+		verifyWaitBehavior        bool
+	}{
+		{
+			name: "basic reload with statistics preservation",
+			initialPrograms: []Program{
+				NewProgram(program.New("test1", "echo", program.Args("hello")), nil),
+				NewProgram(program.New("test2", "echo", program.Args("world")), nil),
+				NewProgram(program.New("test3", "ls", program.Args("-la")), nil),
+			},
+			reloadPrograms: []Program{
+				NewProgram(program.New("test4", "echo", program.Args("foo")), nil),
+				NewProgram(program.New("test3", "ls", program.Args("-la")), nil),
+				NewProgram(program.New("test5", "echo", program.Args("bar")), nil),
+			},
+			expectedPrograms:          []string{"test3 [ls -la]", "test4 [echo foo]", "test5 [echo bar]"},
+			verifyStatisticsPreserved: true,
+			preservedProgramName:      "test3",
+		},
+		{
+			name:                      "reload to empty (early return)",
+			initialPrograms:           []Program{NewProgram(program.New("test1", "echo", program.Args("hello")), nil)},
+			reloadPrograms:            []Program{},
+			expectedPrograms:          []string{"test1 [echo hello]"},
+			verifyStatisticsPreserved: true,
+			preservedProgramName:      "test1",
+		},
+		{
+			name:            "reload from empty",
+			initialPrograms: []Program{},
+			reloadPrograms: []Program{
+				NewProgram(program.New("test1", "echo", program.Args("hello")), nil),
+			},
+			expectedPrograms:          []string{"test1 [echo hello]"},
+			verifyStatisticsPreserved: false,
+		},
+		{
+			name: "interval program statistics preservation",
+			initialPrograms: []Program{
+				NewProgram(program.New("interval1", "echo", program.Args("test1")), &interval50ms),
+			},
+			reloadPrograms: []Program{
+				NewProgram(program.New("interval1", "echo", program.Args("test1")), &interval50ms),
+				NewProgram(program.New("interval2", "echo", program.Args("test2")), &interval100ms),
+			},
+			expectedPrograms:          []string{"interval1 [echo test1]", "interval2 [echo test2]"},
+			verifyStatisticsPreserved: true,
+			preservedProgramName:      "interval1",
+		},
+		{
+			name: "interval change resets statistics",
+			initialPrograms: []Program{
+				NewProgram(program.New("prog1", "echo", program.Args("test")), &interval50ms),
+			},
+			reloadPrograms: []Program{
+				NewProgram(program.New("prog1", "echo", program.Args("test")), &interval100ms),
+			},
+			expectedPrograms:          []string{"prog1 [echo test]"},
+			verifyStatisticsPreserved: false,
+		},
+		{
+			name: "blocking behavior verification",
+			initialPrograms: []Program{
+				NewProgram(program.New("long-runner", "sleep", program.Args("2")), nil),
+			},
+			reloadPrograms: []Program{
+				NewProgram(program.New("new-prog", "echo", program.Args("hello")), nil),
+			},
+			expectedPrograms: []string{"new-prog [echo hello]"},
+			expectBlocking:   true,
+		},
+		{
+			name: "short timeout handling",
+			initialPrograms: []Program{
+				NewProgram(program.New("slow-shutdown", "sleep", program.Args("2")), nil),
+			},
+			reloadPrograms: []Program{
+				NewProgram(program.New("fast-program", "echo", program.Args("hello")), nil),
+			},
+			expectedPrograms: []string{"fast-program [echo hello]"},
+			shortTimeout:     true,
+		},
+		{
+			name: "wait continues after reload",
+			initialPrograms: []Program{
+				NewProgram(program.New("initial", "sleep", program.Args("0.1")), nil),
+			},
+			reloadPrograms: []Program{
+				NewProgram(program.New("reloaded", "sleep", program.Args("0.2")), nil),
+			},
+			expectedPrograms:   []string{"reloaded [sleep 0.2]"},
+			verifyWaitBehavior: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := New()
+			ctx := t.Context()
+
+			// Add initial programs
+			for _, p := range tt.initialPrograms {
+				err := m.AddProgram(p)
+				if err != nil {
+					t.Fatalf("Failed to add initial program: %v", err)
+				}
+			}
+
+			var oldStats map[string]Statistics
+			var preservedOldStats Statistics
+
+			// Start and capture statistics if needed
+			if len(tt.initialPrograms) > 0 {
+				m.Start(ctx)
+				time.Sleep(200 * time.Millisecond) // Let programs execute
+
+				if tt.verifyStatisticsPreserved {
+					oldStats = m.Statistics()
+					var exists bool
+					preservedOldStats, exists = oldStats[tt.preservedProgramName]
+					if !exists {
+						t.Fatalf("Program %s not found in initial statistics", tt.preservedProgramName)
+					}
+					if preservedOldStats.Successful == 0 {
+						t.Fatalf("Program %s should have successful executions before reload", tt.preservedProgramName)
+					}
+				}
+			}
+
+			// Test blocking behavior
+			if tt.expectBlocking {
+				reloadDone := make(chan bool, 1)
+				go func() {
+					timeout := 3 * time.Second
+					if tt.shortTimeout {
+						timeout = 10 * time.Millisecond
+					}
+					m.Reload(ctx, tt.reloadPrograms, timeout)
+					reloadDone <- true
+				}()
+
+				// Try to access statistics during reload - should block
+				statsDone := make(chan bool, 1)
+				go func() {
+					time.Sleep(50 * time.Millisecond) // Start after reload starts
+					_ = m.Statistics()                // This should block until reload completes
+					statsDone <- true
+				}()
+
+				// Single select to verify reload completes BEFORE statistics (proving blocking)
+				select {
+				case <-statsDone:
+					t.Fatal("Statistics should be blocked and not complete before reload")
+				case <-reloadDone:
+					// Good! Reload finished first, proving statistics was blocked
+					// Now verify statistics completes quickly after reload
+					select {
+					case <-statsDone:
+						// Perfect - statistics completed after reload
+					case <-time.After(100 * time.Millisecond):
+						t.Fatal("Statistics should complete quickly once reload finishes")
+					}
+				case <-time.After(5 * time.Second):
+					t.Fatal("Test timed out")
+				}
+			} else if tt.verifyWaitBehavior {
+				// Test that Wait() continues to work properly after reload
+				waitDone := make(chan error, 1)
+				go func() {
+					waitDone <- m.Wait(ctx) // This should wait for reloaded programs too
+				}()
+
+				// Give Wait() time to start waiting
+				time.Sleep(50 * time.Millisecond)
+
+				// Perform reload - Wait() should continue waiting for NEW programs
+				m.Reload(ctx, tt.reloadPrograms, 2*time.Second)
+
+				// Wait() should NOT return immediately after reload
+				// It should wait for the reloaded programs to complete
+				select {
+				case err := <-waitDone:
+					// Wait should complete successfully after reloaded programs finish
+					if err != nil {
+						t.Fatalf("Wait returned error after reload: %v", err)
+					}
+				case <-time.After(1 * time.Second):
+					// Wait is still waiting (correctly) - let's wait for completion
+					select {
+					case err := <-waitDone:
+						if err != nil {
+							t.Fatalf("Wait returned error: %v", err)
+						}
+					case <-time.After(2 * time.Second):
+						t.Fatal("Wait should have completed after reloaded programs finished")
+					}
+				}
+			} else {
+				// Normal reload
+				timeout := 2 * time.Second
+				if tt.shortTimeout {
+					timeout = 10 * time.Millisecond
+				}
+				m.Reload(ctx, tt.reloadPrograms, timeout)
+			}
+
+			// Verify program list
+			currentPrograms := m.Programs()
+			if !reflect.DeepEqual(tt.expectedPrograms, currentPrograms) {
+				t.Fatalf("Programs after reload: expected %+v, got %+v", tt.expectedPrograms, currentPrograms)
+			}
+
+			// Verify statistics preservation
+			if tt.verifyStatisticsPreserved {
+				newStats := m.Statistics()
+				preservedNewStats, exists := newStats[tt.preservedProgramName]
+				if !exists {
+					t.Fatalf("Program %s not found in new statistics", tt.preservedProgramName)
+				}
+				if preservedNewStats.Successful < preservedOldStats.Successful {
+					t.Fatalf("Statistics not preserved for %s: old successful=%d, new successful=%d",
+						tt.preservedProgramName, preservedOldStats.Successful, preservedNewStats.Successful)
+				}
+			}
+
+			// Clean shutdown
+			err := m.Shutdown(1 * time.Second)
+			if err != nil {
+				t.Fatalf("Shutdown failed: %v", err)
+			}
+		})
 	}
 }
 

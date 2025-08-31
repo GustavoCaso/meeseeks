@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -25,6 +26,7 @@ type Program interface {
 	Output() string
 	Error() string
 	State() ProcessState
+	String() string
 	Shutdown(timeout time.Duration) error
 }
 
@@ -447,6 +449,10 @@ func (p *program) Shutdown(timeout time.Duration) error {
 		// Timeout exceeded, force kill
 		return p.forcekill()
 	}
+}
+
+func (p *program) String() string {
+	return fmt.Sprintf("%s [%s %s]", p.name, p.command, strings.Join(p.arguments, " "))
 }
 
 func (p *program) forcekill() error {
