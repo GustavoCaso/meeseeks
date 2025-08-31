@@ -98,7 +98,7 @@ func formatStatisticsAsTable(data any, programName string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal data: %w", err)
 	}
-	programStatistics := []meeseeks.Statistics{}
+	programStatistics := map[string]meeseeks.Statistics{}
 	if programName != "" {
 		var programStatistic = meeseeks.Statistics{}
 
@@ -107,16 +107,16 @@ func formatStatisticsAsTable(data any, programName string) error {
 			return err
 		}
 
-		programStatistics = append(programStatistics, programStatistic)
+		programStatistics[programName] = programStatistic
 	} else {
-		var programsStatistic = []meeseeks.Statistics{}
+		var programsStatistic = map[string]meeseeks.Statistics{}
 
 		err = json.Unmarshal(jsonBytes, &programsStatistic)
 		if err != nil {
 			return err
 		}
 
-		programStatistics = append(programStatistics, programsStatistic...)
+		programStatistics = programsStatistic
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)

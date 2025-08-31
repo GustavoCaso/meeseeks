@@ -298,19 +298,23 @@ func TestMeeseek_Statistics(t *testing.T) {
 				programNames[prog.Name()] = true
 			}
 
-			for i, stat := range stats {
-				if !programNames[stat.ProgramName] {
-					t.Fatalf("Statistics()[%d].ProgramName = %q, not found in expected programs", i, stat.ProgramName)
+			for name, stat := range stats {
+				if !programNames[name] {
+					t.Fatalf(
+						"Statistics()[%s].ProgramName = %q, not found in expected programs",
+						name,
+						stat.ProgramName,
+					)
 				}
 
 				if stat.Successful < 0 {
-					t.Errorf("Statistics()[%d].Successful = %d, should be >= 0", i, stat.Successful)
+					t.Errorf("Statistics()[%s].Successful = %d, should be >= 0", name, stat.Successful)
 				}
 				if stat.Failed < 0 {
-					t.Errorf("Statistics()[%d].Failed = %d, should be >= 0", i, stat.Failed)
+					t.Errorf("Statistics()[%s].Failed = %d, should be >= 0", name, stat.Failed)
 				}
 				if stat.TotalOutputLines < 0 {
-					t.Errorf("Statistics()[%d].TotalOutputLines = %d, should be >= 0", i, stat.TotalOutputLines)
+					t.Errorf("Statistics()[%s].TotalOutputLines = %d, should be >= 0", name, stat.TotalOutputLines)
 				}
 
 				validStates := []string{"not started", "idle", "running", "finished", "error"}
@@ -322,15 +326,15 @@ func TestMeeseek_Statistics(t *testing.T) {
 					}
 				}
 				if !validState {
-					t.Errorf("Statistics()[%d].State = %q, should be one of %v", i, stat.State, validStates)
+					t.Errorf("Statistics()[%s].State = %q, should be one of %v", name, stat.State, validStates)
 				}
 
 				if tt.runPrograms {
 					if stat.Successful == 0 {
-						t.Errorf("Statistics()[%d].Successful = 0, should be > 0 after running", i)
+						t.Errorf("Statistics()[%s].Successful = 0, should be > 0 after running", name)
 					}
 					if stat.State == "finished" && stat.Successful == 0 {
-						t.Errorf("Statistics()[%d]: finished program should have Successful > 0", i)
+						t.Errorf("Statistics()[%s]: finished program should have Successful > 0", name)
 					}
 				}
 			}
@@ -359,7 +363,7 @@ func TestMeeseek_LongRunningStatistics(t *testing.T) {
 		t.Fatalf("Expected 1 statistic, got %d", len(stats))
 	}
 
-	stat := stats[0]
+	stat := stats["long-runner"]
 	t.Logf("Statistics: %+v", stat)
 
 	if stat.State != "running" {
