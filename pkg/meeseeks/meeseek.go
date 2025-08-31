@@ -43,7 +43,7 @@ type Meeseek interface {
 	Stop(programName string, timeout time.Duration) error
 	Wait(ctx context.Context) error
 	Statistic(program string) (Statistics, error)
-	Statistics() []Statistics
+	Statistics() map[string]Statistics
 	Shutdown(timeout time.Duration) error
 }
 
@@ -258,17 +258,17 @@ func (m *meeseek) Statistic(programName string) (Statistics, error) {
 	return m.collectProgramStatistics(program, execRun), nil
 }
 
-func (m *meeseek) Statistics() []Statistics {
+func (m *meeseek) Statistics() map[string]Statistics {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	statistics := make([]Statistics, len(m.programs))
+	statistics := map[string]Statistics{}
 	keys := slices.Sorted(maps.Keys(m.programs))
 
-	for i, key := range keys {
+	for _, key := range keys {
 		program := m.programs[key]
 		execRecord := m.executions[key]
-		statistics[i] = m.collectProgramStatistics(program, execRecord)
+		statistics[key] = m.collectProgramStatistics(program, execRecord)
 	}
 
 	return statistics

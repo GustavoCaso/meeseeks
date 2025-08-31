@@ -152,19 +152,18 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stats := s.meeseeks.Statistics()
-	for _, stat := range stats {
-		if stat.ProgramName == programName {
-			resp := Response{Success: true, Data: map[string]interface{}{
-				"last_output": stat.LastOutput,
-				"last_error":  stat.LastError,
-			}}
-
-			handleResponse(w, resp)
-			return
-		}
+	stat, exits := stats[programName]
+	if !exits {
+		resp := Response{Success: false, Error: "program not found"}
+		handleResponse(w, resp)
+		return
 	}
 
-	resp := Response{Success: false, Error: "program not found"}
+	resp := Response{Success: true, Data: map[string]interface{}{
+		"last_output": stat.LastOutput,
+		"last_error":  stat.LastError,
+	}}
+
 	handleResponse(w, resp)
 }
 
