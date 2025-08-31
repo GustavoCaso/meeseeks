@@ -1253,14 +1253,18 @@ func TestMeeseekReload_BlockingOperations(t *testing.T) {
 	m.Start(ctx)
 	time.Sleep(200 * time.Millisecond) // Let programs execute
 
+	reloadCalled := make(chan bool, 1)
 	reloadDone := make(chan bool, 1)
+	statsDone := make(chan bool, 1)
+
 	go func() {
+		reloadCalled <- true
 		m.Reload(ctx, reloadPrograms, 2*time.Second)
 		reloadDone <- true
 	}()
 
-	// Try to access statistics during reload - should block
-	statsDone := make(chan bool, 1)
+	<-reloadCalled
+
 	go func() {
 		_ = m.Statistics()
 		statsDone <- true
@@ -1270,8 +1274,8 @@ func TestMeeseekReload_BlockingOperations(t *testing.T) {
 	case <-statsDone:
 		t.Fatal("Statistics should be blocked and not complete before reload")
 	case <-reloadDone:
-		// Good! Reload finished first, proving statistics was blocked
-	case <-time.After(3 * time.Second):
+		// Reload finished first (expected)
+	case <-time.After(4 * time.Second):
 		t.Fatal("Test timed out")
 	}
 
@@ -1303,14 +1307,18 @@ func TestMeeseekReload_WaitDoNotExistWhileReloading(t *testing.T) {
 	m.Start(ctx)
 	time.Sleep(200 * time.Millisecond) // Let programs execute
 
-	// Test that Wait() continues to wait during reload
+	waitCalled := make(chan bool, 1)
 	waitDone := make(chan bool, 1)
+	reloadDone := make(chan bool, 1)
+
 	go func() {
+		waitCalled <- true
 		m.Wait(ctx)
 		waitDone <- true
 	}()
 
-	reloadDone := make(chan bool, 1)
+	<-waitCalled
+
 	go func() {
 		m.Reload(ctx, reloadPrograms, 2*time.Second)
 		reloadDone <- true
