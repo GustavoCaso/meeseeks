@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/GustavoCaso/meeseeks/internal/config"
 	"github.com/GustavoCaso/meeseeks/internal/logger"
 )
 
@@ -78,12 +77,7 @@ func newTestServer(t *testing.T, configContent string) {
 		t.Fatalf("Failed to create test config file: %v", err)
 	}
 
-	cfg, err := config.LoadConfig(configFile)
-	if err != nil {
-		t.Fatalf("failed to load test config: %v", err)
-	}
-
-	server, err := startServer(t.Context(), cfg, logger.New(), getSocketPath())
+	server, err := startServer(t.Context(), configFile, logger.New(), getSocketPath())
 	if err != nil {
 		t.Fatalf("failed to start test server: %v", err)
 	}

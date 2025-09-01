@@ -9,15 +9,12 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/GustavoCaso/meeseeks/internal/config"
 	"github.com/GustavoCaso/meeseeks/internal/logger"
 	"github.com/GustavoCaso/meeseeks/internal/server"
-	"github.com/GustavoCaso/meeseeks/pkg/meeseeks"
 )
 
 type cmd struct {
 	configPath string
-	cfg        *config.Config
 	pidFile    string
 	socketPath string
 	logger     *logger.Logger
@@ -58,7 +55,7 @@ func (c *cmd) runDetached() error {
 		return fmt.Errorf("failed to write PID file: %w", err)
 	}
 
-	c.logger.Info("Started meeseeks (detached)", "pid", cmd.Process.Pid, "program_count", len(c.cfg.Programs))
+	c.logger.Info("Started meeseeks (detached)", "pid", cmd.Process.Pid)
 
 	_ = cmd.Process.Release()
 
@@ -69,13 +66,13 @@ func (c *cmd) runForeground() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	s, err := startServer(ctx, c.cfg, c.logger, c.socketPath)
+	s, err := startServer(ctx, c.configPath, c.logger, c.socketPath)
 	if err != nil {
 		return err
 	}
 
 	go func() {
-		c.logger.Info("Started meeseeks", "program_count", len(c.cfg.Programs))
+		c.logger.Info("Started meeseeks")
 
 		if waitErr := s.Wait(ctx); waitErr != nil {
 			c.logger.Warn("Wait completed with error", "error", waitErr)
@@ -120,17 +117,11 @@ func runCommand(args []string, logger *logger.Logger) error {
 		*configPath = getDefaultConfigPath()
 	}
 
-	cfg, err := config.LoadConfig(*configPath)
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
 	sockPath := getSocketPath()
 	pidFile := getPidFile()
 
 	cmd := &cmd{
 		configPath: *configPath,
-		cfg:        cfg,
 		pidFile:    pidFile,
 		socketPath: sockPath,
 		logger:     logger,
@@ -142,41 +133,19 @@ func runCommand(args []string, logger *logger.Logger) error {
 
 func startServer(
 	ctx context.Context,
-	cfg *config.Config,
+	configPath string,
 	logger *logger.Logger,
 	sockPath string,
 ) (*server.Server, error) {
-	s := server.New(sockPath, logger)
+	s, err := server.New(sockPath, configPath, logger)
 
-	for _, programConfig := range cfg.Programs {
-		prog, err := createProgramFromConfig(programConfig, logger)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create program %s: %w", programConfig.Name, err)
-		}
-
-		var p meeseeks.Program
-
-		// Check if this program has an interval - pass it to AddProgram
-		if programConfig.Interval != "" {
-			interval, intervalErr := programConfig.GetInterval()
-			if intervalErr != nil {
-				return nil, fmt.Errorf("failed to parse interval for program %s: %w", programConfig.Name, intervalErr)
-			}
-			p = meeseeks.NewProgram(prog, &interval)
-		} else {
-			p = meeseeks.NewProgram(prog, nil)
-		}
-
-		if addErr := s.AddProgram(p); addErr != nil {
-			return nil, fmt.Errorf("failed to add scheduled program %s: %w", programConfig.Name, addErr)
-		}
+	if err != nil {
+		return nil, err
 	}
 
-	if err := s.Start(ctx); err != nil {
-		return nil, fmt.Errorf("failed to start server: %w", err)
+	if startErr := s.Start(ctx); startErr != nil {
+		return nil, fmt.Errorf("failed to start server: %w", startErr)
 	}
-
-	s.StartPrograms(ctx)
 
 	return s, nil
 }

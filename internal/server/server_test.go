@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"github.com/GustavoCaso/meeseeks/internal/logger"
-	"github.com/GustavoCaso/meeseeks/pkg/meeseeks"
-	"github.com/GustavoCaso/meeseeks/pkg/program"
 )
 
 func TestDaemon_StartStop(t *testing.T) {
@@ -52,12 +50,27 @@ func TestDaemon_StartStop(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			sockPath := tt.setup()
-			d := New(sockPath, logger)
+			configFile := filepath.Join(t.TempDir(), "test-config.yaml")
+
+			configContent := `programs:
+  - name: "test-program1"
+    command: "echo"
+    args: ["hello"]
+`
+
+			if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
+				t.Fatalf("Failed to create test config file: %v", err)
+			}
+
+			s, err := New(sockPath, configFile, logger)
+			if err != nil {
+				t.Fatalf("creating server failed: %s", err.Error())
+			}
 
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
 
-			err := d.Start(ctx)
+			err = s.Start(ctx)
 
 			if tt.wantErr {
 				if err == nil {
@@ -77,13 +90,13 @@ func TestDaemon_StartStop(t *testing.T) {
 			}
 
 			// Test double start (should return error)
-			err = d.Start(ctx)
+			err = s.Start(ctx)
 			if err == nil {
 				t.Fatalf("Second Start() should return error but got none")
 			}
 
-			// Stop daemon
-			err = d.Stop()
+			// Stop server
+			err = s.Stop()
 			if err != nil {
 				t.Fatalf("Stop() unexpected error = %v", err)
 			}
@@ -94,7 +107,7 @@ func TestDaemon_StartStop(t *testing.T) {
 			}
 
 			// Test double stop (should not error)
-			err = d.Stop()
+			err = s.Stop()
 			if err != nil {
 				t.Fatalf("Second Stop() unexpected error = %v", err)
 			}
@@ -105,26 +118,31 @@ func TestDaemon_StartStop(t *testing.T) {
 func TestDaemon_AddProgramAndStart(t *testing.T) {
 	tmpDir := t.TempDir()
 	sockPath := filepath.Join(tmpDir, "test.sock")
-	d := New(sockPath, logger.New())
+	configFile := filepath.Join(tmpDir, "test-config.yaml")
 
-	// Add a test program
-	prog := program.New("test-program", "echo", program.Args("hello"))
-	err := d.AddProgram(meeseeks.NewProgram(prog, nil))
+	configContent := `programs:
+  - name: "test-program1"
+    command: "echo"
+    args: ["hello"]
+`
+
+	if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
+		t.Fatalf("Failed to create test config file: %v", err)
+	}
+
+	s, err := New(sockPath, configFile, logger.New())
 	if err != nil {
-		t.Fatalf("AddProgram() unexpected error = %v", err)
+		t.Fatalf("creating server failed: %s", err.Error())
 	}
 
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
-	err = d.Start(ctx)
+	err = s.Start(ctx)
 	if err != nil {
 		t.Fatalf("Start() unexpected error = %v", err)
 	}
-	defer d.Stop()
-
-	// Start programs
-	d.StartPrograms(ctx)
+	defer s.Stop()
 
 	// Give programs time to start
 	time.Sleep(100 * time.Millisecond)
@@ -139,18 +157,30 @@ func TestServer_HTTPHandlers(t *testing.T) {
 	os.Remove(sockPath)
 	defer os.Remove(sockPath)
 
-	s := New(sockPath, logger.New())
+	configFile := filepath.Join("/tmp/", "test-config.yaml")
 
-	// Add test programs
-	prog1 := program.New("test-program1", "echo", program.Args("hello"))
-	prog2 := program.New("test-program2", "echo", program.Args("world"))
-	s.AddProgram(meeseeks.NewProgram(prog1, nil))
-	s.AddProgram(meeseeks.NewProgram(prog2, nil))
+	configContent := `programs:
+  - name: "test-program1"
+    command: "echo"
+    args: ["hello"]
+  - name: "test-program2"
+    command: "echo"
+    args: ["world"]
+`
+
+	if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
+		t.Fatalf("Failed to create test config file: %v", err)
+	}
+
+	s, err := New(sockPath, configFile, logger.New())
+	if err != nil {
+		t.Fatalf("creating server failed: %s", err.Error())
+	}
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
-	err := s.Start(ctx)
+	err = s.Start(ctx)
 	if err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -273,21 +303,31 @@ func TestServer_HTTPHandlers(t *testing.T) {
 func TestClient_SendRequest(t *testing.T) {
 	tmpDir := t.TempDir()
 	sockPath := filepath.Join(tmpDir, "test.sock")
+	configFile := filepath.Join(tmpDir, "test-config.yaml")
 
-	// Start daemon
-	d := New(sockPath, logger.New())
+	configContent := `programs:
+  - name: "test-program"
+    command: "echo"
+    args: ["hello"]
+    interval: 1s
+`
+
+	if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
+		t.Fatalf("Failed to create test config file: %v", err)
+	}
+
+	d, err := New(sockPath, configFile, logger.New())
+	if err != nil {
+		t.Fatalf("creating server failed: %s", err.Error())
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
-	err := d.Start(ctx)
+	err = d.Start(ctx)
 	if err != nil {
-		t.Fatalf("Failed to start daemon: %v", err)
+		t.Fatalf("Failed to start server: %v", err)
 	}
 	defer d.Stop()
-
-	// Add test program
-	prog := program.New("test-program", "echo", program.Args("hello"))
-	d.AddProgram(meeseeks.NewProgram(prog, nil))
 
 	// Create client
 	client := NewClient(sockPath)
@@ -379,28 +419,34 @@ func TestDaemon_IntegrationWithRealSocket(t *testing.T) {
 	// Clean up any existing socket
 	os.Remove(sockPath)
 
-	// Start daemon
-	d := New(sockPath, logger.New())
+	configFile := filepath.Join("/tmp/", "test-config.yaml")
+
+	configContent := `programs:
+  - name: "integration-test"
+    command: "echo"
+    args: ["integration"]
+`
+
+	if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
+		t.Fatalf("Failed to create test config file: %v", err)
+	}
+
+	s, err := New(sockPath, configFile, logger.New())
+	if err != nil {
+		t.Fatalf("creating server failed: %s", err.Error())
+	}
+
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
-	err := d.Start(ctx)
+	err = s.Start(ctx)
 	if err != nil {
 		t.Fatalf("Failed to start daemon: %v", err)
 	}
 	defer func() {
-		d.Stop()
+		s.Stop()
 		os.Remove(sockPath) // Ensure cleanup of socket file
 	}()
-
-	// Add and start programs
-	prog := program.New("integration-test", "echo", program.Args("integration"))
-	err = d.AddProgram(meeseeks.NewProgram(prog, nil))
-	if err != nil {
-		t.Fatalf("Failed to add program: %v", err)
-	}
-
-	d.StartPrograms(ctx)
 
 	// Give programs time to execute
 	time.Sleep(200 * time.Millisecond)
@@ -436,23 +482,34 @@ func TestDaemon_ConcurrentConnections(t *testing.T) {
 	// Clean up any existing socket
 	os.Remove(sockPath)
 
-	// Start daemon
-	d := New(sockPath, logger.New())
+	configFile := filepath.Join("/tmp/", "test-config.yaml")
+
+	configContent := `programs:
+  - name: "concurrent-test"
+    command: "echo"
+    args: ["concurrent"]
+`
+
+	if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
+		t.Fatalf("Failed to create test config file: %v", err)
+	}
+
+	s, err := New(sockPath, configFile, logger.New())
+	if err != nil {
+		t.Fatalf("creating server failed: %s", err.Error())
+	}
+
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
-	err := d.Start(ctx)
+	err = s.Start(ctx)
 	if err != nil {
 		t.Fatalf("Failed to start daemon: %v", err)
 	}
 	defer func() {
-		d.Stop()
+		s.Stop()
 		os.Remove(sockPath) // Ensure cleanup of socket file
 	}()
-
-	// Add test program
-	prog := program.New("concurrent-test", "echo", program.Args("concurrent"))
-	d.AddProgram(meeseeks.NewProgram(prog, nil))
 
 	// Create multiple clients concurrently
 	numClients := 5
@@ -505,14 +562,27 @@ func BenchmarkServer_HandleRequest(b *testing.B) {
 	os.Remove(sockPath)
 	defer os.Remove(sockPath)
 
-	s := New(sockPath, logger.New())
-	prog := program.New("bench-program", "echo", program.Args("benchmark"))
-	s.AddProgram(meeseeks.NewProgram(prog, nil))
+	configFile := filepath.Join("/tmp/", "test-config.yaml")
+
+	configContent := `programs:
+  - name: "bench-program"
+    command: "echo"
+    args: ["benchmark"]
+`
+
+	if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
+		b.Fatalf("Failed to create test config file: %v", err)
+	}
+
+	s, err := New(sockPath, configFile, logger.New())
+	if err != nil {
+		b.Fatalf("creating server failed: %s", err.Error())
+	}
 
 	ctx, cancel := context.WithTimeout(b.Context(), 30*time.Second)
 	defer cancel()
 
-	err := s.Start(ctx)
+	err = s.Start(ctx)
 	if err != nil {
 		b.Fatalf("Failed to start server: %v", err)
 	}

@@ -12,17 +12,19 @@ import (
 	"sync"
 	"time"
 
+	"github.com/GustavoCaso/meeseeks/internal/config"
 	"github.com/GustavoCaso/meeseeks/internal/logger"
 	"github.com/GustavoCaso/meeseeks/pkg/meeseeks"
 )
 
 type Server struct {
-	meeseeks meeseeks.Meeseek
-	server   *http.Server
-	sockPath string
-	mu       sync.RWMutex
-	running  bool
-	logger   *logger.Logger
+	meeseeks   meeseeks.Meeseek
+	server     *http.Server
+	sockPath   string
+	configPath string
+	mu         sync.RWMutex
+	running    bool
+	logger     *logger.Logger
 }
 
 type Response struct {
@@ -31,11 +33,17 @@ type Response struct {
 	Error   string      `json:"error,omitempty"`
 }
 
-func New(sockPath string, logger *logger.Logger) *Server {
+func New(sockPath string, configPath string, logger *logger.Logger) (*Server, error) {
 	s := &Server{
-		meeseeks: meeseeks.New(meeseeks.Logger(logger)),
-		sockPath: sockPath,
-		logger:   logger,
+		meeseeks:   meeseeks.New(meeseeks.Logger(logger)),
+		sockPath:   sockPath,
+		configPath: configPath,
+		logger:     logger,
+	}
+
+	err := s.loadConfig()
+	if err != nil {
+		return nil, err
 	}
 
 	mux := http.NewServeMux()
@@ -51,10 +59,10 @@ func New(sockPath string, logger *logger.Logger) *Server {
 		IdleTimeout:       30 * time.Second,
 	}
 
-	return s
+	return s, nil
 }
 
-func (s *Server) Start(_ context.Context) error {
+func (s *Server) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -76,6 +84,8 @@ func (s *Server) Start(_ context.Context) error {
 	}
 
 	s.running = true
+
+	s.meeseeks.Start(ctx)
 
 	go func() {
 		if err = s.server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -110,16 +120,41 @@ func (s *Server) Stop() error {
 	return errors.Join(errs...)
 }
 
-func (s *Server) AddProgram(prog meeseeks.Program) error {
-	return s.meeseeks.AddProgram(prog)
-}
-
-func (s *Server) StartPrograms(ctx context.Context) {
-	s.meeseeks.Start(ctx)
-}
-
 func (s *Server) Wait(ctx context.Context) error {
 	return s.meeseeks.Wait(ctx)
+}
+
+func (s *Server) loadConfig() error {
+	cfg, err := config.LoadConfig(s.configPath)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	for _, programConfig := range cfg.Programs {
+		prog, programErr := createProgramFromConfig(programConfig, s.logger)
+		if programErr != nil {
+			return fmt.Errorf("failed to create program %s: %w", programConfig.Name, programErr)
+		}
+
+		var p meeseeks.Program
+
+		// Check if this program has an interval - pass it to AddProgram
+		if programConfig.Interval != "" {
+			interval, intervalErr := programConfig.GetInterval()
+			if intervalErr != nil {
+				return fmt.Errorf("failed to parse interval for program %s: %w", programConfig.Name, intervalErr)
+			}
+			p = meeseeks.NewProgram(prog, &interval)
+		} else {
+			p = meeseeks.NewProgram(prog, nil)
+		}
+
+		if addErr := s.meeseeks.AddProgram(p); addErr != nil {
+			return fmt.Errorf("failed to add scheduled program %s: %w", programConfig.Name, addErr)
+		}
+	}
+
+	return nil
 }
 
 func (s *Server) handleStatistics(w http.ResponseWriter, r *http.Request) {
