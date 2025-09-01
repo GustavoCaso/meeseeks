@@ -35,6 +35,7 @@ const (
 	StateRunning
 	StateFinished
 	StateError
+	StateCancelled
 )
 
 //nolint:gochecknoglobals // This gloabls is convinient
@@ -43,6 +44,7 @@ var StateToString = map[ProcessState]string{
 	StateRunning:    "running",
 	StateFinished:   "finished",
 	StateError:      "error",
+	StateCancelled:  "cancelled",
 }
 
 type Option func(*program)
@@ -313,10 +315,14 @@ func (p *program) monitorProcess() {
 
 	p.dataLock.Lock()
 	if err != nil {
+		if strings.Contains(err.Error(), "signal: killed") {
+			p.state = StateCancelled
+		} else {
+			p.state = StateError
+		}
 		p.errorBuffer.WriteString(err.Error())
 		p.errorBuffer.WriteString("\n")
 		p.lastError = err.Error()
-		p.state = StateError
 	} else {
 		p.state = StateFinished
 	}
