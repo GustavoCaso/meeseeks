@@ -194,6 +194,12 @@ func TestAsync(t *testing.T) {
 			t.Fatal("Process was not in the valid state")
 		}
 
+		state := StateToString[p.State()]
+
+		if state != "cancelled" {
+			t.Fatalf("cancelled programs should have 'cancelled' state, got: %s", state)
+		}
+
 		errorMessage := p.Error()
 		// Context cancellation can result in either error or finished status depending on timing
 		if !strings.Contains(errorMessage, "signal: killed") {
