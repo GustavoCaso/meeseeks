@@ -48,6 +48,7 @@ func New(sockPath string, configPath string, logger *logger.Logger) (*Server, er
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/statistics", s.handleStatistics)
+	mux.HandleFunc("/reload", s.handleReload)
 	mux.HandleFunc("/logs", s.handleLogs)
 	mux.HandleFunc("/stop", s.handleStop)
 
@@ -184,6 +185,7 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	if programName == "" {
 		resp := Response{Success: false, Error: "program name required"}
 		handleResponse(w, resp)
+		return
 	}
 
 	stats := s.meeseeks.Statistics()
@@ -209,20 +211,85 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	if programName == "" {
 		resp := Response{Success: false, Error: "program name required"}
 		handleResponse(w, resp)
+		return
 	}
 
 	duration, err := time.ParseDuration(timeoutString)
 	if err != nil {
 		resp := Response{Success: false, Error: fmt.Sprintf("error parsing timeout %s. %s", timeoutString, err.Error())}
 		handleResponse(w, resp)
+		return
 	}
 
 	err = s.meeseeks.Stop(programName, duration)
 	if err != nil {
 		resp := Response{Success: false, Error: err.Error()}
 		handleResponse(w, resp)
+		return
 	}
 	resp := Response{Success: true, Data: fmt.Sprintf("%s stopped", programName)}
+	handleResponse(w, resp)
+}
+
+func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	timeoutString := r.URL.Query().Get("timeout")
+
+	duration, err := time.ParseDuration(timeoutString)
+	if err != nil {
+		resp := Response{Success: false, Error: fmt.Sprintf("error parsing timeout %s. %s", timeoutString, err.Error())}
+		handleResponse(w, resp)
+		return
+	}
+
+	cfg, err := config.LoadConfig(s.configPath)
+	if err != nil {
+		resp := Response{Success: false, Error: fmt.Sprintf("failed to load config: %s", err.Error())}
+		handleResponse(w, resp)
+		return
+	}
+
+	programs := []meeseeks.Program{}
+
+	for _, programConfig := range cfg.Programs {
+		prog, programErr := createProgramFromConfig(programConfig, s.logger)
+		if programErr != nil {
+			resp := Response{
+				Success: false,
+				Error:   fmt.Sprintf("failed to create program %s: %s", programConfig.Name, programErr.Error()),
+			}
+			handleResponse(w, resp)
+			return
+		}
+
+		var p meeseeks.Program
+
+		// Check if this program has an interval - pass it to AddProgram
+		if programConfig.Interval != "" {
+			interval, intervalErr := programConfig.GetInterval()
+			if intervalErr != nil {
+				resp := Response{
+					Success: false,
+					Error: fmt.Sprintf(
+						"failed to parse interval for program %s: %s",
+						programConfig.Name,
+						intervalErr.Error(),
+					),
+				}
+				handleResponse(w, resp)
+				return
+			}
+			p = meeseeks.NewProgram(prog, &interval)
+		} else {
+			p = meeseeks.NewProgram(prog, nil)
+		}
+
+		programs = append(programs, p)
+	}
+
+	s.meeseeks.Reload(context.Background(), programs, duration)
+	resp := Response{Success: true, Data: "meeseek configuration reloaded!"}
 	handleResponse(w, resp)
 }
 

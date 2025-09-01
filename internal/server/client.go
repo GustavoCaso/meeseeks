@@ -101,3 +101,11 @@ func (c *Client) Stop(programName, timeout string) (*Response, error) {
 
 	return c.sendRequest("/stop", params)
 }
+
+func (c *Client) Reload(timeout string) (*Response, error) {
+	params := map[string]string{
+		"timeout": timeout,
+	}
+
+	return c.sendRequest("/reload", params)
+}
