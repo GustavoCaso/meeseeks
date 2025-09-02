@@ -3,6 +3,7 @@ package meeseeks
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1081,6 +1082,260 @@ func TestMeeseek_IntervalPrograms_ConcurrentOperations(t *testing.T) {
 	err := m.Wait(ctx)
 	if err != nil && !strings.Contains(err.Error(), "context cancelled") {
 		t.Errorf("Wait after shutdown returned unexpected error: %v", err)
+	}
+}
+
+func TestMeeseekReload(t *testing.T) {
+	interval50ms := 50 * time.Millisecond
+	interval100ms := 100 * time.Millisecond
+
+	tests := []struct {
+		name                      string
+		initialPrograms           []Program
+		reloadPrograms            []Program
+		expectedPrograms          []string
+		verifyStatisticsPreserved bool
+		preservedProgramName      string
+		shortTimeout              bool
+	}{
+		{
+			name: "basic reload with statistics preservation",
+			initialPrograms: []Program{
+				NewProgram(program.New("test1", "echo", program.Args("hello")), nil),
+				NewProgram(program.New("test2", "echo", program.Args("world")), nil),
+				NewProgram(program.New("test3", "ls", program.Args("-la")), nil),
+			},
+			reloadPrograms: []Program{
+				NewProgram(program.New("test4", "echo", program.Args("foo")), nil),
+				NewProgram(program.New("test3", "ls", program.Args("-la")), nil),
+				NewProgram(program.New("test5", "echo", program.Args("bar")), nil),
+			},
+			expectedPrograms:          []string{"test3 [ls -la]", "test4 [echo foo]", "test5 [echo bar]"},
+			verifyStatisticsPreserved: true,
+			preservedProgramName:      "test3",
+		},
+		{
+			name:                      "reload to empty (early return)",
+			initialPrograms:           []Program{NewProgram(program.New("test1", "echo", program.Args("hello")), nil)},
+			reloadPrograms:            []Program{},
+			expectedPrograms:          []string{"test1 [echo hello]"},
+			verifyStatisticsPreserved: true,
+			preservedProgramName:      "test1",
+		},
+		{
+			name:            "reload from empty",
+			initialPrograms: []Program{},
+			reloadPrograms: []Program{
+				NewProgram(program.New("test1", "echo", program.Args("hello")), nil),
+			},
+			expectedPrograms:          []string{"test1 [echo hello]"},
+			verifyStatisticsPreserved: false,
+		},
+		{
+			name: "interval program statistics preservation",
+			initialPrograms: []Program{
+				NewProgram(program.New("interval1", "echo", program.Args("test1")), &interval50ms),
+			},
+			reloadPrograms: []Program{
+				NewProgram(program.New("interval1", "echo", program.Args("test1")), &interval50ms),
+				NewProgram(program.New("interval2", "echo", program.Args("test2")), &interval100ms),
+			},
+			expectedPrograms:          []string{"interval1 [echo test1]", "interval2 [echo test2]"},
+			verifyStatisticsPreserved: true,
+			preservedProgramName:      "interval1",
+		},
+		{
+			name: "interval change resets statistics",
+			initialPrograms: []Program{
+				NewProgram(program.New("prog1", "echo", program.Args("test")), &interval50ms),
+			},
+			reloadPrograms: []Program{
+				NewProgram(program.New("prog1", "echo", program.Args("test")), &interval100ms),
+			},
+			expectedPrograms:          []string{"prog1 [echo test]"},
+			verifyStatisticsPreserved: false,
+		},
+		{
+			name: "short timeout handling",
+			initialPrograms: []Program{
+				NewProgram(program.New("slow-shutdown", "sleep", program.Args("2")), nil),
+			},
+			reloadPrograms: []Program{
+				NewProgram(program.New("fast-program", "echo", program.Args("hello")), nil),
+			},
+			expectedPrograms: []string{"fast-program [echo hello]"},
+			shortTimeout:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := New()
+			ctx := t.Context()
+
+			for _, p := range tt.initialPrograms {
+				err := m.AddProgram(p)
+				if err != nil {
+					t.Fatalf("Failed to add initial program: %v", err)
+				}
+			}
+
+			var oldStats map[string]Statistics
+			var preservedOldStats Statistics
+
+			// Start and capture statistics if needed
+			m.Start(ctx)
+			time.Sleep(200 * time.Millisecond) // Let programs execute
+
+			if tt.verifyStatisticsPreserved {
+				oldStats = m.Statistics()
+				var exists bool
+				preservedOldStats, exists = oldStats[tt.preservedProgramName]
+				if !exists {
+					t.Fatalf("Program %s not found in initial statistics", tt.preservedProgramName)
+				}
+				if preservedOldStats.Successful == 0 {
+					t.Fatalf("Program %s should have successful executions before reload", tt.preservedProgramName)
+				}
+			}
+
+			timeout := 2 * time.Second
+			if tt.shortTimeout {
+				timeout = 10 * time.Millisecond
+			}
+			m.Reload(ctx, tt.reloadPrograms, timeout)
+
+			// Verify program list
+			currentPrograms := m.Programs()
+			if !reflect.DeepEqual(tt.expectedPrograms, currentPrograms) {
+				t.Fatalf("Programs after reload: expected %+v, got %+v", tt.expectedPrograms, currentPrograms)
+			}
+
+			if tt.verifyStatisticsPreserved {
+				newStats := m.Statistics()
+				preservedNewStats, exists := newStats[tt.preservedProgramName]
+				if !exists {
+					t.Fatalf("Program %s not found in new statistics", tt.preservedProgramName)
+				}
+				if preservedNewStats.Successful < preservedOldStats.Successful {
+					t.Fatalf("Statistics not preserved for %s: old successful=%d, new successful=%d",
+						tt.preservedProgramName, preservedOldStats.Successful, preservedNewStats.Successful)
+				}
+			}
+
+			err := m.Shutdown(1 * time.Second)
+			if err != nil {
+				t.Fatalf("Shutdown failed: %v", err)
+			}
+		})
+	}
+}
+
+func TestMeeseekReload_BlockingOperations(t *testing.T) {
+	interval50ms := 50 * time.Millisecond
+	initialPrograms := []Program{
+		NewProgram(program.New("long-runner", "sleep", program.Args("2")), &interval50ms),
+	}
+	reloadPrograms := []Program{
+		NewProgram(program.New("new-prog", "echo", program.Args("hello")), nil),
+	}
+
+	m := New()
+	ctx := t.Context()
+
+	for _, p := range initialPrograms {
+		err := m.AddProgram(p)
+		if err != nil {
+			t.Fatalf("Failed to add initial program: %v", err)
+		}
+	}
+
+	m.Start(ctx)
+	time.Sleep(200 * time.Millisecond) // Let programs execute
+
+	reloadCalled := make(chan bool, 1)
+	reloadDone := make(chan bool, 1)
+	statsDone := make(chan bool, 1)
+
+	go func() {
+		reloadCalled <- true
+		m.Reload(ctx, reloadPrograms, 2*time.Second)
+		reloadDone <- true
+	}()
+
+	<-reloadCalled
+
+	go func() {
+		_ = m.Statistics()
+		statsDone <- true
+	}()
+
+	select {
+	case <-statsDone:
+		t.Fatal("Statistics should be blocked and not complete before reload")
+	case <-reloadDone:
+		// Reload finished first (expected)
+	case <-time.After(4 * time.Second):
+		t.Fatal("Test timed out")
+	}
+
+	err := m.Shutdown(1 * time.Second)
+	if err != nil {
+		t.Fatalf("Shutdown failed: %v", err)
+	}
+}
+
+func TestMeeseekReload_WaitDoNotExistWhileReloading(t *testing.T) {
+	interval50ms := 50 * time.Millisecond
+	initialPrograms := []Program{
+		NewProgram(program.New("long-runner", "sleep", program.Args("2")), &interval50ms),
+	}
+	reloadPrograms := []Program{
+		NewProgram(program.New("new-prog", "echo", program.Args("hello")), nil),
+	}
+
+	m := New()
+	ctx := t.Context()
+
+	for _, p := range initialPrograms {
+		err := m.AddProgram(p)
+		if err != nil {
+			t.Fatalf("Failed to add initial program: %v", err)
+		}
+	}
+
+	m.Start(ctx)
+	time.Sleep(200 * time.Millisecond) // Let programs execute
+
+	waitCalled := make(chan bool, 1)
+	waitDone := make(chan bool, 1)
+	reloadDone := make(chan bool, 1)
+
+	go func() {
+		waitCalled <- true
+		m.Wait(ctx)
+		waitDone <- true
+	}()
+
+	<-waitCalled
+
+	go func() {
+		m.Reload(ctx, reloadPrograms, 2*time.Second)
+		reloadDone <- true
+	}()
+
+	select {
+	case <-waitDone:
+		t.Fatal("Wait returned while calling shutdown. This should not happen")
+	case <-reloadDone:
+	// Wait is still waiting (correctly)
+	case <-time.After(3 * time.Second):
+		t.Fatal("Test timed out")
+	}
+
+	err := m.Shutdown(1 * time.Second)
+	if err != nil {
+		t.Fatalf("Shutdown failed: %v", err)
 	}
 }
 

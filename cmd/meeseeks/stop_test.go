@@ -1,23 +1,11 @@
 package main
 
 import (
+	"path/filepath"
 	"testing"
 )
 
-func TestStopCommand_Validation(t *testing.T) {
-	tests := []commandTestCase{
-		{
-			name:          "stop without program",
-			args:          []string{"stop"},
-			expectedExit:  1,
-			shouldContain: "program name required",
-		},
-	}
-
-	runCommandTests(t, tests)
-}
-
-func TestStopCommand_MissingProgramName(t *testing.T) {
+func TestStopCommand(t *testing.T) {
 	configContent := `programs:
   - name: "test-stop-program1"
     command: "sleep"
@@ -26,15 +14,22 @@ func TestStopCommand_MissingProgramName(t *testing.T) {
     command: "sleep"
     args: ["30"]
 `
-
-	newTestServer(t, configContent)
+	tmpDir := t.TempDir()
+	configFile := filepath.Join(tmpDir, "test-config.yaml")
+	newTestServer(t, configFile, configContent)
 
 	tests := []commandTestCase{
+		{
+			name:          "stop without program",
+			args:          []string{"stop"},
+			expectedExit:  1,
+			shouldContain: "program name required",
+		},
 		{
 			name:          "stop with invalid timeout",
 			args:          []string{"stop", "-timeout", "invalid", "test-stop-program1"},
 			expectedExit:  1,
-			shouldContain: "invalid duration",
+			shouldContain: "error parsing timeout",
 		},
 		{
 			name:          "stop non-existing program",

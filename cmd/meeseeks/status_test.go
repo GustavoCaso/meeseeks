@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"testing"
 )
 
@@ -14,7 +15,9 @@ func TestStatusCommand(t *testing.T) {
     args: ["hello world"]
     interval: 12h
 `
-	newTestServer(t, configContent)
+	tmpDir := t.TempDir()
+	configFile := filepath.Join(tmpDir, "test-config.yaml")
+	newTestServer(t, configFile, configContent)
 
 	tests := []commandTestCase{
 		{

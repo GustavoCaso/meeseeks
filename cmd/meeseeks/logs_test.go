@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"testing"
 )
 
@@ -33,7 +34,9 @@ func TestLogsCommand(t *testing.T) {
     args: ["-c", "echo 'test log message'; sleep 30"]
 `
 
-	newTestServer(t, configContent)
+	tmpDir := t.TempDir()
+	configFile := filepath.Join(tmpDir, "test-config.yaml")
+	newTestServer(t, configFile, configContent)
 
 	tests := []commandTestCase{
 		{

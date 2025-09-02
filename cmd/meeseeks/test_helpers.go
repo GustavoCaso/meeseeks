@@ -7,12 +7,10 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/GustavoCaso/meeseeks/internal/config"
 	"github.com/GustavoCaso/meeseeks/internal/logger"
 )
 
@@ -68,22 +66,14 @@ func setMeeseeksConfigDirForTest(t *testing.T) {
 }
 
 // newTestServer creates and starts a server with the given config content.
-func newTestServer(t *testing.T, configContent string) {
+func newTestServer(t *testing.T, configPath, configContent string) {
 	t.Helper()
 
-	tmpDir := t.TempDir()
-	configFile := filepath.Join(tmpDir, "test-config.yaml")
-
-	if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
 		t.Fatalf("Failed to create test config file: %v", err)
 	}
 
-	cfg, err := config.LoadConfig(configFile)
-	if err != nil {
-		t.Fatalf("failed to load test config: %v", err)
-	}
-
-	server, err := startServer(t.Context(), cfg, logger.New(), getSocketPath())
+	server, err := startServer(t.Context(), configPath, logger.New(), getSocketPath())
 	if err != nil {
 		t.Fatalf("failed to start test server: %v", err)
 	}
@@ -96,10 +86,11 @@ func newTestServer(t *testing.T, configContent string) {
 
 // commandTestCase represents a test case for command testing.
 type commandTestCase struct {
-	name          string
-	args          []string
-	expectedExit  int
-	shouldContain string
+	name             string
+	args             []string
+	expectedExit     int
+	shouldContain    string
+	shouldNotContain string
 }
 
 // runCommandTests runs a set of command test cases.
@@ -113,11 +104,19 @@ func runCommandTests(t *testing.T, tests []commandTestCase) {
 			output := stdoutBuf.String() + stderrBuf.String()
 
 			if exitCode != tt.expectedExit {
-				t.Fatalf("Expected exit code %d, got %d", tt.expectedExit, exitCode)
+				t.Fatalf("Expected exit code %d, got %d. Output: %s", tt.expectedExit, exitCode, output)
 			}
 
-			if !strings.Contains(output, tt.shouldContain) {
-				t.Fatalf("Expected output to contain %q, got %q", tt.shouldContain, output)
+			if tt.shouldContain != "" {
+				if !strings.Contains(output, tt.shouldContain) {
+					t.Fatalf("Expected output to contain %q, got %q", tt.shouldContain, output)
+				}
+			}
+
+			if tt.shouldNotContain != "" {
+				if strings.Contains(output, tt.shouldNotContain) {
+					t.Fatalf("Expected output to not contain %q, got %q", tt.shouldNotContain, output)
+				}
 			}
 		})
 	}

@@ -19,6 +19,7 @@ const intervalCheckDuration = 1 * time.Second
 type Program interface {
 	program.Program
 	Interval() *time.Duration
+	Equal(Program) bool
 }
 
 type meeseekProgram struct {
@@ -30,6 +31,29 @@ func (m *meeseekProgram) Interval() *time.Duration {
 	return m.interval
 }
 
+// Equal performs semantic comparison of two programs to determine if they have
+// identical configuration. This compares:
+// - Program string representation (name, command, arguments)
+// - Interval configuration (value, not pointer)
+// This avoids the fragility of reflect.DeepEqual with pointers and runtime state.
+func (m *meeseekProgram) Equal(other Program) bool {
+	// Compare program string representation (includes name, command, args)
+	if m.Program.String() != other.String() {
+		return false
+	}
+
+	// Compare interval configuration
+	otherInterval := other.Interval()
+	if m.interval == nil && otherInterval == nil {
+		return true
+	}
+	if m.interval == nil || otherInterval == nil {
+		return false
+	}
+	// Compare interval values, not pointers
+	return *m.interval == *otherInterval
+}
+
 func NewProgram(prog program.Program, interval *time.Duration) Program {
 	return &meeseekProgram{
 		Program:  prog,
@@ -39,6 +63,8 @@ func NewProgram(prog program.Program, interval *time.Duration) Program {
 
 type Meeseek interface {
 	AddProgram(Program) error
+	Programs() []string
+	Reload(context.Context, []Program, time.Duration)
 	Start(ctx context.Context)
 	Stop(programName string, timeout time.Duration) error
 	Wait(ctx context.Context) error
@@ -105,6 +131,201 @@ func (m *meeseek) Start(ctx context.Context) {
 			m.runProgram(ctx, prog)
 		}(program)
 	}
+}
+
+func (m *meeseek) Programs() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	keys := slices.Sorted(maps.Keys(m.programs))
+
+	programs := make([]string, len(m.programs))
+
+	for i, key := range keys {
+		programs[i] = m.programs[key].String()
+	}
+
+	return programs
+}
+
+// Reload performs a hot reload of the meeseeks configuration with new programs.
+//
+// This method prioritizes data integrity over operational availability by holding an exclusive
+// lock for the entire reload duration. This means ALL other operations (Statistics, Status,
+// AddProgram, etc.) are blocked until reload completes.
+//
+// If an error happens while shutdown of previous programs we log the error but continue the reload process.
+func (m *meeseek) Reload(ctx context.Context, programs []Program, deadline time.Duration) {
+	if len(programs) == 0 {
+		return
+	}
+
+	newPrograms := map[string]Program{}
+	for _, prog := range programs {
+		newPrograms[prog.Name()] = prog
+	}
+
+	m.mu.Lock()
+
+	removeState := []string{}
+	keepState := []string{}
+
+	for name, oldProgram := range m.programs {
+		newProgram, exists := newPrograms[name]
+		if !exists {
+			removeState = append(removeState, name)
+		} else {
+			if oldProgram.Equal(newProgram) {
+				keepState = append(keepState, name)
+			} else {
+				removeState = append(removeState, name)
+			}
+		}
+	}
+
+	m.wg.Add(1)
+	defer m.wg.Done()
+
+	m.resetSchedulerStops()
+
+	err := m.shutdown(deadline)
+	if err != nil {
+		if m.logger != nil {
+			m.logger.Warn("error shutding down old programs while reloading", "error", err.Error())
+		}
+	}
+
+	for _, name := range removeState {
+		delete(m.executions, name)
+	}
+
+	m.programs = map[string]Program{}
+
+	for name, prog := range newPrograms {
+		m.programs[name] = prog
+		if !slices.Contains(keepState, name) {
+			m.executions[name] = &executionTrack{}
+		}
+	}
+
+	m.mu.Unlock()
+
+	m.Start(ctx)
+}
+
+func (m *meeseek) Statistic(programName string) (Statistics, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	program, ok := m.programs[programName]
+	if !ok {
+		return Statistics{}, fmt.Errorf("program %s not present", programName)
+	}
+	execRun, ok := m.executions[programName]
+	if !ok {
+		return Statistics{}, fmt.Errorf("execution information for %s not present", programName)
+	}
+
+	return m.collectProgramStatistics(program, execRun), nil
+}
+
+func (m *meeseek) Statistics() map[string]Statistics {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	statistics := map[string]Statistics{}
+	keys := slices.Sorted(maps.Keys(m.programs))
+
+	for _, key := range keys {
+		program := m.programs[key]
+		execRecord := m.executions[key]
+		statistics[key] = m.collectProgramStatistics(program, execRecord)
+	}
+
+	return statistics
+}
+
+func (m *meeseek) Wait(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		m.wg.Wait()
+		close(done)
+	}()
+
+	defer func() {
+		m.endTime = time.Now()
+	}()
+
+	select {
+	case <-ctx.Done():
+		return errors.New("context cancelled while waiting for programs to finalize")
+	case <-done:
+		return nil
+	}
+}
+
+func (m *meeseek) Stop(programName string, timeout time.Duration) error {
+	m.mu.RLock()
+	program, ok := m.programs[programName]
+	m.mu.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("program %s not present", programName)
+	}
+
+	if program.Interval() == nil {
+		// Regular program - shutdown directly
+		return program.Shutdown(timeout)
+	}
+
+	// Scheduled program - stop via channel
+	m.mu.Lock()
+	stop, exists := m.schedulerStops[programName]
+	m.mu.Unlock()
+
+	if exists {
+		select {
+		case <-stop:
+			// Channel already closed
+		default:
+			close(stop)
+		}
+		// Note: cleanup is handled by the defer in runScheduledProgram
+	}
+
+	return nil
+}
+
+func (m *meeseek) Shutdown(timeout time.Duration) error {
+	// Stop all scheduled programs
+	m.mu.Lock()
+	m.resetSchedulerStops()
+	m.mu.Unlock()
+
+	return m.shutdown(timeout)
+}
+
+// this function is meant to be called while holding the lock.
+func (m *meeseek) resetSchedulerStops() {
+	for _, stop := range m.schedulerStops {
+		select {
+		case <-stop:
+			// Channel already closed
+		default:
+			close(stop)
+		}
+	}
+	m.schedulerStops = make(map[string]chan struct{})
+}
+
+func (m *meeseek) shutdown(timeout time.Duration) error {
+	errs := make([]error, 0, len(m.programs))
+
+	for _, program := range m.programs {
+		errs = append(errs, program.Shutdown(timeout))
+	}
+
+	return errors.Join(errs...)
 }
 
 func (m *meeseek) runProgram(ctx context.Context, prog Program) {
@@ -242,113 +463,6 @@ func (m *meeseek) executeScheduledProgram(ctx context.Context, prog program.Prog
 	}
 }
 
-func (m *meeseek) Statistic(programName string) (Statistics, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	program, ok := m.programs[programName]
-	if !ok {
-		return Statistics{}, fmt.Errorf("program %s not present", programName)
-	}
-	execRun, ok := m.executions[programName]
-	if !ok {
-		return Statistics{}, fmt.Errorf("execution information for %s not present", programName)
-	}
-
-	return m.collectProgramStatistics(program, execRun), nil
-}
-
-func (m *meeseek) Statistics() map[string]Statistics {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	statistics := map[string]Statistics{}
-	keys := slices.Sorted(maps.Keys(m.programs))
-
-	for _, key := range keys {
-		program := m.programs[key]
-		execRecord := m.executions[key]
-		statistics[key] = m.collectProgramStatistics(program, execRecord)
-	}
-
-	return statistics
-}
-
-func (m *meeseek) Wait(ctx context.Context) error {
-	done := make(chan struct{})
-	go func() {
-		m.wg.Wait()
-		close(done)
-	}()
-
-	defer func() {
-		m.endTime = time.Now()
-	}()
-
-	select {
-	case <-ctx.Done():
-		return errors.New("context cancelled while waiting for programs to finalize")
-	case <-done:
-		return nil
-	}
-}
-
-func (m *meeseek) Stop(programName string, timeout time.Duration) error {
-	m.mu.RLock()
-	program, ok := m.programs[programName]
-	m.mu.RUnlock()
-
-	if !ok {
-		return fmt.Errorf("program %s not present", programName)
-	}
-
-	if program.Interval() == nil {
-		// Regular program - shutdown directly
-		return program.Shutdown(timeout)
-	}
-
-	// Scheduled program - stop via channel
-	m.mu.Lock()
-	stop, exists := m.schedulerStops[programName]
-	m.mu.Unlock()
-
-	if exists {
-		select {
-		case <-stop:
-			// Channel already closed
-		default:
-			close(stop)
-		}
-		// Note: cleanup is handled by the defer in runScheduledProgram
-	}
-
-	return nil
-}
-
-func (m *meeseek) Shutdown(timeout time.Duration) error {
-	// Stop all scheduled programs
-	m.mu.Lock()
-	for _, stop := range m.schedulerStops {
-		select {
-		case <-stop:
-			// Channel already closed
-		default:
-			close(stop)
-		}
-	}
-	m.schedulerStops = make(map[string]chan struct{})
-	m.mu.Unlock()
-
-	errs := make([]error, 0, len(m.programs))
-
-	for _, program := range m.programs {
-		errs = append(errs, program.Shutdown(timeout))
-	}
-
-	return errors.Join(errs...)
-}
-
-// collectProgramStatistics gathers statistics from program state and execution records.
 func (m *meeseek) collectProgramStatistics(prog Program, execRecord *executionTrack) Statistics {
 	programName := prog.Name()
 	progState := prog.State()
@@ -401,6 +515,10 @@ func (m *meeseek) trackProgramCompletion(programName string, success bool) {
 	defer m.mu.Unlock()
 
 	execRecord := m.executions[programName]
+	if execRecord == nil {
+		// Program was removed during reload, ignore completion tracking
+		return
+	}
 
 	if success {
 		execRecord.successful++
