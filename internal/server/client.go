@@ -17,13 +17,16 @@ type Client struct {
 	client   *http.Client
 }
 
-func NewClient(sockPath string) *Client {
+func NewClient(ctx context.Context, sockPath string) *Client {
 	return &Client{
 		sockPath: sockPath,
 		client: &http.Client{
 			Transport: &http.Transport{
 				Dial: func(_, _ string) (net.Conn, error) {
-					return net.Dial("unix", sockPath)
+					var d net.Dialer
+					raddr := net.UnixAddr{Name: sockPath, Net: "unix"}
+
+					return d.DialContext(ctx, "unix", raddr.String())
 				},
 			},
 		},

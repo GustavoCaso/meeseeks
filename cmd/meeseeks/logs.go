@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -28,8 +29,9 @@ func logsCommand(args []string, _ *logger.Logger) error {
 	}
 
 	programName := fs.Arg(0)
-
-	client := server.NewClient(getSocketPath())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	client := server.NewClient(ctx, getSocketPath())
 	resp, err := client.Logs(programName)
 	if err != nil {
 		return err

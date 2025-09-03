@@ -3,6 +3,7 @@
 package login
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -56,7 +57,7 @@ const launchAgentTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 </dict>
 </plist>`
 
-func (d *darwinService) Create(config ServiceConfig) (Defintion, error) {
+func (d *darwinService) Create(ctx context.Context, config ServiceConfig) (Defintion, error) {
 	plistPath := getLaunchAgentPath()
 
 	// Check if service already exists
@@ -96,7 +97,7 @@ func (d *darwinService) Create(config ServiceConfig) (Defintion, error) {
 		return "", fmt.Errorf("failed to set plist file permissions: %w", chmodErr)
 	}
 
-	validationCmd := exec.Command("plutil", "-lint", plistPath)
+	validationCmd := exec.CommandContext(ctx, "plutil", "-lint", plistPath)
 	output, validationCmdErr := validationCmd.CombinedOutput()
 	if validationCmdErr != nil {
 		return "", fmt.Errorf(
@@ -115,10 +116,10 @@ func (d *darwinService) Create(config ServiceConfig) (Defintion, error) {
 }
 
 // Enable configures meeseeks to start automatically at user login on macOS.
-func (d *darwinService) Enable(service Defintion) error {
+func (d *darwinService) Enable(ctx context.Context, service Defintion) error {
 	// Load the service using launchctl
 	//nolint:gosec // the arguments are provided by the user
-	cmd := exec.Command("launchctl", "load", string(service))
+	cmd := exec.CommandContext(ctx, "launchctl", "load", string(service))
 	if output, cmdErr := cmd.CombinedOutput(); cmdErr != nil {
 		return fmt.Errorf("failed to load service with launchctl: %s, output: %s", cmdErr.Error(), string(output))
 	}
@@ -127,7 +128,7 @@ func (d *darwinService) Enable(service Defintion) error {
 }
 
 // Disable removes the automatic startup configuration for macOS.
-func (d *darwinService) Disable() error {
+func (d *darwinService) Disable(ctx context.Context) error {
 	plistPath := getLaunchAgentPath()
 
 	// Check if service exists
@@ -135,7 +136,7 @@ func (d *darwinService) Disable() error {
 		return fmt.Errorf("service %s not found", plistPath)
 	}
 
-	userID, err := exec.Command("id", "-u").CombinedOutput()
+	userID, err := exec.CommandContext(ctx, "id", "-u").CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("fail to get user id: %w", err)
 	}
@@ -143,7 +144,7 @@ func (d *darwinService) Disable() error {
 	iD := strings.TrimSpace(string(userID))
 
 	//nolint:gosec // the arguments are provided by the user
-	cmd := exec.Command("launchctl", "bootout", fmt.Sprintf("gui/%s", iD), plistPath)
+	cmd := exec.CommandContext(ctx, "launchctl", "bootout", fmt.Sprintf("gui/%s", iD), plistPath)
 	output, err := cmd.CombinedOutput()
 
 	if err != nil {
@@ -159,7 +160,7 @@ func (d *darwinService) Disable() error {
 }
 
 // Status returns the current status of the login service on macOS.
-func (d *darwinService) Status() (ServiceStatus, error) {
+func (d *darwinService) Status(ctx context.Context) (ServiceStatus, error) {
 	status := ServiceStatus{}
 	plistPath := getLaunchAgentPath()
 
@@ -171,7 +172,7 @@ func (d *darwinService) Status() (ServiceStatus, error) {
 
 	status.Enabled = true
 
-	userID, err := exec.Command("id", "-u").CombinedOutput()
+	userID, err := exec.CommandContext(ctx, "id", "-u").CombinedOutput()
 	if err != nil {
 		return status, fmt.Errorf("fail to get user id: %w", err)
 	}
@@ -180,7 +181,7 @@ func (d *darwinService) Status() (ServiceStatus, error) {
 
 	// Check if service is running using launchctl list
 	//nolint:gosec // the arguments are controlled by us
-	cmd := exec.Command("launchctl", "print-disabled", fmt.Sprintf("gui/%s", iD))
+	cmd := exec.CommandContext(ctx, "launchctl", "print-disabled", fmt.Sprintf("gui/%s", iD))
 	output, err := cmd.CombinedOutput()
 
 	if err != nil {

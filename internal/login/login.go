@@ -1,6 +1,7 @@
 package login
 
 import (
+	"context"
 	"time"
 
 	"github.com/GustavoCaso/meeseeks/internal/logger"
@@ -12,16 +13,16 @@ type Defintion string
 // across different operating systems (macOS, Linux).
 type Service interface {
 	// Create the service defintion
-	Create(config ServiceConfig) (Defintion, error)
+	Create(ctx context.Context, config ServiceConfig) (Defintion, error)
 
 	// Enable configures the service to start automatically at user login
-	Enable(service Defintion) error
+	Enable(ctx context.Context, service Defintion) error
 
 	// Disable removes the automatic startup configuration
-	Disable() error
+	Disable(ctx context.Context) error
 
 	// Status returns the current status of the login service
-	Status() (ServiceStatus, error)
+	Status(ctx context.Context) (ServiceStatus, error)
 }
 
 // ServiceConfig contains the configuration needed to set up
