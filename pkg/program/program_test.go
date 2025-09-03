@@ -634,3 +634,305 @@ func TestShutdown(t *testing.T) {
 		}
 	})
 }
+
+func TestFileOutput(t *testing.T) {
+	t.Parallel()
+	t.Run("stdout to file", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		stdoutFile := filepath.Join(tmpDir, "stdout.log")
+
+		p := New("stdout-file-test", "echo", Args("hello stdout file"), StdoutFile(stdoutFile))
+
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
+		}
+		<-done
+
+		// Verify file was created and contains expected content
+		content, err := os.ReadFile(stdoutFile)
+		if err != nil {
+			t.Fatalf("Failed to read stdout file: %v", err)
+		}
+
+		if !strings.Contains(string(content), "hello stdout file") {
+			t.Fatalf("Expected stdout file to contain 'hello stdout file', got: %q", string(content))
+		}
+
+		// Verify program's internal Output() still works
+		output := p.Output()
+		if !strings.Contains(output, "hello stdout file") {
+			t.Fatalf("Expected program output to contain 'hello stdout file', got: %q", output)
+		}
+	})
+
+	t.Run("stderr to file", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		stderrFile := filepath.Join(tmpDir, "stderr.log")
+
+		p := New("stderr-file-test", "bash", Args("-c", "echo 'error message' >&2; exit 0"), StderrFile(stderrFile))
+
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
+		}
+		<-done
+
+		// Verify file was created and contains expected content
+		content, err := os.ReadFile(stderrFile)
+		if err != nil {
+			t.Fatalf("Failed to read stderr file: %v", err)
+		}
+
+		if !strings.Contains(string(content), "error message") {
+			t.Fatalf("Expected stderr file to contain 'error message', got: %q", string(content))
+		}
+
+		// Verify program's internal Error() still works
+		errorOutput := p.Error()
+		if !strings.Contains(errorOutput, "error message") {
+			t.Fatalf("Expected program error to contain 'error message', got: %q", errorOutput)
+		}
+	})
+
+	t.Run("both stdout and stderr to files", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		stdoutFile := filepath.Join(tmpDir, "stdout.log")
+		stderrFile := filepath.Join(tmpDir, "stderr.log")
+
+		p := New("dual-file-test", "bash",
+			Args("-c", "echo 'stdout message'; echo 'stderr message' >&2"),
+			StdoutFile(stdoutFile),
+			StderrFile(stderrFile))
+
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
+		}
+		<-done
+
+		// Verify stdout file
+		stdoutContent, err := os.ReadFile(stdoutFile)
+		if err != nil {
+			t.Fatalf("Failed to read stdout file: %v", err)
+		}
+		if !strings.Contains(string(stdoutContent), "stdout message") {
+			t.Fatalf("Expected stdout file to contain 'stdout message', got: %q", string(stdoutContent))
+		}
+
+		// Verify stderr file
+		stderrContent, err := os.ReadFile(stderrFile)
+		if err != nil {
+			t.Fatalf("Failed to read stderr file: %v", err)
+		}
+		if !strings.Contains(string(stderrContent), "stderr message") {
+			t.Fatalf("Expected stderr file to contain 'stderr message', got: %q", string(stderrContent))
+		}
+	})
+
+	t.Run("file output with custom writers", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		stdoutFile := filepath.Join(tmpDir, "stdout.log")
+		var customBuf bytes.Buffer
+
+		p := New("mixed-output-test", "echo", Args("mixed output test"),
+			StdoutFile(stdoutFile),
+			Stdout(&customBuf))
+
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
+		}
+		<-done
+
+		// Verify file output
+		fileContent, err := os.ReadFile(stdoutFile)
+		if err != nil {
+			t.Fatalf("Failed to read stdout file: %v", err)
+		}
+		if !strings.Contains(string(fileContent), "mixed output test") {
+			t.Fatalf("Expected file to contain 'mixed output test', got: %q", string(fileContent))
+		}
+
+		// Verify custom writer output
+		if !strings.Contains(customBuf.String(), "mixed output test") {
+			t.Fatalf("Expected custom buffer to contain 'mixed output test', got: %q", customBuf.String())
+		}
+
+		// Verify program's internal output
+		if !strings.Contains(p.Output(), "mixed output test") {
+			t.Fatalf("Expected program output to contain 'mixed output test', got: %q", p.Output())
+		}
+	})
+
+	t.Run("file output with directory creation", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		// Create nested directory structure
+		stdoutFile := filepath.Join(tmpDir, "nested", "dir", "stdout.log")
+
+		p := New("nested-dir-test", "echo", Args("directory creation test"), StdoutFile(stdoutFile))
+
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
+		}
+		<-done
+
+		// Verify file was created in nested directories
+		content, err := os.ReadFile(stdoutFile)
+		if err != nil {
+			t.Fatalf("Failed to read stdout file: %v", err)
+		}
+
+		if !strings.Contains(string(content), "directory creation test") {
+			t.Fatalf("Expected stdout file to contain 'directory creation test', got: %q", string(content))
+		}
+	})
+
+	t.Run("file output append mode", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		stdoutFile := filepath.Join(tmpDir, "append.log")
+
+		// Write initial content to file
+		err := os.WriteFile(stdoutFile, []byte("initial content\n"), 0600)
+		if err != nil {
+			t.Fatalf("Failed to create initial file: %v", err)
+		}
+
+		p := New("append-test", "echo", Args("appended content"), StdoutFile(stdoutFile))
+
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
+		}
+		<-done
+
+		// Verify file contains both initial and appended content
+		content, err := os.ReadFile(stdoutFile)
+		if err != nil {
+			t.Fatalf("Failed to read stdout file: %v", err)
+		}
+
+		contentStr := string(content)
+		if !strings.Contains(contentStr, "initial content") {
+			t.Fatalf("Expected file to contain 'initial content', got: %q", contentStr)
+		}
+		if !strings.Contains(contentStr, "appended content") {
+			t.Fatalf("Expected file to contain 'appended content', got: %q", contentStr)
+		}
+	})
+
+	t.Run("file permissions after creation", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		stdoutFile := filepath.Join(tmpDir, "permissions_stdout.log")
+
+		p := New("permission-test", "echo", Args("testing permissions"), StdoutFile(stdoutFile))
+
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
+		}
+		<-done
+
+		// Check file permissions
+		info, err := os.Stat(stdoutFile)
+		if err != nil {
+			t.Fatalf("Failed to stat stdout file: %v", err)
+		}
+
+		// File should be created with 0600 permissions (owner read/write only)
+		expectedPerm := os.FileMode(0600)
+		if info.Mode().Perm() != expectedPerm {
+			t.Fatalf("Expected file permissions %v, got %v", expectedPerm, info.Mode().Perm())
+		}
+	})
+}
+
+func TestFileOutputError(t *testing.T) {
+	t.Parallel()
+	t.Run("invalid stdout file path", func(t *testing.T) {
+		t.Parallel()
+		// Try to create file in non-existent root directory (should fail)
+		invalidPath := "/nonexistent/root/dir/stdout.log"
+		p := New("invalid-stdout-test", "echo", Args("test"), StdoutFile(invalidPath))
+
+		_, err := p.Start(t.Context())
+		if err == nil {
+			t.Fatal("Expected error for invalid stdout file path, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "failed to open stdout file") {
+			t.Fatalf("Expected error message to mention stdout file, got: %q", err.Error())
+		}
+	})
+
+	t.Run("invalid stderr file path", func(t *testing.T) {
+		t.Parallel()
+		// Try to create file in non-existent root directory (should fail)
+		invalidPath := "/nonexistent/root/dir/stderr.log"
+		p := New("invalid-stderr-test", "echo", Args("test"), StderrFile(invalidPath))
+
+		_, err := p.Start(t.Context())
+		if err == nil {
+			t.Fatal("Expected error for invalid stderr file path, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "failed to open stderr file") {
+			t.Fatalf("Expected error message to mention stderr file, got: %q", err.Error())
+		}
+	})
+
+	t.Run("permission denied file creation", func(t *testing.T) {
+		t.Parallel()
+		// Create a read-only directory
+		tmpDir := t.TempDir()
+		readOnlyDir := filepath.Join(tmpDir, "readonly")
+		err := os.Mkdir(readOnlyDir, 0400) // Read-only directory
+		if err != nil {
+			t.Fatalf("Failed to create read-only directory: %v", err)
+		}
+
+		stdoutFile := filepath.Join(readOnlyDir, "stdout.log")
+		p := New("permission-test", "echo", Args("test"), StdoutFile(stdoutFile))
+
+		_, err = p.Start(t.Context())
+		if err == nil {
+			t.Fatal("Expected error for permission denied, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "failed to open stdout file") {
+			t.Fatalf("Expected error message to mention stdout file, got: %q", err.Error())
+		}
+	})
+}
+
+func TestFileOutputNotOutput(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	stdoutFile := filepath.Join(tmpDir, "empty_stdout.log")
+
+	// Program that produces no output
+	p := New("empty-output-test", "true", StdoutFile(stdoutFile))
+
+	done, err := p.Start(t.Context())
+	if err != nil {
+		t.Fatalf("Failed to start program: %v", err)
+	}
+	<-done
+
+	// File should exist but be empty
+	info, err := os.Stat(stdoutFile)
+	if err != nil {
+		t.Fatalf("Expected stdout file to exist: %v", err)
+	}
+	if info.Size() != 0 {
+		t.Fatalf("Expected empty file, got size %d", info.Size())
+	}
+}

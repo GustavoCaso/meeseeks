@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -50,6 +51,18 @@ var StateToString = map[ProcessState]string{
 }
 
 type Option func(*program)
+
+func StdoutFile(file string) Option {
+	return func(p *program) {
+		p.stdoutFile = file
+	}
+}
+
+func StderrFile(file string) Option {
+	return func(p *program) {
+		p.stderrFile = file
+	}
+}
 
 func Stdout(o io.Writer) Option {
 	return func(p *program) {
@@ -107,9 +120,12 @@ type program struct {
 	async     bool
 	done      chan struct{}
 
-	customStdout  io.Writer
-	customStderr  io.Writer
-	customStdin   io.Reader
+	customStdout io.Writer
+	customStderr io.Writer
+	customStdin  io.Reader
+	stdoutFile   string
+	stderrFile   string
+
 	keepStdinOpen bool
 	customEnv     []string
 
@@ -123,8 +139,9 @@ type program struct {
 	dataLock sync.RWMutex
 	cmdLock  sync.Mutex
 
-	pipes  *pipes
-	logger logger.Logger
+	pipes      *pipes
+	logger     logger.Logger
+	finalizers []func() error
 }
 
 type pipes struct {
@@ -168,15 +185,38 @@ func (p *pipes) closeReaders() error {
 	return nil
 }
 
-func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
-	return p.start(ctx)
-}
+func (p *program) finalize() {
+	for _, finalizer := range p.finalizers {
+		err := finalizer()
+		if err != nil {
+			if p.logger != nil {
+				p.logger.Warn("error when executing finalizers", "error", err.Error())
+			}
+		}
+	}
 
-func (p *program) signalDone() {
 	close(p.done)
 }
 
-func (p *program) start(ctx context.Context) (<-chan struct{}, error) {
+func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
+	cmd, err := p.setupCmd(ctx)
+
+	if err != nil {
+		done := make(chan struct{}, 1)
+		close(done)
+		return done, err
+	}
+
+	p.cmdLock.Lock()
+	p.cmd = cmd
+	p.cmdLock.Unlock()
+
+	p.done = make(chan struct{}, 1)
+
+	return p.done, p.run()
+}
+
+func (p *program) setupCmd(ctx context.Context) (*exec.Cmd, error) {
 	//nolint:gosec // We accept the arguments the users have manually defined
 	cmd := exec.CommandContext(
 		ctx,
@@ -199,35 +239,65 @@ func (p *program) start(ctx context.Context) (<-chan struct{}, error) {
 
 	p.pipes = pipes
 
+	outputWriters := []io.Writer{
+		outWriter,
+	}
+	stderrWriters := []io.Writer{
+		errWriter,
+	}
+	stdinReaders := []io.Reader{
+		inReader,
+	}
+
 	if p.customStdout != nil {
-		cmd.Stdout = io.MultiWriter(p.customStdout, outWriter)
-	} else {
-		cmd.Stdout = outWriter
+		outputWriters = append(outputWriters, p.customStdout)
 	}
-
 	if p.customStderr != nil {
-		cmd.Stderr = io.MultiWriter(p.customStderr, errWriter)
-	} else {
-		cmd.Stderr = errWriter
+		stderrWriters = append(stderrWriters, p.customStderr)
 	}
-
 	if p.customStdin != nil {
-		cmd.Stdin = io.MultiReader(p.customStdin, inReader)
-	} else {
-		cmd.Stdin = inReader
+		stdinReaders = append(stdinReaders, p.customStdin)
 	}
 
-	p.cmdLock.Lock()
-	p.cmd = cmd
-	p.cmdLock.Unlock()
+	prepareFile := func(filePath string) (*os.File, error) {
+		err := os.MkdirAll(filepath.Dir(filePath), 0750)
+		if err != nil {
+			return nil, err
+		}
+		file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+		if err != nil {
+			return nil, err
+		}
+		return file, nil
+	}
+
+	if p.stdoutFile != "" {
+		file, err := prepareFile(p.stdoutFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open stdout file %s: %w", p.stdoutFile, err)
+		}
+		p.finalizers = append(p.finalizers, file.Close)
+		outputWriters = append(outputWriters, file)
+	}
+
+	if p.stderrFile != "" {
+		file, err := prepareFile(p.stderrFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open stderr file %s: %w", p.stderrFile, err)
+		}
+		p.finalizers = append(p.finalizers, file.Close)
+		stderrWriters = append(stderrWriters, file)
+	}
+
+	cmd.Stdout = io.MultiWriter(outputWriters...)
+	cmd.Stderr = io.MultiWriter(stderrWriters...)
+	cmd.Stdin = io.MultiReader(stdinReaders...)
 
 	if !p.keepStdinOpen {
 		_ = inWriter.Close()
 	}
 
-	p.done = make(chan struct{}, 1)
-
-	return p.done, p.run()
+	return cmd, nil
 }
 
 func (p *program) run() error {
@@ -244,7 +314,7 @@ func (p *program) run() error {
 
 		p.state = StateError
 		p.dataLock.Unlock()
-		p.signalDone()
+		p.finalize()
 		return err
 	}
 
@@ -330,7 +400,7 @@ func (p *program) monitorProcess() {
 	}
 	p.dataLock.Unlock()
 
-	p.signalDone()
+	p.finalize()
 }
 
 func (p *program) readOutput(reader io.Reader, isError bool) {
@@ -486,8 +556,9 @@ func (p *program) forcekill() error {
 
 func New(name, command string, opts ...Option) Program {
 	p := &program{
-		name:    name,
-		command: command,
+		name:       name,
+		command:    command,
+		finalizers: []func() error{},
 	}
 
 	for _, opt := range opts {
