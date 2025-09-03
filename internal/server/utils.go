@@ -1,9 +1,6 @@
 package server
 
 import (
-	"fmt"
-	"os"
-
 	"github.com/GustavoCaso/meeseeks/internal/config"
 	"github.com/GustavoCaso/meeseeks/internal/logger"
 	"github.com/GustavoCaso/meeseeks/pkg/program"
@@ -25,19 +22,11 @@ func createProgramFromConfig(pc config.ProgramConfig, logger *logger.Logger) (pr
 	}
 
 	if pc.Stdout != "" {
-		file, err := os.OpenFile(pc.Stdout, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open stdout file %s: %w", pc.Stdout, err)
-		}
-		opts = append(opts, program.Stdout(file))
+		opts = append(opts, program.StdoutFile(pc.Stdout))
 	}
 
 	if pc.Stderr != "" {
-		file, err := os.OpenFile(pc.Stderr, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open stderr file %s: %w", pc.Stderr, err)
-		}
-		opts = append(opts, program.Stderr(file))
+		opts = append(opts, program.StderrFile(pc.Stderr))
 	}
 
 	opts = append(opts, program.Logger(logger))
