@@ -1,7 +1,6 @@
 package server
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/GustavoCaso/meeseeks/internal/config"
@@ -45,6 +44,51 @@ func TestCreateProgramFromConfig(t *testing.T) {
 			},
 			expectedName: "test-interval",
 		},
+		{
+			name: "program with stdout file",
+			config: config.ProgramConfig{
+				Name:    "test-stdout-file",
+				Command: "echo",
+				Args:    []string{"hello"},
+				Stdout:  "/tmp/test_stdout.log",
+			},
+			expectedName: "test-stdout-file",
+		},
+		{
+			name: "program with stderr file",
+			config: config.ProgramConfig{
+				Name:    "test-stderr-file",
+				Command: "bash",
+				Args:    []string{"-c", "echo 'error' >&2"},
+				Stderr:  "/tmp/test_stderr.log",
+			},
+			expectedName: "test-stderr-file",
+		},
+		{
+			name: "program with both stdout and stderr files",
+			config: config.ProgramConfig{
+				Name:    "test-dual-files",
+				Command: "bash",
+				Args:    []string{"-c", "echo 'output'; echo 'error' >&2"},
+				Stdout:  "/tmp/test_dual_stdout.log",
+				Stderr:  "/tmp/test_dual_stderr.log",
+			},
+			expectedName: "test-dual-files",
+		},
+		{
+			name: "program with all options",
+			config: config.ProgramConfig{
+				Name:          "test-all-options",
+				Command:       "bash",
+				Args:          []string{"-c", "echo $TEST_VAR; echo 'error' >&2"},
+				Env:           []string{"TEST_VAR=full_test"},
+				KeepStdinOpen: true,
+				Stdout:        "/tmp/test_all_stdout.log",
+				Stderr:        "/tmp/test_all_stderr.log",
+				Interval:      "60s",
+			},
+			expectedName: "test-all-options",
+		},
 	}
 
 	logger := logger.New()
@@ -52,21 +96,7 @@ func TestCreateProgramFromConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			prog, err := createProgramFromConfig(tt.config, logger)
-
-			if tt.expectError {
-				if err == nil {
-					t.Fatalf("Expected error but got none")
-				}
-				if !strings.Contains(err.Error(), tt.errorMessage) {
-					t.Fatalf("Expected error containing %q, got %q", tt.errorMessage, err.Error())
-				}
-				return
-			}
-
-			if err != nil {
-				t.Fatalf("Unexpected error: %v", err)
-			}
+			prog := createProgramFromConfig(tt.config, logger)
 
 			if prog.Name() != tt.expectedName {
 				t.Fatalf("Expected name %q, got %q", tt.expectedName, prog.Name())

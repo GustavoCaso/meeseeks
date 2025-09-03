@@ -6,7 +6,7 @@ import (
 	"github.com/GustavoCaso/meeseeks/pkg/program"
 )
 
-func createProgramFromConfig(pc config.ProgramConfig, logger *logger.Logger) (program.Program, error) {
+func createProgramFromConfig(pc config.ProgramConfig, logger *logger.Logger) program.Program {
 	var opts []program.Option
 
 	if len(pc.Args) > 0 {
@@ -31,5 +31,5 @@ func createProgramFromConfig(pc config.ProgramConfig, logger *logger.Logger) (pr
 
 	opts = append(opts, program.Logger(logger))
 
-	return program.New(pc.Name, pc.Command, opts...), nil
+	return program.New(pc.Name, pc.Command, opts...)
 }

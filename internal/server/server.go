@@ -134,10 +134,7 @@ func (s *Server) loadConfig() error {
 	}
 
 	for _, programConfig := range cfg.Programs {
-		prog, programErr := createProgramFromConfig(programConfig, s.logger)
-		if programErr != nil {
-			return fmt.Errorf("failed to create program %s: %w", programConfig.Name, programErr)
-		}
+		prog := createProgramFromConfig(programConfig, s.logger)
 
 		var p meeseeks.Program
 
@@ -255,15 +252,7 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 	programs := []meeseeks.Program{}
 
 	for _, programConfig := range cfg.Programs {
-		prog, programErr := createProgramFromConfig(programConfig, s.logger)
-		if programErr != nil {
-			resp := Response{
-				Success: false,
-				Error:   fmt.Sprintf("failed to create program %s: %s", programConfig.Name, programErr.Error()),
-			}
-			handleResponse(w, resp)
-			return
-		}
+		prog := createProgramFromConfig(programConfig, s.logger)
 
 		var p meeseeks.Program
 
