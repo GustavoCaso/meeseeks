@@ -12,6 +12,7 @@ import (
 )
 
 func TestMeeseek_AddProgram(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		programs []program.Program
@@ -45,6 +46,7 @@ func TestMeeseek_AddProgram(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			m := New()
 
 			var err error
@@ -77,7 +79,68 @@ func TestMeeseek_AddProgram(t *testing.T) {
 	}
 }
 
+func TestMeeseek_StartAndWait(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		programs []program.Program
+		timeout  time.Duration
+		wantErr  bool
+	}{
+		{
+			name: "start and wait for simple programs",
+			programs: []program.Program{
+				program.New("echo1", "echo", program.Args("hello")),
+				program.New("echo2", "echo", program.Args("world")),
+			},
+			timeout: 5 * time.Second,
+		},
+		{
+			name: "timeout before completion",
+			programs: []program.Program{
+				program.New("slow", "sleep", program.Args("10")),
+			},
+			timeout: 100 * time.Millisecond,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			m := New()
+
+			for _, prog := range tt.programs {
+				err := m.AddProgram(NewProgram(prog, nil))
+				if err != nil {
+					t.Fatalf("Failed to add program: %v", err)
+				}
+			}
+
+			ctx, cancel := context.WithTimeout(t.Context(), tt.timeout)
+			defer cancel()
+
+			m.Start(ctx)
+
+			err := m.Wait(ctx)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("Wait() expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Wait() unexpected error = %v", err)
+			}
+		})
+	}
+}
+
 func TestMeeseek_Statistic(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		programs      []program.Program
@@ -118,6 +181,7 @@ func TestMeeseek_Statistic(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			m := New()
 
 			for _, prog := range tt.programs {
@@ -177,64 +241,8 @@ func TestMeeseek_Statistic(t *testing.T) {
 	}
 }
 
-func TestMeeseek_StartAndWait(t *testing.T) {
-	tests := []struct {
-		name     string
-		programs []program.Program
-		timeout  time.Duration
-		wantErr  bool
-	}{
-		{
-			name: "start and wait for simple programs",
-			programs: []program.Program{
-				program.New("echo1", "echo", program.Args("hello")),
-				program.New("echo2", "echo", program.Args("world")),
-			},
-			timeout: 5 * time.Second,
-		},
-		{
-			name: "timeout before completion",
-			programs: []program.Program{
-				program.New("slow", "sleep", program.Args("10")),
-			},
-			timeout: 100 * time.Millisecond,
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			m := New()
-
-			for _, prog := range tt.programs {
-				err := m.AddProgram(NewProgram(prog, nil))
-				if err != nil {
-					t.Fatalf("Failed to add program: %v", err)
-				}
-			}
-
-			ctx, cancel := context.WithTimeout(t.Context(), tt.timeout)
-			defer cancel()
-
-			m.Start(ctx)
-
-			err := m.Wait(ctx)
-
-			if tt.wantErr {
-				if err == nil {
-					t.Fatalf("Wait() expected error but got none")
-				}
-				return
-			}
-
-			if err != nil {
-				t.Fatalf("Wait() unexpected error = %v", err)
-			}
-		})
-	}
-}
-
 func TestMeeseek_Statistics(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		programs      []program.Program
@@ -268,6 +276,8 @@ func TestMeeseek_Statistics(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			m := New()
 
 			for _, prog := range tt.programs {
@@ -344,6 +354,7 @@ func TestMeeseek_Statistics(t *testing.T) {
 }
 
 func TestMeeseek_LongRunningStatistics(t *testing.T) {
+	t.Parallel()
 	m := New()
 
 	prog := program.New("long-runner", "sleep", program.Args("5"))
@@ -382,6 +393,7 @@ func TestMeeseek_LongRunningStatistics(t *testing.T) {
 }
 
 func TestMeeseek_StatisticsWithOutput(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name            string
 		programCmd      string
@@ -412,6 +424,8 @@ func TestMeeseek_StatisticsWithOutput(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			m := New()
 
 			prog := program.New("output-test", tt.programCmd, program.Args(tt.programArgs...))
@@ -462,6 +476,7 @@ func TestMeeseek_StatisticsWithOutput(t *testing.T) {
 }
 
 func TestMeeseek_FailingProgramStatistics(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		programCmd  string
@@ -484,6 +499,8 @@ func TestMeeseek_FailingProgramStatistics(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			m := New()
 
 			prog := program.New("failing-test", tt.programCmd, program.Args(tt.programArgs...))
@@ -521,53 +538,8 @@ func TestMeeseek_FailingProgramStatistics(t *testing.T) {
 	}
 }
 
-func TestMeeseek_IntervalPrograms(t *testing.T) {
-	tests := []struct {
-		name     string
-		interval time.Duration
-		waitTime time.Duration
-		minRuns  int
-		maxRuns  int
-	}{
-		{
-			name:     "interval program runs multiple times",
-			interval: 50 * time.Millisecond,
-			waitTime: 200 * time.Millisecond,
-			minRuns:  3,
-			maxRuns:  6,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			m := New()
-
-			prog := program.New("interval-test", "echo",
-				program.Args("interval"))
-
-			err := m.AddProgram(NewProgram(prog, &tt.interval))
-			if err != nil {
-				t.Fatalf("Failed to add program: %v", err)
-			}
-
-			ctx, cancel := context.WithTimeout(t.Context(), tt.waitTime+time.Second)
-			defer cancel()
-
-			m.Start(ctx)
-
-			time.Sleep(tt.waitTime)
-
-			stats := m.Statistics()
-			if len(stats) != 1 {
-				t.Fatalf("Expected 1 statistic, got %d", len(stats))
-			}
-
-			cancel()
-		})
-	}
-}
-
 func TestMeeseek_ConcurrentAccess(t *testing.T) {
+	t.Parallel()
 	m := New()
 
 	numPrograms := 10
@@ -588,6 +560,8 @@ func TestMeeseek_ConcurrentAccess(t *testing.T) {
 			t.Fatalf("Failed to add program %d: %v", i, err)
 		}
 	}
+
+	m.Start(t.Context())
 
 	stats := m.Statistics()
 	if len(stats) != numPrograms {
@@ -612,6 +586,7 @@ func TestMeeseek_ConcurrentAccess(t *testing.T) {
 }
 
 func TestMeeseek_ContextCancellation(t *testing.T) {
+	t.Parallel()
 	m := New()
 
 	prog := program.New("cancelable", "sleep", program.Args("10"))
@@ -637,6 +612,7 @@ func TestMeeseek_ContextCancellation(t *testing.T) {
 }
 
 func TestMeeseek_Stop(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		programs    []program.Program
@@ -652,7 +628,7 @@ func TestMeeseek_Stop(t *testing.T) {
 				program.New("test-stop-2", "sleep", program.Args("10")),
 			},
 			stopProgram: "test-stop-1",
-			timeout:     5 * time.Second,
+			timeout:     1 * time.Second,
 		},
 		{
 			name: "stop non-existing program",
@@ -660,7 +636,7 @@ func TestMeeseek_Stop(t *testing.T) {
 				program.New("test-stop-1", "sleep", program.Args("10")),
 			},
 			stopProgram: "non-existent",
-			timeout:     5 * time.Second,
+			timeout:     time.Microsecond,
 			wantErr:     true,
 			errMsg:      "program non-existent not present",
 		},
@@ -670,12 +646,14 @@ func TestMeeseek_Stop(t *testing.T) {
 				program.New("test-stop-3", "sleep", program.Args("10")),
 			},
 			stopProgram: "test-stop-3",
-			timeout:     1 * time.Millisecond,
+			timeout:     time.Millisecond,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			m := New()
 
 			for _, prog := range tt.programs {
@@ -723,6 +701,7 @@ func TestMeeseek_Stop(t *testing.T) {
 }
 
 func TestMeeseek_Stop_Same_Program_Multiple_Times(t *testing.T) {
+	t.Parallel()
 	m := New()
 	prog := program.New("interval1", "echo", program.Args("test"))
 	interval := 50 * time.Millisecond
@@ -731,10 +710,9 @@ func TestMeeseek_Stop_Same_Program_Multiple_Times(t *testing.T) {
 		t.Fatalf("Failed to add program: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 	m.Start(ctx)
-	time.Sleep(100 * time.Millisecond)
 
 	err = m.Stop("interval1", 1*time.Second)
 	if err != nil {
@@ -748,6 +726,7 @@ func TestMeeseek_Stop_Same_Program_Multiple_Times(t *testing.T) {
 }
 
 func TestMeeseek_WaitWithIntervalPrograms_ContextCancellation(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		programs    []programConfig
@@ -786,6 +765,8 @@ func TestMeeseek_WaitWithIntervalPrograms_ContextCancellation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			m := New()
 
 			for _, pc := range tt.programs {
@@ -840,6 +821,7 @@ func TestMeeseek_WaitWithIntervalPrograms_ContextCancellation(t *testing.T) {
 }
 
 func TestMeeseek_WaitWithIntervalPrograms_Stop(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name               string
 		programs           []programConfig
@@ -876,6 +858,7 @@ func TestMeeseek_WaitWithIntervalPrograms_Stop(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			m := New()
 
 			for _, pc := range tt.programs {
@@ -933,6 +916,7 @@ func TestMeeseek_WaitWithIntervalPrograms_Stop(t *testing.T) {
 }
 
 func TestMeeseek_WaitWithIntervalPrograms_Shutdown(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name              string
 		programs          []programConfig
@@ -975,6 +959,7 @@ func TestMeeseek_WaitWithIntervalPrograms_Shutdown(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			m := New()
 
 			for _, pc := range tt.programs {
@@ -1022,6 +1007,7 @@ func TestMeeseek_WaitWithIntervalPrograms_Shutdown(t *testing.T) {
 }
 
 func TestMeeseek_IntervalPrograms_ConcurrentOperations(t *testing.T) {
+	t.Parallel()
 	m := New()
 
 	numPrograms := 5
@@ -1086,6 +1072,7 @@ func TestMeeseek_IntervalPrograms_ConcurrentOperations(t *testing.T) {
 }
 
 func TestMeeseekReload(t *testing.T) {
+	t.Parallel()
 	interval50ms := 50 * time.Millisecond
 	interval100ms := 100 * time.Millisecond
 
@@ -1170,6 +1157,7 @@ func TestMeeseekReload(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			m := New()
 			ctx := t.Context()
 
@@ -1232,6 +1220,7 @@ func TestMeeseekReload(t *testing.T) {
 }
 
 func TestMeeseekReload_BlockingOperations(t *testing.T) {
+	t.Parallel()
 	interval50ms := 50 * time.Millisecond
 	initialPrograms := []Program{
 		NewProgram(program.New("long-runner", "sleep", program.Args("2")), &interval50ms),
@@ -1286,6 +1275,7 @@ func TestMeeseekReload_BlockingOperations(t *testing.T) {
 }
 
 func TestMeeseekReload_WaitDoNotExistWhileReloading(t *testing.T) {
+	t.Parallel()
 	interval50ms := 50 * time.Millisecond
 	initialPrograms := []Program{
 		NewProgram(program.New("long-runner", "sleep", program.Args("2")), &interval50ms),

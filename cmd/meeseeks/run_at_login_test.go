@@ -5,6 +5,7 @@ import (
 )
 
 func TestRunAtLoginCommand_Help(t *testing.T) {
+	t.Parallel()
 	testCommandHelp(t, []string{"run-at-login"}, []string{
 		"Usage: meeseeks run-at-login <subcommand>",
 		"Manage automatic startup of meeseeks at user login",
@@ -15,6 +16,7 @@ func TestRunAtLoginCommand_Help(t *testing.T) {
 }
 
 func TestRunAtLoginEnableCommand_Help(t *testing.T) {
+	t.Parallel()
 	testCommandHelp(t, []string{"run-at-login", "enable"}, []string{
 		"Usage: meeseeks run-at-login enable",
 		"Configure meeseeks to start automatically at login",
@@ -22,6 +24,7 @@ func TestRunAtLoginEnableCommand_Help(t *testing.T) {
 }
 
 func TestRunAtLoginDisableCommand_Help(t *testing.T) {
+	t.Parallel()
 	testCommandHelp(t, []string{"run-at-login", "disable"}, []string{
 		"Usage: meeseeks run-at-login disable",
 		"Remove automatic startup configuration",
@@ -29,6 +32,7 @@ func TestRunAtLoginDisableCommand_Help(t *testing.T) {
 }
 
 func TestRunAtLoginStatusCommand_Help(t *testing.T) {
+	t.Parallel()
 	testCommandHelp(t, []string{"run-at-login", "status"}, []string{
 		"Usage: meeseeks run-at-login status",
 		"Show current login service status",

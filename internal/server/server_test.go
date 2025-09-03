@@ -10,7 +10,8 @@ import (
 	"github.com/GustavoCaso/meeseeks/internal/logger"
 )
 
-func TestDaemon_StartStop(t *testing.T) {
+func TestServer_StartStop(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		setup   func() string
@@ -49,6 +50,7 @@ func TestDaemon_StartStop(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			sockPath := tt.setup()
 			configFile := filepath.Join(t.TempDir(), "test-config.yaml")
 
@@ -62,7 +64,7 @@ func TestDaemon_StartStop(t *testing.T) {
 				t.Fatalf("Failed to create test config file: %v", err)
 			}
 
-			s, err := New(sockPath, configFile, logger)
+			s, err := New(sockPath, configFile, logger, time.Millisecond)
 			if err != nil {
 				t.Fatalf("creating server failed: %s", err.Error())
 			}
@@ -115,9 +117,14 @@ func TestDaemon_StartStop(t *testing.T) {
 	}
 }
 
-func TestDaemon_AddProgramAndStart(t *testing.T) {
-	tmpDir := t.TempDir()
-	sockPath := filepath.Join(tmpDir, "test.sock")
+func TestServer_AddProgramAndStart(t *testing.T) {
+	t.Parallel()
+	tmpDir := filepath.Join("/tmp/", t.Name())
+	err := os.MkdirAll(tmpDir, 0750)
+	if err != nil {
+		t.Fatalf("error creating temp folder %s", err.Error())
+	}
+	sockPath := filepath.Join(tmpDir, "meeseeks.sock")
 	configFile := filepath.Join(tmpDir, "test-config.yaml")
 
 	configContent := `programs:
@@ -130,7 +137,7 @@ func TestDaemon_AddProgramAndStart(t *testing.T) {
 		t.Fatalf("Failed to create test config file: %v", err)
 	}
 
-	s, err := New(sockPath, configFile, logger.New())
+	s, err := New(sockPath, configFile, logger.New(), time.Millisecond)
 	if err != nil {
 		t.Fatalf("creating server failed: %s", err.Error())
 	}
@@ -142,22 +149,21 @@ func TestDaemon_AddProgramAndStart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start() unexpected error = %v", err)
 	}
-	defer s.Stop()
 
-	// Give programs time to start
-	time.Sleep(100 * time.Millisecond)
+	t.Cleanup(func() {
+		s.Stop()
+		os.RemoveAll(tmpDir)
+	})
 }
 
 func TestServer_HTTPHandlers(t *testing.T) {
-	// Unix sockets have a path length limit (~104-108 characters depending on OS).
-	// Using t.TempDir() creates very long paths that exceed this limit and cause
-	// "bind: invalid argument" errors. We use /tmp directly with short names instead.
-	sockPath := "/tmp/meeseeks-test-handlers.sock"
+	tmpDir := t.TempDir()
+	sockPath := filepath.Join(tmpDir, "meeseeks.sock")
 	// Clean up any existing socket
 	os.Remove(sockPath)
 	defer os.Remove(sockPath)
 
-	configFile := filepath.Join("/tmp/", "test-config.yaml")
+	configFile := filepath.Join(tmpDir, "test-config.yaml")
 
 	configContent := `programs:
   - name: "test-program1"
@@ -172,7 +178,7 @@ func TestServer_HTTPHandlers(t *testing.T) {
 		t.Fatalf("Failed to create test config file: %v", err)
 	}
 
-	s, err := New(sockPath, configFile, logger.New())
+	s, err := New(sockPath, configFile, logger.New(), time.Millisecond)
 	if err != nil {
 		t.Fatalf("creating server failed: %s", err.Error())
 	}
@@ -316,7 +322,7 @@ func TestClient_SendRequest(t *testing.T) {
 		t.Fatalf("Failed to create test config file: %v", err)
 	}
 
-	d, err := New(sockPath, configFile, logger.New())
+	d, err := New(sockPath, configFile, logger.New(), time.Millisecond)
 	if err != nil {
 		t.Fatalf("creating server failed: %s", err.Error())
 	}
@@ -398,6 +404,7 @@ func TestClient_SendRequest(t *testing.T) {
 }
 
 func TestClient_ConnectToNonExistentDaemon(t *testing.T) {
+	t.Parallel()
 	client := NewClient("/nonexistent/path.sock")
 
 	_, err := client.Statistics("")
@@ -411,15 +418,15 @@ func TestClient_ConnectToNonExistentDaemon(t *testing.T) {
 	}
 }
 
-func TestDaemon_IntegrationWithRealSocket(t *testing.T) {
-	// Unix sockets have a path length limit (~104-108 characters depending on OS).
-	// Using t.TempDir() creates very long paths that exceed this limit and cause
-	// "bind: invalid argument" errors. We use /tmp directly with short names instead.
-	sockPath := "/tmp/meeseeks-test-integration.sock"
-	// Clean up any existing socket
-	os.Remove(sockPath)
-
-	configFile := filepath.Join("/tmp/", "test-config.yaml")
+func TestServer_IntegrationWithRealSocket(t *testing.T) {
+	t.Parallel()
+	tmpDir := filepath.Join("/tmp/", t.Name())
+	err := os.MkdirAll(tmpDir, 0750)
+	if err != nil {
+		t.Fatalf("error creating temp folder %s", err.Error())
+	}
+	sockPath := filepath.Join(tmpDir, "meeseeks.sock")
+	configFile := filepath.Join(tmpDir, "test-config.yaml")
 
 	configContent := `programs:
   - name: "integration-test"
@@ -431,7 +438,7 @@ func TestDaemon_IntegrationWithRealSocket(t *testing.T) {
 		t.Fatalf("Failed to create test config file: %v", err)
 	}
 
-	s, err := New(sockPath, configFile, logger.New())
+	s, err := New(sockPath, configFile, logger.New(), time.Millisecond)
 	if err != nil {
 		t.Fatalf("creating server failed: %s", err.Error())
 	}
@@ -445,7 +452,7 @@ func TestDaemon_IntegrationWithRealSocket(t *testing.T) {
 	}
 	defer func() {
 		s.Stop()
-		os.Remove(sockPath) // Ensure cleanup of socket file
+		os.RemoveAll(tmpDir)
 	}()
 
 	// Give programs time to execute
@@ -473,16 +480,16 @@ func TestDaemon_IntegrationWithRealSocket(t *testing.T) {
 	}
 }
 
-// Test concurrent client connections.
-func TestDaemon_ConcurrentConnections(t *testing.T) {
-	// Unix sockets have a path length limit (~104-108 characters depending on OS).
-	// Using t.TempDir() creates very long paths that exceed this limit and cause
-	// "bind: invalid argument" errors. We use /tmp directly with short names instead.
-	sockPath := "/tmp/meeseeks-test-concurrent.sock"
-	// Clean up any existing socket
-	os.Remove(sockPath)
+func TestServer_ConcurrentConnections(t *testing.T) {
+	t.Parallel()
+	tmpDir := filepath.Join("/tmp/", t.Name())
+	err := os.MkdirAll(tmpDir, 0750)
+	if err != nil {
+		t.Fatalf("error creating temp folder %s", err.Error())
+	}
+	sockPath := filepath.Join(tmpDir, "meeseeks.sock")
 
-	configFile := filepath.Join("/tmp/", "test-config.yaml")
+	configFile := filepath.Join(tmpDir, "test-config.yaml")
 
 	configContent := `programs:
   - name: "concurrent-test"
@@ -494,7 +501,7 @@ func TestDaemon_ConcurrentConnections(t *testing.T) {
 		t.Fatalf("Failed to create test config file: %v", err)
 	}
 
-	s, err := New(sockPath, configFile, logger.New())
+	s, err := New(sockPath, configFile, logger.New(), time.Millisecond)
 	if err != nil {
 		t.Fatalf("creating server failed: %s", err.Error())
 	}
@@ -506,10 +513,11 @@ func TestDaemon_ConcurrentConnections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start daemon: %v", err)
 	}
-	defer func() {
+
+	t.Cleanup(func() {
 		s.Stop()
-		os.Remove(sockPath) // Ensure cleanup of socket file
-	}()
+		os.RemoveAll(tmpDir)
+	})
 
 	// Create multiple clients concurrently
 	numClients := 5
@@ -557,12 +565,14 @@ func containsString(s, substr string) bool {
 
 // Benchmark server request handling.
 func BenchmarkServer_HandleRequest(b *testing.B) {
-	// Unix sockets have a path length limit (~104-108 characters depending on OS).
-	sockPath := "/tmp/bench.sock"
-	os.Remove(sockPath)
-	defer os.Remove(sockPath)
+	tmpDir := filepath.Join("/tmp/", b.Name())
+	err := os.MkdirAll(tmpDir, 0750)
+	if err != nil {
+		b.Fatalf("error creating temp folder %s", err.Error())
+	}
+	sockPath := filepath.Join(tmpDir, "meeseeks.sock")
 
-	configFile := filepath.Join("/tmp/", "test-config.yaml")
+	configFile := filepath.Join(tmpDir, "test-config.yaml")
 
 	configContent := `programs:
   - name: "bench-program"
@@ -574,7 +584,7 @@ func BenchmarkServer_HandleRequest(b *testing.B) {
 		b.Fatalf("Failed to create test config file: %v", err)
 	}
 
-	s, err := New(sockPath, configFile, logger.New())
+	s, err := New(sockPath, configFile, logger.New(), time.Millisecond)
 	if err != nil {
 		b.Fatalf("creating server failed: %s", err.Error())
 	}
@@ -586,7 +596,11 @@ func BenchmarkServer_HandleRequest(b *testing.B) {
 	if err != nil {
 		b.Fatalf("Failed to start server: %v", err)
 	}
-	defer s.Stop()
+
+	b.Cleanup(func() {
+		s.Stop()
+		os.RemoveAll(tmpDir)
+	})
 
 	time.Sleep(100 * time.Millisecond) // Give server time to start
 

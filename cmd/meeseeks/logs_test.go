@@ -57,6 +57,7 @@ func TestLogsCommand(t *testing.T) {
 }
 
 func TestLogsCommand_Help(t *testing.T) {
+	t.Parallel()
 	testCommandHelp(t, []string{"logs"}, []string{
 		"Usage: meeseeks logs <program_name>",
 		"Show logs for a specific program",

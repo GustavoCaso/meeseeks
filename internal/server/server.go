@@ -25,6 +25,7 @@ type Server struct {
 	mu         sync.RWMutex
 	running    bool
 	logger     *logger.Logger
+	timeout    time.Duration
 }
 
 type Response struct {
@@ -33,12 +34,13 @@ type Response struct {
 	Error   string      `json:"error,omitempty"`
 }
 
-func New(sockPath string, configPath string, logger *logger.Logger) (*Server, error) {
+func New(sockPath string, configPath string, logger *logger.Logger, timeout time.Duration) (*Server, error) {
 	s := &Server{
 		meeseeks:   meeseeks.New(meeseeks.Logger(logger)),
 		sockPath:   sockPath,
 		configPath: configPath,
 		logger:     logger,
+		timeout:    timeout,
 	}
 
 	err := s.loadConfig()
@@ -110,14 +112,14 @@ func (s *Server) Stop() error {
 	s.running = false
 
 	if s.server != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 		defer cancel()
 		err := s.server.Shutdown(ctx)
 		errs = append(errs, err)
 	}
 
 	errs = append(errs, os.RemoveAll(s.sockPath))
-	errs = append(errs, s.meeseeks.Shutdown(5*time.Second))
+	errs = append(errs, s.meeseeks.Shutdown(s.timeout))
 	return errors.Join(errs...)
 }
 

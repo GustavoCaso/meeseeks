@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/GustavoCaso/meeseeks/internal/logger"
 	"github.com/GustavoCaso/meeseeks/internal/server"
@@ -66,7 +67,7 @@ func (c *cmd) runForeground() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	s, err := startServer(ctx, c.configPath, c.logger, c.socketPath)
+	s, err := startServer(ctx, c.configPath, c.logger, c.socketPath, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -136,8 +137,9 @@ func startServer(
 	configPath string,
 	logger *logger.Logger,
 	sockPath string,
+	timeout time.Duration,
 ) (*server.Server, error) {
-	s, err := server.New(sockPath, configPath, logger)
+	s, err := server.New(sockPath, configPath, logger, timeout)
 
 	if err != nil {
 		return nil, err

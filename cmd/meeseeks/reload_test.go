@@ -69,6 +69,7 @@ func TestReload(t *testing.T) {
 }
 
 func TestReloadCommand_Help(t *testing.T) {
+	t.Parallel()
 	testCommandHelp(t, []string{"reload"}, []string{
 		"Usage: meeseeks reload [options]",
 		"Reload meeseeks configuration",

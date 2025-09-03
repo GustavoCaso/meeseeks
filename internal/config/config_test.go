@@ -8,6 +8,7 @@ import (
 )
 
 func TestLoadConfig(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		content     string
@@ -168,6 +169,7 @@ func TestLoadConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			var tempFile string
 			if tt.content != "" {
 				// Create temporary file
@@ -208,6 +210,7 @@ func TestLoadConfig(t *testing.T) {
 }
 
 func TestProgramConfig_GetInterval(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		interval    string
@@ -255,6 +258,7 @@ func TestProgramConfig_GetInterval(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			pc := &ProgramConfig{Interval: tt.interval}
 
 			duration, err := pc.GetInterval()
@@ -281,6 +285,7 @@ func TestProgramConfig_GetInterval(t *testing.T) {
 }
 
 func TestConfig_Validate(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		config      *Config
@@ -355,6 +360,7 @@ func TestConfig_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := tt.config.Validate()
 
 			if tt.wantErr {
