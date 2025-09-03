@@ -10,6 +10,9 @@ test:
 
 lint:
 	golangci-lint run
+	
+format:
+	golangci-lint fmt .
 
 generate-test-coverage:
 	@echo "Generating coverage report"
