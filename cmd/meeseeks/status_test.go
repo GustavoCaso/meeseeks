@@ -89,6 +89,7 @@ func TestStatusCommand_Validation(t *testing.T) {
 }
 
 func TestStatusCommand_Help(t *testing.T) {
+	t.Parallel()
 	testCommandHelp(t, []string{"status"}, []string{
 		"Usage: meeseeks status [options] [program_name]",
 		"Show status of running programs",

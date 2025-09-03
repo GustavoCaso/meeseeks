@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,7 +15,6 @@ import (
 	"github.com/GustavoCaso/meeseeks/internal/logger"
 )
 
-// runCLICommand runs CLI commands as subprocess.
 func runCLICommand(
 	args []string,
 	stdoutBuf io.Writer,
@@ -51,7 +51,7 @@ func setMeeseeksConfigDirForTest(t *testing.T) {
 
 	// Make sure running tests while having a production
 	// instance of meeseeks running do not cause problems
-	customDir := "/tmp/meeseeks"
+	customDir := filepath.Join("/tmp/", t.Name())
 
 	err := os.MkdirAll(customDir, 0750)
 	if err != nil {
@@ -73,7 +73,17 @@ func newTestServer(t *testing.T, configPath, configContent string) {
 		t.Fatalf("Failed to create test config file: %v", err)
 	}
 
-	server, err := startServer(t.Context(), configPath, logger.New(), getSocketPath())
+	tempFolder := filepath.Join("/tmp/", t.Name())
+	err := os.MkdirAll(tempFolder, 0750)
+	if err != nil {
+		t.Fatalf("failed to create temp folder for socket: %s", err.Error())
+	}
+
+	socketPath := filepath.Join(tempFolder, "meeseeks.sock")
+
+	t.Setenv("MEESEEKS_CONFIG_DIR", tempFolder)
+
+	server, err := startServer(t.Context(), configPath, logger.New(), socketPath, 30*time.Millisecond)
 	if err != nil {
 		t.Fatalf("failed to start test server: %v", err)
 	}
@@ -81,6 +91,7 @@ func newTestServer(t *testing.T, configPath, configContent string) {
 	// Set up cleanup
 	t.Cleanup(func() {
 		server.Stop()
+		os.RemoveAll(tempFolder)
 	})
 }
 

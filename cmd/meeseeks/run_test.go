@@ -14,6 +14,7 @@ import (
 )
 
 func TestRunCommand_ConfigValidation(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		args         []string
@@ -30,6 +31,7 @@ func TestRunCommand_ConfigValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			var stdoutBuf, stderrBuf bytes.Buffer
 			exitCode := runCLICommand(tt.args, &stdoutBuf, &stderrBuf, 5*time.Second)
 			output := stdoutBuf.String() + stderrBuf.String()
@@ -46,6 +48,7 @@ func TestRunCommand_ConfigValidation(t *testing.T) {
 }
 
 func TestRunCommand_Help(t *testing.T) {
+	t.Parallel()
 	testCommandHelp(t, []string{"run"}, []string{
 		"Usage: meeseeks run [options]",
 		"Start programs from configuration file",

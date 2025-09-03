@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+//nolint:tparallel // the test uses Setenv
 func TestGetMeeseeksDir(t *testing.T) {
 	t.Run("uses environment variable when set", func(t *testing.T) {
 		customDir := "/custom/meeseeks"
@@ -18,6 +19,7 @@ func TestGetMeeseeksDir(t *testing.T) {
 	})
 
 	t.Run("uses default when environment variable not set", func(t *testing.T) {
+		t.Parallel()
 		result := getMeeseeksDir()
 		homeDir, _ := os.UserHomeDir()
 		expected := filepath.Join(homeDir, ".meeseeks")

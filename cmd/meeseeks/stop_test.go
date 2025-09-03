@@ -55,6 +55,7 @@ func TestStopCommand(t *testing.T) {
 }
 
 func TestStopCommand_Help(t *testing.T) {
+	t.Parallel()
 	testCommandHelp(t, []string{"stop"}, []string{
 		"Usage: meeseeks stop [options] [program_name]",
 		"Stop running programs",
