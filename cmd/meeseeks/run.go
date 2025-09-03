@@ -32,7 +32,7 @@ func (c *cmd) run() error {
 
 func (c *cmd) runDetached() error {
 	//nolint:gosec // the arguments are provided by the user
-	cmd := exec.Command(os.Args[0], "run", "-config", c.configPath)
+	cmd := exec.CommandContext(context.Background(), os.Args[0], "run", "-config", c.configPath)
 	cmd.Env = os.Environ()
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setsid: true,

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -33,8 +34,10 @@ func stopCommand(args []string, _ *logger.Logger) error {
 	}
 
 	programName := fs.Arg(0)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	client := server.NewClient(getSocketPath())
+	client := server.NewClient(ctx, getSocketPath())
 	resp, err := client.Stop(programName, *timeout)
 	if err != nil {
 		return err

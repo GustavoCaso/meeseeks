@@ -3,6 +3,7 @@
 package login
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,6 +62,9 @@ func TestDarwinService_Validate_ServiceAlreadyExists(t *testing.T) {
 		os.RemoveAll(configDir)
 	})
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	config := ServiceConfig{
 		ExecutablePath: execPath,
 		ConfigPath:     configPath,
@@ -68,13 +72,13 @@ func TestDarwinService_Validate_ServiceAlreadyExists(t *testing.T) {
 	}
 
 	// Create the service first time
-	_, err := service.Create(config)
+	_, err := service.Create(ctx, config)
 	if err != nil {
 		t.Fatalf("First Create() failed: %v", err)
 	}
 
 	// Try to create it again - should fail
-	_, err = service.Create(config)
+	_, err = service.Create(ctx, config)
 	if err == nil {
 		t.Error("Second Create() should have failed because service already exists")
 	}

@@ -80,8 +80,8 @@ func (s *Server) Start(ctx context.Context) error {
 	if err := os.MkdirAll(filepath.Dir(s.sockPath), 0750); err != nil {
 		return fmt.Errorf("failed to create socket directory: %w", err)
 	}
-
-	listener, err := net.Listen("unix", s.sockPath)
+	listenConfig := net.ListenConfig{}
+	listener, err := listenConfig.Listen(ctx, "unix", s.sockPath)
 	if err != nil {
 		return fmt.Errorf("failed to create socket: %w", err)
 	}

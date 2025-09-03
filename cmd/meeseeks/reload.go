@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -25,8 +26,9 @@ func reloadCommand(args []string, _ *logger.Logger) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-
-	client := server.NewClient(getSocketPath())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	client := server.NewClient(ctx, getSocketPath())
 	resp, err := client.Reload(*timeout)
 	if err != nil {
 		return err

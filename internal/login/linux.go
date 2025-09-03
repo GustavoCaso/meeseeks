@@ -2,7 +2,11 @@
 
 package login
 
-import "github.com/GustavoCaso/meeseeks/internal/logger"
+import (
+	"context"
+
+	"github.com/GustavoCaso/meeseeks/internal/logger"
+)
 
 // TODO
 type linuxService struct {
@@ -15,18 +19,18 @@ func getPlatformService(logger *logger.Logger) Service {
 	}
 }
 
-func (d *linuxService) Create(ServiceConfig) (Defintion, error) {
+func (d *linuxService) Create(context.Context, ServiceConfig) (Defintion, error) {
 	return Defintion(""), nil
 }
 
-func (d *linuxService) Enable(Defintion) error {
+func (d *linuxService) Enable(context.Context, Defintion) error {
 	return nil
 }
 
-func (d *linuxService) Disable() error {
+func (d *linuxService) Disable(context.Context) error {
 	return nil
 }
 
-func (d *linuxService) Status() (ServiceStatus, error) {
+func (d *linuxService) Status(context.Context) (ServiceStatus, error) {
 	return ServiceStatus{}, nil
 }

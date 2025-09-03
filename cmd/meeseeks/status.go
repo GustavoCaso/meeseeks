@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -33,8 +34,10 @@ func statusCommand(args []string, _ *logger.Logger) error {
 	if *format != "table" && *format != "json" {
 		return fmt.Errorf("invalid format: %s. Valid formats: table, json", *format)
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	client := server.NewClient(getSocketPath())
+	client := server.NewClient(ctx, getSocketPath())
 	resp, err := client.Statistics(programName)
 	if err != nil {
 		return err

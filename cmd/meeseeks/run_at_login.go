@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -26,23 +27,25 @@ func runAtLoginCommand(args []string, logger *logger.Logger) error {
 	subcommand := args[0]
 	subcommandArgs := args[1:]
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	// Get platform-specific login service
 	service := login.GetService(logger)
 
 	switch subcommand {
 	case "enable":
-		return runAtLoginEnableCommand(service, subcommandArgs)
+		return runAtLoginEnableCommand(ctx, service, subcommandArgs)
 	case "disable":
-		return runAtLoginDisableCommand(service, subcommandArgs)
+		return runAtLoginDisableCommand(ctx, service, subcommandArgs)
 	case "status":
-		return runAtLoginStatusCommand(service, subcommandArgs)
+		return runAtLoginStatusCommand(ctx, service, subcommandArgs)
 	default:
 		printRunAtLoginUsage()
 		return fmt.Errorf("unknown subcommand: %s", subcommand)
 	}
 }
 
-func runAtLoginEnableCommand(service login.Service, args []string) error {
+func runAtLoginEnableCommand(ctx context.Context, service login.Service, args []string) error {
 	fs := flag.NewFlagSet("run-at-login enable", flag.ExitOnError)
 
 	fs.Usage = func() {
@@ -86,14 +89,14 @@ func runAtLoginEnableCommand(service login.Service, args []string) error {
 		ConfigDir:      absConfigDir,
 	}
 
-	serviceDefnition, createErr := service.Create(loginConfig)
+	serviceDefnition, createErr := service.Create(ctx, loginConfig)
 
 	if createErr != nil {
 		return fmt.Errorf("failed to create login service: %w", createErr)
 	}
 
 	// Enable the service
-	if enableErr := service.Enable(serviceDefnition); enableErr != nil {
+	if enableErr := service.Enable(ctx, serviceDefnition); enableErr != nil {
 		return fmt.Errorf("failed to enable login service: %w", enableErr)
 	}
 
@@ -103,7 +106,7 @@ func runAtLoginEnableCommand(service login.Service, args []string) error {
 	return nil
 }
 
-func runAtLoginDisableCommand(service login.Service, args []string) error {
+func runAtLoginDisableCommand(ctx context.Context, service login.Service, args []string) error {
 	fs := flag.NewFlagSet("run-at-login disable", flag.ExitOnError)
 
 	fs.Usage = func() {
@@ -117,7 +120,7 @@ func runAtLoginDisableCommand(service login.Service, args []string) error {
 	}
 
 	// Disable the service
-	if err := service.Disable(); err != nil {
+	if err := service.Disable(ctx); err != nil {
 		return fmt.Errorf("failed to disable login service: %w", err)
 	}
 
@@ -126,7 +129,7 @@ func runAtLoginDisableCommand(service login.Service, args []string) error {
 	return nil
 }
 
-func runAtLoginStatusCommand(service login.Service, args []string) error {
+func runAtLoginStatusCommand(ctx context.Context, service login.Service, args []string) error {
 	fs := flag.NewFlagSet("run-at-login status", flag.ExitOnError)
 
 	fs.Usage = func() {
@@ -140,7 +143,7 @@ func runAtLoginStatusCommand(service login.Service, args []string) error {
 	}
 
 	// Get service status
-	status, err := service.Status()
+	status, err := service.Status(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get login service status: %w", err)
 	}

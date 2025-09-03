@@ -195,7 +195,7 @@ func TestServer_HTTPHandlers(t *testing.T) {
 	// Give server time to start
 	time.Sleep(100 * time.Millisecond)
 
-	client := NewClient(sockPath)
+	client := NewClient(ctx, sockPath)
 
 	tests := []struct {
 		name   string
@@ -336,7 +336,7 @@ func TestClient_SendRequest(t *testing.T) {
 	defer d.Stop()
 
 	// Create client
-	client := NewClient(sockPath)
+	client := NewClient(ctx, sockPath)
 
 	tests := []struct {
 		name   string
@@ -405,7 +405,9 @@ func TestClient_SendRequest(t *testing.T) {
 
 func TestClient_ConnectToNonExistentDaemon(t *testing.T) {
 	t.Parallel()
-	client := NewClient("/nonexistent/path.sock")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	client := NewClient(ctx, "/nonexistent/path.sock")
 
 	_, err := client.Statistics("")
 	if err == nil {
@@ -459,7 +461,7 @@ func TestServer_IntegrationWithRealSocket(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Test client communication
-	client := NewClient(sockPath)
+	client := NewClient(ctx, sockPath)
 
 	// Test statistics
 	resp, err := client.Statistics("")
@@ -525,7 +527,7 @@ func TestServer_ConcurrentConnections(t *testing.T) {
 
 	for i := range numClients {
 		go func(_ int) {
-			client := NewClient(sockPath)
+			client := NewClient(ctx, sockPath)
 			resp, err := client.Statistics("")
 			if err != nil {
 				results <- err
@@ -604,7 +606,7 @@ func BenchmarkServer_HandleRequest(b *testing.B) {
 
 	time.Sleep(100 * time.Millisecond) // Give server time to start
 
-	client := NewClient(sockPath)
+	client := NewClient(ctx, sockPath)
 
 	b.ResetTimer()
 	for range b.N {
