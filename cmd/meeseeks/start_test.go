@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-func TestRunCommand_ConfigValidation(t *testing.T) {
+func TestStartCommand_ConfigValidation(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name         string
@@ -23,7 +23,7 @@ func TestRunCommand_ConfigValidation(t *testing.T) {
 	}{
 		{
 			name:         "nonexistent config file",
-			args:         []string{"run", "-config", "/nonexistent/file.yaml"},
+			args:         []string{"start", "-config", "/nonexistent/file.yaml"},
 			expectedExit: 1,
 			errorMessage: "failed to load config",
 		},
@@ -47,17 +47,17 @@ func TestRunCommand_ConfigValidation(t *testing.T) {
 	}
 }
 
-func TestRunCommand_Help(t *testing.T) {
+func TestStartCommand_Help(t *testing.T) {
 	t.Parallel()
-	testCommandHelp(t, []string{"run"}, []string{
-		"Usage: meeseeks run [options]",
+	testCommandHelp(t, []string{"start"}, []string{
+		"Usage: meeseeks start [options]",
 		"Start programs from configuration file",
 		"-config",
 		"-d",
 	})
 }
 
-func TestRunCommand_Foreground(t *testing.T) {
+func TestStartCommand_Foreground(t *testing.T) {
 	setMeeseeksConfigDirForTest(t)
 
 	tmpDir := t.TempDir()
@@ -78,7 +78,7 @@ func TestRunCommand_Foreground(t *testing.T) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "go", "run", ".")
-	cmd.Args = append(cmd.Args, []string{"run", "-config", configFile}...)
+	cmd.Args = append(cmd.Args, []string{"start", "-config", configFile}...)
 	cmd.Env = os.Environ()
 
 	// Set process group to ensure we can kill child processes
@@ -161,7 +161,7 @@ func TestRunCommand_Foreground(t *testing.T) {
 	}
 }
 
-func TestRunCommand_Detached(t *testing.T) {
+func TestStartCommand_Detached(t *testing.T) {
 	setMeeseeksConfigDirForTest(t)
 
 	tmpDir := t.TempDir()
@@ -185,7 +185,7 @@ func TestRunCommand_Detached(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	exitCode := runCLICommand(
-		[]string{"run", "-d", "-config", configFile},
+		[]string{"start", "-d", "-config", configFile},
 		&stdout,
 		&stderr,
 		15*time.Second,
