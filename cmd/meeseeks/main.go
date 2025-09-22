@@ -20,8 +20,10 @@ func main() {
 	logger := logger.New()
 
 	switch command {
-	case "run":
-		cmdErr = runCommand(args, logger)
+	case "start":
+		cmdErr = startCommand(args, logger)
+	case "start-at-login":
+		cmdErr = startAtLoginCommand(args, logger)
 	case "status":
 		cmdErr = statusCommand(args, logger)
 	case "logs":
@@ -30,8 +32,6 @@ func main() {
 		cmdErr = stopCommand(args, logger)
 	case "exit":
 		cmdErr = exitCommand(args, logger)
-	case "run-at-login":
-		cmdErr = runAtLoginCommand(args, logger)
 	case "reload":
 		cmdErr = reloadCommand(args, logger)
 	case "version":

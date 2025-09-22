@@ -22,17 +22,17 @@ type cmd struct {
 	detach     bool
 }
 
-func (c *cmd) run() error {
+func (c *cmd) start() error {
 	if c.detach {
-		return c.runDetached()
+		return c.startDetached()
 	}
 
-	return c.runForeground()
+	return c.startForeground()
 }
 
-func (c *cmd) runDetached() error {
+func (c *cmd) startDetached() error {
 	//nolint:gosec // the arguments are provided by the user
-	cmd := exec.CommandContext(context.Background(), os.Args[0], "run", "-config", c.configPath)
+	cmd := exec.CommandContext(context.Background(), os.Args[0], "start", "-config", c.configPath)
 	cmd.Env = os.Environ()
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setsid: true,
@@ -63,7 +63,7 @@ func (c *cmd) runDetached() error {
 	return nil
 }
 
-func (c *cmd) runForeground() error {
+func (c *cmd) startForeground() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -94,17 +94,17 @@ func (c *cmd) runForeground() error {
 	return nil
 }
 
-func runCommand(args []string, logger *logger.Logger) error {
-	fs := flag.NewFlagSet("run", flag.ExitOnError)
+func startCommand(args []string, logger *logger.Logger) error {
+	fs := flag.NewFlagSet("start", flag.ExitOnError)
 	configPath := fs.String(
 		"config",
 		"",
 		"Path to configuration file (defaults to $MEESEEKS_CONFIG_DIR/config.yaml or ~/.meeseeks/config.yaml)",
 	)
-	detach := fs.Bool("d", false, "Run in detached mode")
+	detach := fs.Bool("d", false, "Start in detached mode")
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: meeseeks run [options]\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: meeseeks start [options]\n\n")
 		fmt.Fprintf(os.Stderr, "Start programs from configuration file\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		fs.PrintDefaults()
@@ -129,7 +129,7 @@ func runCommand(args []string, logger *logger.Logger) error {
 		detach:     *detach,
 	}
 
-	return cmd.run()
+	return cmd.start()
 }
 
 func startServer(

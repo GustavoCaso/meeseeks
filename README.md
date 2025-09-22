@@ -51,10 +51,10 @@ programs:
     interval: "30s"
 ```
 
-2. **Run in daemon mode**:
+2. **Run in detached mode**:
 
 ```bash
-meeseeks run -d -config config.yaml
+meeseeks start -d -config config.yaml
 ```
 
 3. **Check status**:
@@ -80,9 +80,9 @@ meeseeks stop             # Stop all programs
 6. **Configure auto-start at login**:
 
 ```bash
-meeseeks run-at-login enable
-meeseeks run-at-login status
-meeseeks run-at-login disable
+meeseeks start-at-login enable
+meeseeks start-at-login status
+meeseeks start-at-login disable
 ```
 
 ### Go Package Usage
@@ -211,22 +211,22 @@ When `MEESEEKS_CONFIG_DIR` is set, all meeseeks files are placed in this directo
 ```bash
 # Use custom config directory - all files go here
 export MEESEEKS_CONFIG_DIR="/opt/meeseeks"
-meeseeks run
+meeseeks start
 
 # Use default value ~/.meeseeks/config.yaml
-meeseeks run -d
+meeseeks start -d
 ```
 
 ## CLI Commands
 
-### `meeseeks run`
+### `meeseeks start`
 
 Start programs from a configuration file.
 
 ```bash
-meeseeks run -config config.yaml        # Run in foreground with specific config
-meeseeks run                            # Run in foreground with default config
-meeseeks run -d                         # Run in detached mode
+meeseeks start -config config.yaml        # Run in foreground with specific config
+meeseeks start                            # Run in foreground with default config
+meeseeks start -d                         # Run in detached mode
 ```
 
 **Options:**
@@ -273,19 +273,19 @@ Stop and programs and meeseks process. Useful to stop meeseeks when running in d
 meeseeks exit
 ```
 
-### `meeseeks run-at-login`
+### `meeseeks start-at-login`
 
 Manage automatic startup of meeseeks at user login across platforms.
 
 ```bash
 # Enable auto-start
-meeseeks run-at-login enable
+meeseeks start-at-login enable
 
 # Check current status
-meeseeks run-at-login status
+meeseeks start-at-login status
 
 # Disable auto-start
-meeseeks run-at-login disable
+meeseeks start-at-login disable
 ```
 
 **Platform Support:**
@@ -367,10 +367,10 @@ programs:
 **Enable auto-start at login:**
 ```bash
 # Configure meeseeks to start automatically
-meeseeks run-at-login enable
+meeseeks start-at-login enable
 
 # Verify it's working
-meeseeks run-at-login status
+meeseeks start-at-login status
 ```
 
 ### Scheduled Tasks

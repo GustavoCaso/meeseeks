@@ -12,7 +12,7 @@ import (
 	"github.com/GustavoCaso/meeseeks/internal/login"
 )
 
-func runAtLoginCommand(args []string, logger *logger.Logger) error {
+func startAtLoginCommand(args []string, logger *logger.Logger) error {
 	if len(args) < 1 {
 		printRunAtLoginUsage()
 		return errors.New("subcommand required")
@@ -46,10 +46,10 @@ func runAtLoginCommand(args []string, logger *logger.Logger) error {
 }
 
 func runAtLoginEnableCommand(ctx context.Context, service login.Service, args []string) error {
-	fs := flag.NewFlagSet("run-at-login enable", flag.ExitOnError)
+	fs := flag.NewFlagSet("start-at-login enable", flag.ExitOnError)
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: meeseeks run-at-login enable\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: meeseeks start-at-login enable\n\n")
 		fmt.Fprintf(os.Stderr, "Configure meeseeks to start automatically at login\n\n")
 		fs.PrintDefaults()
 	}
@@ -107,10 +107,10 @@ func runAtLoginEnableCommand(ctx context.Context, service login.Service, args []
 }
 
 func runAtLoginDisableCommand(ctx context.Context, service login.Service, args []string) error {
-	fs := flag.NewFlagSet("run-at-login disable", flag.ExitOnError)
+	fs := flag.NewFlagSet("start-at-login disable", flag.ExitOnError)
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: meeseeks run-at-login disable\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: meeseeks start-at-login disable\n\n")
 		fmt.Fprintf(os.Stderr, "Remove automatic startup configuration\n\n")
 		fs.PrintDefaults()
 	}
@@ -130,10 +130,10 @@ func runAtLoginDisableCommand(ctx context.Context, service login.Service, args [
 }
 
 func runAtLoginStatusCommand(ctx context.Context, service login.Service, args []string) error {
-	fs := flag.NewFlagSet("run-at-login status", flag.ExitOnError)
+	fs := flag.NewFlagSet("start-at-login status", flag.ExitOnError)
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: meeseeks run-at-login status\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: meeseeks start-at-login status\n\n")
 		fmt.Fprintf(os.Stderr, "Show current login service status\n\n")
 		fs.PrintDefaults()
 	}
@@ -163,11 +163,11 @@ func runAtLoginStatusCommand(ctx context.Context, service login.Service, args []
 }
 
 func printRunAtLoginUsage() {
-	fmt.Fprintf(os.Stderr, "Usage: meeseeks run-at-login <subcommand>\n\n")
+	fmt.Fprintf(os.Stderr, "Usage: meeseeks start-at-login <subcommand>\n\n")
 	fmt.Fprintf(os.Stderr, "Manage automatic startup of meeseeks at user login\n\n")
 	fmt.Fprintf(os.Stderr, "Subcommands:\n")
 	fmt.Fprintf(os.Stderr, "  enable   Configure meeseeks to start automatically at login\n")
 	fmt.Fprintf(os.Stderr, "  disable  Remove automatic startup configuration\n")
 	fmt.Fprintf(os.Stderr, "  status   Show current login service status\n\n")
-	fmt.Fprintf(os.Stderr, "Use 'meeseeks run-at-login <subcommand> -h' for more information about a subcommand.\n")
+	fmt.Fprintf(os.Stderr, "Use 'meeseeks start-at-login <subcommand> -h' for more information about a subcommand.\n")
 }
