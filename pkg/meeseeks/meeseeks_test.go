@@ -1329,6 +1329,117 @@ func TestMeeseekReload_WaitDoNotExistWhileReloading(t *testing.T) {
 	}
 }
 
+func TestMeeseek_Run(t *testing.T) {
+	t.Parallel()
+
+	interval := 100 * time.Millisecond
+
+	tests := []struct {
+		name          string
+		setupPrograms []Program
+		runProgram    string
+		startMesseks  bool
+		wantErr       bool
+		errMsg        string
+	}{
+		{
+			name: "run existing program",
+			setupPrograms: []Program{
+				NewProgram(program.New("test-echo", "echo", program.Args("hello")), nil),
+				NewProgram(program.New("test-sleep", "sleep", program.Args("0.01")), nil),
+			},
+			runProgram: "test-echo",
+			wantErr:    false,
+		},
+		{
+			name: "run nonexistent program",
+			setupPrograms: []Program{
+				NewProgram(program.New("test-echo", "echo", program.Args("hello")), nil),
+			},
+			runProgram: "nonexistent",
+			wantErr:    true,
+			errMsg:     "program nonexistent not present",
+		},
+		{
+			name: "run already running program",
+			setupPrograms: []Program{
+				NewProgram(program.New("long-sleep", "sleep", program.Args("10")), nil),
+			},
+			runProgram:   "long-sleep",
+			startMesseks: true,
+			wantErr:      true,
+			errMsg:       "program long-sleep already running",
+		},
+		{
+			name: "run scheduled program",
+			setupPrograms: []Program{
+				NewProgram(
+					program.New("scheduled", "echo", program.Args("hello")),
+					&interval,
+				),
+			},
+			runProgram: "scheduled",
+			wantErr:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := New()
+
+			for _, prog := range tt.setupPrograms {
+				err := m.AddProgram(prog)
+				if err != nil {
+					t.Fatalf("Failed to add program: %v", err)
+				}
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			if tt.startMesseks {
+				m.Start(ctx)
+
+				// Give programs time to start
+				time.Sleep(100 * time.Millisecond)
+			}
+
+			err := m.Run(tt.runProgram)
+
+			defer func() {
+				shutdownErr := m.Shutdown(1 * time.Second)
+				if shutdownErr != nil {
+					t.Logf("Shutdown error (non-fatal): %v", shutdownErr)
+				}
+			}()
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("Expected error but got none")
+				}
+				if !strings.Contains(err.Error(), tt.errMsg) {
+					t.Fatalf("Expected error message to contain %q, got %q", tt.errMsg, err.Error())
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			stats, statErr := m.Statistic(tt.runProgram)
+			if statErr != nil {
+				t.Fatalf("Failed to get statistics for %s: %v", tt.runProgram, statErr)
+			}
+
+			if stats.Successful == 0 {
+				t.Fatalf("Program %s should have been executed but shows no runs", tt.runProgram)
+			}
+		})
+	}
+}
+
 type programConfig struct {
 	name     string
 	cmd      string

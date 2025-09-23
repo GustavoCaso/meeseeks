@@ -394,6 +394,19 @@ func TestClient_SendRequest(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "run program request",
+			testFn: func(t *testing.T, client *Client) {
+				resp, err := client.RunProgram("test-program")
+				if err != nil {
+					t.Fatalf("RunProgram() unexpected error = %v", err)
+					return
+				}
+				if !resp.Success {
+					t.Fatalf("RunProgram() expected success=true, got success=%v, error=%s", resp.Success, resp.Error)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -611,5 +624,104 @@ func BenchmarkServer_HandleRequest(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		_, _ = client.Statistics("")
+	}
+}
+
+func TestClient_RunProgram(t *testing.T) {
+	t.Parallel()
+	tmpDir := filepath.Join("/tmp/", t.Name())
+	err := os.MkdirAll(tmpDir, 0750)
+	if err != nil {
+		t.Fatalf("error creating temp folder %s", err.Error())
+	}
+	sockPath := filepath.Join(tmpDir, "meeseeks.sock")
+	configFile := filepath.Join(tmpDir, "test-config.yaml")
+
+	configContent := `programs:
+  - name: "client-test-echo"
+    command: "echo"
+    args: ["client test"]
+  - name: "client-test-sleep"
+    command: "sleep"
+    args: ["5"]
+`
+
+	if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
+		t.Fatalf("Failed to create test config file: %v", err)
+	}
+
+	s, err := New(sockPath, configFile, logger.New(), 2*time.Second)
+	if err != nil {
+		t.Fatalf("creating server failed: %s", err.Error())
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	err = s.Start(ctx)
+	if err != nil {
+		t.Fatalf("Failed to start daemon: %v", err)
+	}
+	defer func() {
+		s.Stop()
+		os.RemoveAll(tmpDir)
+	}()
+
+	// Give programs time to start
+	time.Sleep(100 * time.Millisecond)
+
+	client := NewClient(ctx, sockPath)
+
+	tests := []struct {
+		name           string
+		programName    string
+		expectSuccess  bool
+		expectedErrMsg string
+	}{
+		{
+			name:           "run with empty program name",
+			programName:    "",
+			expectSuccess:  false,
+			expectedErrMsg: "program name required",
+		},
+		{
+			name:          "run program successfully",
+			programName:   "client-test-echo",
+			expectSuccess: true,
+		},
+		{
+			name:           "run nonexistent program",
+			programName:    "nonexistent-program",
+			expectSuccess:  false,
+			expectedErrMsg: "program nonexistent-program not present",
+		},
+		{
+			name:           "run already running program",
+			programName:    "client-test-sleep",
+			expectSuccess:  false,
+			expectedErrMsg: "program client-test-sleep already running",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := client.RunProgram(tt.programName)
+			if err != nil {
+				t.Fatalf("RunProgram() client error: %v", err)
+			}
+
+			if tt.expectSuccess {
+				if !resp.Success {
+					t.Fatalf("Expected success=true, got success=%v, error=%s", resp.Success, resp.Error)
+				}
+			} else {
+				if resp.Success {
+					t.Fatalf("Expected success=false, got success=%v", resp.Success)
+				}
+				if tt.expectedErrMsg != "" && !containsString(resp.Error, tt.expectedErrMsg) {
+					t.Fatalf("Expected error to contain %q, got %q", tt.expectedErrMsg, resp.Error)
+				}
+			}
+		})
 	}
 }

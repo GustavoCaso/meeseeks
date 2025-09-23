@@ -280,9 +280,7 @@ func (m *meeseek) Run(programName string) error {
 		return fmt.Errorf("program %s already running", programName)
 	}
 
-	go func(prog Program) {
-		m.runOneTimeProgram(context.Background(), prog)
-	}(prog)
+	m.runOneTimeProgram(context.Background(), prog)
 
 	return nil
 }
