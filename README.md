@@ -107,19 +107,20 @@ import (
 func main() {
     // Create a new meeseeks instance
     m := meeseeks.New()
+    interval := 30*time.Second
 
     // Add programs
     webServer := program.New("web-server", "python", 
         program.Args("-m", "http.server", "8080"),
+        programs.BufferSizeLimit(3 * 1024 * 1024) // 3MB
     )
     
-    healthCheck := program.New("health-check", "curl",
-        program.Args("http://localhost:8080"),
-        program.Interval(30*time.Second),
+    healthCheck := program.New("health-check", "curl", 
+      program.Args("http://localhost:8080")
     )
 
-    m.AddProgram(webServer)
-    m.AddProgram(healthCheck)
+    m.AddProgram(meeseeks.NewProgram(webServer))
+    m.AddProgram(meeseeks.NewProgram(healthCheck, &interval))
 
     // Start all programs
     ctx := context.Background()
@@ -154,7 +155,16 @@ programs:
     keep_stdin_open: true               # Optional: Keep stdin open for input (default: false)
     stdout: "/path/to/stdout.log"       # Optional: Redirect stdout to file
     stderr: "/path/to/stderr.log"       # Optional: Redirect stderr to file
+    buffer_limit: "1MB"                 # Optional: Limit memory usage for output buffers
 ```
+
+#### Buffer Size Limits
+
+Control memory usage by limiting output buffer sizes. When the limit is reached, older output is discarded and a truncation message is added.
+
+**Valid formats:** `512B`, `2KB`, `1MB`, `1GB`, `1TB`
+**Default:** Unlimited (if not specified)
+**Recommended:** `1MB` for most applications
 
 ### Example Configurations
 
@@ -320,11 +330,11 @@ When using Meeseeks as a Go package, you can configure programs with various opt
 program.New("name", "command",
     program.Args("arg1", "arg2"),           // Command arguments
     program.Envs("VAR=value"),              // Environment variables
-    program.Interval(30*time.Second),       // Run every interval
     program.KeepStdinOpen(),                // Keep stdin open
     program.Stdout(file),                   // Redirect stdout
     program.Stderr(file),                   // Redirect stderr
     program.Stdin(reader),                  // Provide stdin input
+    program.BufferSizeLimit(1024 * 1024),   // Limit output buffers (1MB)
 )
 ```
 
