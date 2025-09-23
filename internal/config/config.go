@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +27,7 @@ type ProgramConfig struct {
 	KeepStdinOpen bool     `yaml:"keep_stdin_open,omitempty" json:"keep_stdin_open,omitempty"`
 	Stdout        string   `yaml:"stdout,omitempty"          json:"stdout,omitempty"`
 	Stderr        string   `yaml:"stderr,omitempty"          json:"stderr,omitempty"`
+	BufferLimit   string   `yaml:"buffer_limit,omitempty"    json:"buffer_limit,omitempty"`
 }
 
 func (pc *ProgramConfig) GetInterval() (time.Duration, error) {
@@ -32,6 +35,45 @@ func (pc *ProgramConfig) GetInterval() (time.Duration, error) {
 		return 0, nil
 	}
 	return time.ParseDuration(pc.Interval)
+}
+
+var sizeRegex = regexp.MustCompile(`^(?P<amount>\d+)(?P<unit>B|KB|MB|GB|TB)$`)
+
+func (pc *ProgramConfig) GetBufferSizeLimit() int {
+	if pc.BufferLimit == "" {
+		return 0
+	}
+
+	match := sizeRegex.FindStringSubmatch(pc.BufferLimit)
+
+	if len(match) > 0 {
+		amount := match[1]
+		unit := match[2]
+
+		var multiplier int64
+		switch unit {
+		case "B":
+			multiplier = 1
+		case "KB":
+			multiplier = 1024
+		case "MB":
+			multiplier = 1024 * 1024
+		case "GB":
+			multiplier = 1024 * 1024 * 1024
+		case "TB":
+			multiplier = 1024 * 1024 * 1024 * 1024
+		default:
+			multiplier = 1
+		}
+
+		v64, err := strconv.ParseInt(amount, 10, 64)
+		if err != nil {
+			return 0
+		}
+		return int(v64 * multiplier)
+	}
+
+	return 0
 }
 
 func LoadConfig(filename string) (*Config, error) {

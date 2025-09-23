@@ -434,3 +434,35 @@ func stringSlicesEqual(a, b []string) bool {
 	}
 	return true
 }
+
+func TestProgramConfig_GetBufferSizeLimit(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		bufferLimit string
+		expected    int
+	}{
+		{"empty", "", 0},
+		{"bytes", "512B", 512},
+		{"kilobytes", "2KB", 2048},
+		{"megabytes", "3MB", 3145728},
+		{"gigabytes", "1GB", 1073741824},
+		{"terabytes", "1TB", 1099511627776},
+		{"zero", "0B", 0},
+		{"invalid format", "invalid", 0},
+		{"no unit", "1000", 0},
+		{"negative", "-5MB", 0},
+		{"decimal", "1.5MB", 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			pc := &ProgramConfig{BufferLimit: tt.bufferLimit}
+			result := pc.GetBufferSizeLimit()
+			if result != tt.expected {
+				t.Fatalf("GetBufferSizeLimit() = %d, want %d", result, tt.expected)
+			}
+		})
+	}
+}
