@@ -67,6 +67,7 @@ type Meeseek interface {
 	Reload(context.Context, []Program, time.Duration)
 	Start(ctx context.Context)
 	Stop(programName string, timeout time.Duration) error
+	Run(programName string) error
 	Wait(ctx context.Context) error
 	Statistic(program string) (Statistics, error)
 	Statistics() map[string]Statistics
@@ -129,6 +130,7 @@ func (m *meeseek) Start(ctx context.Context) {
 		m.wg.Add(1)
 		go func(prog Program) {
 			m.runProgram(ctx, prog)
+			m.wg.Done()
 		}(program)
 	}
 }
@@ -264,6 +266,27 @@ func (m *meeseek) Wait(ctx context.Context) error {
 	}
 }
 
+func (m *meeseek) Run(programName string) error {
+	m.mu.RLock()
+	prog, ok := m.programs[programName]
+	m.mu.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("program %s not present", programName)
+	}
+
+	state := prog.State()
+	if state == program.StateRunning {
+		return fmt.Errorf("program %s already running", programName)
+	}
+
+	go func(prog Program) {
+		m.runOneTimeProgram(context.Background(), prog)
+	}(prog)
+
+	return nil
+}
+
 func (m *meeseek) Stop(programName string, timeout time.Duration) error {
 	m.mu.RLock()
 	program, ok := m.programs[programName]
@@ -338,8 +361,6 @@ func (m *meeseek) runProgram(ctx context.Context, prog Program) {
 }
 
 func (m *meeseek) runOneTimeProgram(ctx context.Context, prog Program) {
-	defer m.wg.Done()
-
 	done, err := prog.Start(ctx)
 	if err != nil {
 		if m.logger != nil {
@@ -368,7 +389,6 @@ func (m *meeseek) runScheduledProgram(ctx context.Context, prog Program) {
 	ticker := time.NewTicker(intervalCheckDuration)
 
 	defer ticker.Stop()
-	defer m.wg.Done()
 
 	// Create and register stop channel early to avoid race conditions
 	stop := make(chan struct{})

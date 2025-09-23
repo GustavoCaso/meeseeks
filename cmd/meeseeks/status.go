@@ -11,10 +11,15 @@ import (
 	"github.com/GustavoCaso/meeseeks/internal/server"
 )
 
+const (
+	tableFormat = "table"
+	josnFormat  = "json"
+)
+
 func statusCommand(args []string, _ *logger.Logger) error {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
-	format := fs.String("format", "table", "Output format: table, json")
-	fs.StringVar(format, "f", "table", "Output format: table, json (shorthand)")
+	format := fs.String("format", tableFormat, "Output format: table, json")
+	fs.StringVar(format, "f", tableFormat, "Output format: table, json (shorthand)")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: meeseeks status [options] [program_name]\n\n")
 		fmt.Fprintf(os.Stderr, "Show status of running programs\n\n")
@@ -31,7 +36,7 @@ func statusCommand(args []string, _ *logger.Logger) error {
 		programName = fs.Arg(0)
 	}
 
-	if *format != "table" && *format != "json" {
+	if *format != tableFormat && *format != josnFormat {
 		return fmt.Errorf("invalid format: %s. Valid formats: table, json", *format)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -47,7 +52,7 @@ func statusCommand(args []string, _ *logger.Logger) error {
 		return fmt.Errorf("%s", resp.Error)
 	}
 
-	if *format == "json" {
+	if *format == josnFormat {
 		data, _ := json.MarshalIndent(resp.Data, "", "  ")
 		fmt.Fprintln(os.Stdout, string(data))
 	} else {

@@ -112,3 +112,11 @@ func (c *Client) Reload(timeout string) (*Response, error) {
 
 	return c.sendRequest("/reload", params)
 }
+
+func (c *Client) RunProgram(programName string) (*Response, error) {
+	params := map[string]string{
+		"program": programName,
+	}
+
+	return c.sendRequest("/run-program", params)
+}
