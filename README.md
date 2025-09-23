@@ -155,7 +155,7 @@ programs:
     keep_stdin_open: true               # Optional: Keep stdin open for input (default: false)
     stdout: "/path/to/stdout.log"       # Optional: Redirect stdout to file
     stderr: "/path/to/stderr.log"       # Optional: Redirect stderr to file
-    buffer_limit: "1MB"                 # Optional: Limit memory usage for output buffers
+    buffer_size_limit: "1MB"            # Optional: Limit memory usage for output buffers
 ```
 
 #### Buffer Size Limits

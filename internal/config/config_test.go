@@ -26,20 +26,22 @@ func TestLoadConfig(t *testing.T) {
     args: ["hello"]
     env: ["VAR=value"]
     interval: "30s"
+    buffer_size_limit: "3MB"
     keep_stdin_open: true
     stdout: "/tmp/out.log"
     stderr: "/tmp/err.log"`,
 			expected: &Config{
 				Programs: []ProgramConfig{
 					{
-						Name:          "test-program",
-						Command:       "echo",
-						Args:          []string{"hello"},
-						Env:           []string{"VAR=value"},
-						Interval:      "30s",
-						KeepStdinOpen: true,
-						Stdout:        "/tmp/out.log",
-						Stderr:        "/tmp/err.log",
+						Name:            "test-program",
+						Command:         "echo",
+						Args:            []string{"hello"},
+						Env:             []string{"VAR=value"},
+						Interval:        "30s",
+						BufferSizeLimit: "3MB",
+						KeepStdinOpen:   true,
+						Stdout:          "/tmp/out.log",
+						Stderr:          "/tmp/err.log",
 					},
 				},
 			},
@@ -438,9 +440,9 @@ func stringSlicesEqual(a, b []string) bool {
 func TestProgramConfig_GetBufferSizeLimit(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name        string
-		bufferLimit string
-		expected    int
+		name            string
+		bufferSizeLimit string
+		expected        int
 	}{
 		{"empty", "", 0},
 		{"bytes", "512B", 512},
@@ -458,7 +460,7 @@ func TestProgramConfig_GetBufferSizeLimit(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			pc := &ProgramConfig{BufferLimit: tt.bufferLimit}
+			pc := &ProgramConfig{BufferSizeLimit: tt.bufferSizeLimit}
 			result := pc.GetBufferSizeLimit()
 			if result != tt.expected {
 				t.Fatalf("GetBufferSizeLimit() = %d, want %d", result, tt.expected)
