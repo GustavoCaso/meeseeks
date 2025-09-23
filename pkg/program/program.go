@@ -112,7 +112,7 @@ func Logger(logger logger.Logger) Option {
 	}
 }
 
-func BufferSizeLimit(limit uint32) Option {
+func BufferSizeLimit(limit int) Option {
 	return func(p *program) {
 		p.bufferLimit = limit
 	}
@@ -139,7 +139,7 @@ type program struct {
 	exitCode     int
 	outputBuffer strings.Builder
 	errorBuffer  strings.Builder
-	bufferLimit  uint32
+	bufferLimit  int
 	lastError    string
 	lastLine     string
 
@@ -314,9 +314,7 @@ func (p *program) run() error {
 
 	if err != nil {
 		p.dataLock.Lock()
-
-		p.errorBuffer.WriteString(err.Error())
-		p.errorBuffer.WriteString("\n")
+		p.writeOutput(&p.errorBuffer, err.Error())
 		p.lastError = err.Error()
 
 		p.state = StateError
@@ -399,8 +397,7 @@ func (p *program) monitorProcess() {
 		} else {
 			p.state = StateError
 		}
-		p.errorBuffer.WriteString(err.Error())
-		p.errorBuffer.WriteString("\n")
+		p.writeOutput(&p.errorBuffer, err.Error())
 		p.lastError = err.Error()
 	} else {
 		p.state = StateFinished
@@ -417,40 +414,45 @@ func (p *program) readOutput(reader io.Reader, isError bool) {
 		line := scanner.Text()
 		p.dataLock.Lock()
 		if isError {
-			p.errorBuffer.WriteString(line + "\n")
+			p.writeOutput(&p.errorBuffer, line)
 			p.lastError = line
 		} else {
-			p.outputBuffer.WriteString(line + "\n")
+			p.writeOutput(&p.outputBuffer, line)
 			p.lastLine = line
 		}
-		p.checkBufferSize()
 		p.dataLock.Unlock()
 	}
 
 	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
 		if isError {
 			p.dataLock.Lock()
-			p.errorBuffer.WriteString("Scanner error: " + err.Error())
-			p.errorBuffer.WriteString("\n")
+			p.writeOutput(&p.errorBuffer, "Scanner error: "+err.Error())
 			p.dataLock.Unlock()
 		}
 	}
 }
 
-// You must acaquire the dataLock before calling this method
-func (p *program) checkBufferSize() {
-	if p.bufferLimit == 0 {
+// writeOutput handles buffer management with proper truncation and thread safety.
+func (p *program) writeOutput(buffer *strings.Builder, s string) {
+	newContent := s + "\n"
+
+	if p.bufferLimit <= 0 {
+		buffer.WriteString(newContent)
 		return
 	}
-	if p.outputBuffer.Len() >= int(p.bufferLimit) {
-		p.outputBuffer.Reset()
-		p.outputBuffer.WriteString(fmt.Sprintf("[Output truncated due to size limit %d]\n", p.bufferLimit))
+
+	spaceNeeded := len(newContent)
+	currentSize := buffer.Len()
+
+	// Check if we need to truncate
+	threshold := int(float64(p.bufferLimit) * 0.95)
+
+	if currentSize+spaceNeeded > threshold {
+		buffer.Reset()
+		buffer.WriteString(fmt.Sprintf("[%s] truncated due to buffer limit: %d bytes\n", time.Now(), p.bufferLimit))
 	}
 
-	if p.errorBuffer.Len() >= int(p.bufferLimit) {
-		p.errorBuffer.Reset()
-		p.errorBuffer.WriteString(fmt.Sprintf("[Output truncated due to size limit %d]\n", p.bufferLimit))
-	}
+	buffer.WriteString(newContent)
 }
 
 func (p *program) Send(data []byte) error {
@@ -587,6 +589,11 @@ func New(name, command string, opts ...Option) Program {
 
 	for _, opt := range opts {
 		opt(p)
+	}
+
+	if p.bufferLimit > 0 {
+		p.outputBuffer.Grow(p.bufferLimit)
+		p.errorBuffer.Grow(p.bufferLimit)
 	}
 
 	return p
