@@ -394,19 +394,6 @@ func TestClient_SendRequest(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "run program request",
-			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.RunProgram("test-program")
-				if err != nil {
-					t.Fatalf("RunProgram() unexpected error = %v", err)
-					return
-				}
-				if !resp.Success {
-					t.Fatalf("RunProgram() expected success=true, got success=%v, error=%s", resp.Success, resp.Error)
-				}
-			},
-		},
 	}
 
 	for _, tt := range tests {
@@ -656,16 +643,19 @@ func TestClient_RunProgram(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
+	t.Cleanup(func() {
+		cancel()
+	})
 
 	err = s.Start(ctx)
 	if err != nil {
 		t.Fatalf("Failed to start daemon: %v", err)
 	}
-	defer func() {
+
+	t.Cleanup(func() {
 		s.Stop()
 		os.RemoveAll(tmpDir)
-	}()
+	})
 
 	// Give programs time to start
 	time.Sleep(100 * time.Millisecond)
@@ -705,6 +695,7 @@ func TestClient_RunProgram(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			resp, err := client.RunProgram(tt.programName)
 			if err != nil {
 				t.Fatalf("RunProgram() client error: %v", err)
