@@ -112,6 +112,12 @@ func Logger(logger logger.Logger) Option {
 	}
 }
 
+func BufferSizeLimit(limit uint32) Option {
+	return func(p *program) {
+		p.bufferLimit = limit
+	}
+}
+
 type program struct {
 	cmd       *exec.Cmd
 	name      string
@@ -133,6 +139,7 @@ type program struct {
 	exitCode     int
 	outputBuffer strings.Builder
 	errorBuffer  strings.Builder
+	bufferLimit  uint32
 	lastError    string
 	lastLine     string
 
@@ -416,6 +423,7 @@ func (p *program) readOutput(reader io.Reader, isError bool) {
 			p.outputBuffer.WriteString(line + "\n")
 			p.lastLine = line
 		}
+		p.checkBufferSize()
 		p.dataLock.Unlock()
 	}
 
@@ -426,6 +434,22 @@ func (p *program) readOutput(reader io.Reader, isError bool) {
 			p.errorBuffer.WriteString("\n")
 			p.dataLock.Unlock()
 		}
+	}
+}
+
+// You must acaquire the dataLock before calling this method
+func (p *program) checkBufferSize() {
+	if p.bufferLimit == 0 {
+		return
+	}
+	if p.outputBuffer.Len() >= int(p.bufferLimit) {
+		p.outputBuffer.Reset()
+		p.outputBuffer.WriteString(fmt.Sprintf("[Output truncated due to size limit %d]\n", p.bufferLimit))
+	}
+
+	if p.errorBuffer.Len() >= int(p.bufferLimit) {
+		p.errorBuffer.Reset()
+		p.errorBuffer.WriteString(fmt.Sprintf("[Output truncated due to size limit %d]\n", p.bufferLimit))
 	}
 }
 
