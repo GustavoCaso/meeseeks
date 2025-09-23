@@ -53,6 +53,7 @@ func New(sockPath string, configPath string, logger *logger.Logger, timeout time
 	mux.HandleFunc("/reload", s.handleReload)
 	mux.HandleFunc("/logs", s.handleLogs)
 	mux.HandleFunc("/stop", s.handleStop)
+	mux.HandleFunc("/run-program", s.handleRunProgram)
 
 	s.server = &http.Server{
 		Handler:           mux,
@@ -281,6 +282,31 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 
 	s.meeseeks.Reload(context.Background(), programs, duration)
 	resp := Response{Success: true, Data: "meeseek configuration reloaded!"}
+	handleResponse(w, resp)
+}
+
+func (s *Server) handleRunProgram(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	programName := r.URL.Query().Get("program")
+	if programName == "" {
+		resp := Response{Success: false, Error: "program name required"}
+		handleResponse(w, resp)
+		return
+	}
+
+	err := s.meeseeks.Run(programName)
+
+	if err != nil {
+		resp := Response{
+			Success: false,
+			Error:   fmt.Sprintf("error executing program '%s'. %s", programName, err.Error()),
+		}
+		handleResponse(w, resp)
+		return
+	}
+
+	resp := Response{Success: true}
 	handleResponse(w, resp)
 }
 

@@ -28,6 +28,8 @@ func main() {
 		cmdErr = statusCommand(args, logger)
 	case "logs":
 		cmdErr = logsCommand(args, logger)
+	case "run":
+		cmdErr = runCommand(args, logger)
 	case "stop":
 		cmdErr = stopCommand(args, logger)
 	case "exit":

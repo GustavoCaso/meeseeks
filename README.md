@@ -51,7 +51,7 @@ programs:
     interval: "30s"
 ```
 
-2. **Run in detached mode**:
+2. **Start in detached mode**:
 
 ```bash
 meeseeks start -d -config config.yaml
@@ -62,6 +62,12 @@ meeseeks start -d -config config.yaml
 ```bash
 meeseeks status
 meeseeks status web-server
+```
+
+5. **Run particular program**
+
+```bash
+meeseeks run health-check
 ```
 
 4. **View logs**:
