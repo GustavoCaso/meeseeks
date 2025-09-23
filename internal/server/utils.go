@@ -29,6 +29,8 @@ func createProgramFromConfig(pc config.ProgramConfig, logger *logger.Logger) pro
 		opts = append(opts, program.StderrFile(pc.Stderr))
 	}
 
+	opts = append(opts, program.BufferSizeLimit(pc.GetBufferSizeLimit()))
+
 	opts = append(opts, program.Logger(logger))
 
 	return program.New(pc.Name, pc.Command, opts...)
