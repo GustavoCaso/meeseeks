@@ -22,7 +22,7 @@ builds:
     binary: meeseeks
     ldflags:
       - "-s -w"
-      - -X main.Version={{.Version}}
+      - -X main.version={{.Version}}
 
 archives:
   - formats: [tar.gz]
