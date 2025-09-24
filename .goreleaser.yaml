@@ -21,6 +21,9 @@ builds:
     
     main: ./cmd/meeseeks
     binary: meeseeks
+    ldflags:
+      - "-s -w"
+      - -X main.Version={{.Version}}
 
 archives:
   - formats: [tar.gz]
