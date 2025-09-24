@@ -8,7 +8,7 @@ import (
 	"github.com/GustavoCaso/meeseeks/internal/logger"
 )
 
-// TODO
+// TODO.
 type linuxService struct {
 	logger *logger.Logger
 }
