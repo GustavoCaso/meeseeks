@@ -53,8 +53,14 @@ func logsCommand(args []string, _ *logger.Logger) error {
 		return err
 	}
 
-	output := response["output"].(string)
-	errOutput := response["error"].(string)
+	output, ok := response["output"].(string)
+	if !ok {
+		return errors.New("failed to extract output information")
+	}
+	errOutput, ok := response["error"].(string)
+	if !ok {
+		return errors.New("failed to extract error information")
+	}
 
 	if output != "" {
 		fmt.Fprintln(os.Stdout, "---------------------------- OUTPUT ------------------------------------")
