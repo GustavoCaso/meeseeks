@@ -23,7 +23,6 @@ type Program interface {
 	Start(ctx context.Context) (<-chan struct{}, error)
 	Send([]byte) error
 	CloseStdin() error
-	LastLine() string
 	Output() string
 	Error() string
 	State() ProcessState
@@ -140,8 +139,6 @@ type program struct {
 	outputBuffer strings.Builder
 	errorBuffer  strings.Builder
 	bufferLimit  int
-	lastError    string
-	lastLine     string
 
 	dataLock sync.RWMutex
 	cmdLock  sync.Mutex
@@ -275,6 +272,7 @@ func (p *program) setupCmd(ctx context.Context) (*exec.Cmd, error) {
 		if err != nil {
 			return nil, err
 		}
+		p.finalizers = append(p.finalizers, file.Close)
 		return file, nil
 	}
 
@@ -283,7 +281,6 @@ func (p *program) setupCmd(ctx context.Context) (*exec.Cmd, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to open stdout file %s: %w", p.stdoutFile, err)
 		}
-		p.finalizers = append(p.finalizers, file.Close)
 		outputWriters = append(outputWriters, file)
 	}
 
@@ -292,7 +289,6 @@ func (p *program) setupCmd(ctx context.Context) (*exec.Cmd, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to open stderr file %s: %w", p.stderrFile, err)
 		}
-		p.finalizers = append(p.finalizers, file.Close)
 		stderrWriters = append(stderrWriters, file)
 	}
 
@@ -315,7 +311,6 @@ func (p *program) run() error {
 	if err != nil {
 		p.dataLock.Lock()
 		p.writeOutput(&p.errorBuffer, err.Error())
-		p.lastError = err.Error()
 
 		p.state = StateError
 		p.dataLock.Unlock()
@@ -398,7 +393,6 @@ func (p *program) monitorProcess() {
 			p.state = StateError
 		}
 		p.writeOutput(&p.errorBuffer, err.Error())
-		p.lastError = err.Error()
 	} else {
 		p.state = StateFinished
 	}
@@ -415,10 +409,8 @@ func (p *program) readOutput(reader io.Reader, isError bool) {
 		p.dataLock.Lock()
 		if isError {
 			p.writeOutput(&p.errorBuffer, line)
-			p.lastError = line
 		} else {
 			p.writeOutput(&p.outputBuffer, line)
-			p.lastLine = line
 		}
 		p.dataLock.Unlock()
 	}
@@ -450,6 +442,9 @@ func (p *program) writeOutput(buffer *strings.Builder, s string) {
 	if currentSize+spaceNeeded > threshold {
 		buffer.Reset()
 		fmt.Fprintf(buffer, "[%s] truncated due to buffer limit: %d bytes\n", time.Now(), p.bufferLimit)
+		if p.logger != nil {
+			p.logger.Info("buffer truncated", "program", p.name)
+		}
 	}
 
 	buffer.WriteString(newContent)
@@ -503,13 +498,6 @@ func (p *program) Output() string {
 	defer p.dataLock.RUnlock()
 
 	return p.outputBuffer.String()
-}
-
-func (p *program) LastLine() string {
-	p.dataLock.RLock()
-	defer p.dataLock.RUnlock()
-
-	return p.lastLine
 }
 
 func (p *program) Error() string {

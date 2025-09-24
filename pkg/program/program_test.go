@@ -251,33 +251,6 @@ func TestAsync(t *testing.T) {
 			t.Fatalf("Expected custom stderr to contain message, got: %q", stderrBuf.String())
 		}
 	})
-
-	t.Run("lastLine tracking", func(t *testing.T) {
-		t.Parallel()
-		p := New(
-			"lastline-test",
-			"bash",
-			Args("-c", "echo 'line 1'; sleep 0.1; echo 'line 2'; sleep 0.1; echo 'final line'"),
-			Async(),
-		)
-
-		done, err := p.Start(t.Context())
-		if err != nil {
-			t.Fatalf("Failed to start program: %v", err)
-		}
-
-		select {
-		case <-done:
-			// Process completed
-		case <-time.After(5 * time.Second):
-			t.Fatal("Process failed to complete within timeout")
-		}
-
-		lastLine := p.LastLine()
-		if lastLine != "final line" {
-			t.Fatalf("Expected lastLine to be 'final line', got: %q", lastLine)
-		}
-	})
 }
 
 func TestEdgeCases(t *testing.T) {
@@ -350,7 +323,6 @@ func TestEdgeCases(t *testing.T) {
 				for range 5 {
 					_ = p.Output()
 					_ = p.Error()
-					_ = p.LastLine()
 					time.Sleep(30 * time.Millisecond)
 				}
 			}()

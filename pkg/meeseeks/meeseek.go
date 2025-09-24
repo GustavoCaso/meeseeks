@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -76,16 +75,15 @@ type Meeseek interface {
 
 // Statistics tracks individual program execution statistics.
 type Statistics struct {
-	ProgramName      string `json:"program_name"`
-	State            string `json:"state"`
-	Successful       int    `json:"successful_runs"`
-	Failed           int    `json:"failed_runs"`
-	TotalOutputLines int    `json:"total_output_lines"`
-	LastError        string `json:"last_error"`
-	LastOutput       string `json:"last_output"`
-	Interval         string `json:"interval,omitempty"`
-	LastRunAt        string `json:"last_run_at"`
-	NextRunAt        string `json:"next_run,omitempty"`
+	ProgramName string `json:"program_name"`
+	State       string `json:"state"`
+	Successful  int    `json:"successful_runs"`
+	Failed      int    `json:"failed_runs"`
+	Output      string `json:"output"`
+	Error       string `json:"error"`
+	Interval    string `json:"interval,omitempty"`
+	LastRunAt   string `json:"last_run_at"`
+	NextRunAt   string `json:"next_run,omitempty"`
 }
 
 type executionTrack struct {
@@ -500,29 +498,8 @@ func (m *meeseek) collectProgramStatistics(prog Program, execRecord *executionTr
 		stats.NextRunAt = execRecord.lastRunAt.Add(*interval).Format(time.DateTime)
 	}
 
-	// Collect last output and error information
-	lastOutput := prog.LastLine()
-	lastError := ""
-	if progState == program.StateError {
-		lastError = strings.TrimSpace(prog.Error())
-		if len(lastError) > 200 { // Limit error message length for readability
-			lastError = lastError[:200] + "..."
-		}
-	}
-
-	// Update last output information
-	if lastOutput != "" {
-		stats.LastOutput = lastOutput
-	}
-	if lastError != "" {
-		stats.LastError = lastError
-	}
-
-	// Count output lines
-	output := prog.Output()
-	if output != "" {
-		stats.TotalOutputLines = strings.Count(output, "\n")
-	}
+	stats.Error = prog.Error()
+	stats.Output = prog.Output()
 
 	return stats
 }

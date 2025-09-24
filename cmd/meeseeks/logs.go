@@ -41,8 +41,37 @@ func logsCommand(args []string, _ *logger.Logger) error {
 		return fmt.Errorf("%s", resp.Error)
 	}
 
-	data, _ := json.MarshalIndent(resp.Data, "", "  ")
-	fmt.Fprintln(os.Stdout, string(data))
+	var response = map[string]any{}
+
+	jsonBytes, err := json.Marshal(resp.Data)
+	if err != nil {
+		return err
+	}
+
+	err = json.Unmarshal(jsonBytes, &response)
+	if err != nil {
+		return err
+	}
+
+	output, ok := response["output"].(string)
+	if !ok {
+		return errors.New("failed to extract output information")
+	}
+	errOutput, ok := response["error"].(string)
+	if !ok {
+		return errors.New("failed to extract error information")
+	}
+
+	if output != "" {
+		fmt.Fprintln(os.Stdout, "---------------------------- OUTPUT ------------------------------------")
+		fmt.Fprintln(os.Stdout, output)
+	}
+
+	if errOutput != "" {
+		fmt.Fprintln(os.Stdout)
+		fmt.Fprintln(os.Stdout, "---------------------------- ERROR ------------------------------------")
+		fmt.Fprintln(os.Stdout, errOutput)
+	}
 
 	return nil
 }
