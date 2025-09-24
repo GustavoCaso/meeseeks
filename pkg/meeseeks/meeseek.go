@@ -1,3 +1,6 @@
+// Package meeseeks provides a process manager that orchestrates multiple programs.
+// It supports both one-time execution and interval-based scheduling with comprehensive
+// monitoring, statistics, and management capabilities.
 package meeseeks
 
 import (
@@ -15,6 +18,8 @@ import (
 
 const intervalCheckDuration = 1 * time.Second
 
+// Program extends the program.Program interface with interval scheduling capabilities.
+// It represents a program that can be managed by Meeseeks with optional interval-based execution.
 type Program interface {
 	program.Program
 	Interval() *time.Duration
@@ -26,6 +31,8 @@ type meeseekProgram struct {
 	interval *time.Duration
 }
 
+// Interval returns the execution interval for this program.
+// Returns nil for one-time programs or a duration pointer for scheduled programs.
 func (m *meeseekProgram) Interval() *time.Duration {
 	return m.interval
 }
@@ -53,6 +60,9 @@ func (m *meeseekProgram) Equal(other Program) bool {
 	return *m.interval == *otherInterval
 }
 
+// NewProgram creates a new Program instance that wraps a program.Program with optional interval scheduling.
+// If interval is nil, the program will execute once. If interval is provided, the program will execute
+// repeatedly at the specified interval.
 func NewProgram(prog program.Program, interval *time.Duration) Program {
 	return &meeseekProgram{
 		Program:  prog,
@@ -60,16 +70,43 @@ func NewProgram(prog program.Program, interval *time.Duration) Program {
 	}
 }
 
+// Meeseek defines the interface for managing multiple programs with scheduling capabilities.
+// It provides methods for adding programs, controlling execution, monitoring statistics,
+// and managing the lifecycle of all managed programs.
 type Meeseek interface {
+	// AddProgram adds a new program to the meeseeks manager.
+	// Returns an error if a program with the same name already exists.
 	AddProgram(Program) error
+	// Programs returns a sorted list of all managed program names with their command details.
 	Programs() []string
+	// Reload performs a hot reload of the meeseeks configuration with new programs.
+	//
+	// This method prioritizes data integrity over operational availability by holding an exclusive
+	// lock for the entire reload duration. This means ALL other operations (Statistics, Status,
+	// AddProgram, etc.) are blocked until reload completes.
+	//
+	// If an error happens while shutdown of previous programs we log the error but continue the reload process.
 	Reload(context.Context, []Program, time.Duration)
+	// Start begins execution of all managed programs according to their configuration.
+	// One-time programs start immediately, while interval programs start their scheduling.
 	Start(ctx context.Context)
+	// Stop gracefully stops a specific program with the given timeout.
+	// Returns an error if the program is not found or cannot be stopped gracefully.
 	Stop(programName string, timeout time.Duration) error
+	// Run executes a specific program immediately, regardless of its scheduling configuration.
+	// Returns an error if the program is not found or is already running.
 	Run(programName string) error
+	// Wait blocks until all programs have finished execution or the context is cancelled.
+	// Returns an error if the context is cancelled before completion.
 	Wait(ctx context.Context) error
+	// Statistic returns detailed execution statistics for a specific program.
+	// Returns an error if the program is not found.
 	Statistic(program string) (Statistics, error)
+	// Statistics returns execution statistics for all managed programs.
+	// The map is keyed by program name.
 	Statistics() map[string]Statistics
+	// Shutdown gracefully stops all managed programs with the specified timeout.
+	// Returns any errors encountered during the shutdown process.
 	Shutdown(timeout time.Duration) error
 }
 
@@ -148,13 +185,6 @@ func (m *meeseek) Programs() []string {
 	return programs
 }
 
-// Reload performs a hot reload of the meeseeks configuration with new programs.
-//
-// This method prioritizes data integrity over operational availability by holding an exclusive
-// lock for the entire reload duration. This means ALL other operations (Statistics, Status,
-// AddProgram, etc.) are blocked until reload completes.
-//
-// If an error happens while shutdown of previous programs we log the error but continue the reload process.
 func (m *meeseek) Reload(ctx context.Context, programs []Program, deadline time.Duration) {
 	if len(programs) == 0 {
 		return
@@ -523,14 +553,19 @@ func (m *meeseek) trackProgramCompletion(programName string, success bool) {
 	execRecord.lastRunAt = time.Now()
 }
 
+// Option defines a function type for configuring meeseeks instances.
 type Option func(*meeseek)
 
+// Logger sets the logger instance for the meeseeks manager.
+// The logger will be used for all internal logging operations.
 func Logger(logger logger.Logger) Option {
 	return func(m *meeseek) {
 		m.logger = logger
 	}
 }
 
+// New creates a new Meeseek instance with the provided options.
+// The returned instance is ready to have programs added and can be started.
 func New(opts ...Option) Meeseek {
 	m := &meeseek{
 		wg:             &sync.WaitGroup{},

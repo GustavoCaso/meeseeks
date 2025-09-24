@@ -4,6 +4,10 @@
   <img src="./images/logo.png" alt="Meeseeks Logo" style="width:400; border-radius:20%; object-fit:cover">
 </div>
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/GustavoCaso/meeseeks)](https://goreportcard.com/report/github.com/GustavoCaso/meeseeks)
+[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/GustavoCaso/meeseeks)](https://golang.org/)
+
 A simple and lightweight process manager for Go applications. Meeseeks can be used both as a standalone CLI tool for managing processes and as a reusable Go package for embedding process management into your applications.
 
 ## Features
