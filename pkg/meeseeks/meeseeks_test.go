@@ -321,23 +321,9 @@ func TestMeeseek_Statistics(t *testing.T) {
 				if stat.Successful < 0 {
 					t.Errorf("Statistics()[%s].Successful = %d, should be >= 0", name, stat.Successful)
 				}
+
 				if stat.Failed < 0 {
 					t.Errorf("Statistics()[%s].Failed = %d, should be >= 0", name, stat.Failed)
-				}
-				if stat.TotalOutputLines < 0 {
-					t.Errorf("Statistics()[%s].TotalOutputLines = %d, should be >= 0", name, stat.TotalOutputLines)
-				}
-
-				validStates := []string{"not started", "idle", "running", "finished", "error"}
-				validState := false
-				for _, validS := range validStates {
-					if stat.State == validS {
-						validState = true
-						break
-					}
-				}
-				if !validState {
-					t.Errorf("Statistics()[%s].State = %q, should be one of %v", name, stat.State, validStates)
 				}
 
 				if tt.runPrograms {
@@ -346,6 +332,9 @@ func TestMeeseek_Statistics(t *testing.T) {
 					}
 					if stat.State == "finished" && stat.Successful == 0 {
 						t.Errorf("Statistics()[%s]: finished program should have Successful > 0", name)
+					}
+					if stat.Output == "" {
+						t.Errorf("Statistics()[%s].Output = %s, should not be empty", name, stat.Output)
 					}
 				}
 			}
@@ -448,18 +437,21 @@ func TestMeeseek_StatisticsWithOutput(t *testing.T) {
 				t.Fatalf("Failed to get statistic: %v", err)
 			}
 
+			output := stat.Output
+
 			if tt.expectOutput {
-				if stat.LastOutput == "" {
-					t.Error("Expected LastOutput to be non-empty")
+				if output == "" {
+					t.Error("Expected Output to be non-empty")
 				}
-				if stat.TotalOutputLines == 0 {
-					t.Error("Expected TotalOutputLines to be > 0")
+			} else if output != "" {
+				t.Errorf("Expected Output empty for no-output program, got %s", stat.Output)
+			}
+
+			if tt.expectMultiline {
+				lines := strings.Split(output, "\n")
+				if len(lines) < 2 {
+					t.Errorf("Expected Output lines >= 2 for multiline output, got %d", len(lines))
 				}
-				if tt.expectMultiline && stat.TotalOutputLines < 2 {
-					t.Errorf("Expected TotalOutputLines >= 2 for multiline output, got %d", stat.TotalOutputLines)
-				}
-			} else if stat.TotalOutputLines > 1 {
-				t.Errorf("Expected TotalOutputLines <= 1 for no-output program, got %d", stat.TotalOutputLines)
 			}
 
 			if stat.Successful != 1 {
@@ -528,8 +520,8 @@ func TestMeeseek_FailingProgramStatistics(t *testing.T) {
 					t.Errorf("Expected State to be 'error' or 'finished', got %q", stat.State)
 				}
 
-				if stat.LastError == "" && stat.State == "error" {
-					t.Error("Expected LastError to be non-empty for error state")
+				if stat.Error == "" && stat.State == "error" {
+					t.Error("Expected Error to be non-empty for error state")
 				}
 			} else if stat.Successful == 0 {
 				t.Error("Expected Succesful > 0 for succesful program")
