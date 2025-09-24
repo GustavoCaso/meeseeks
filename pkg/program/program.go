@@ -1,6 +1,5 @@
 // Package program provides individual process execution and management capabilities.
-// It offers comprehensive process lifecycle management, I/O handling, monitoring,
-// and statistics collection for external programs.
+// It offers comprehensive process lifecycle management, I/O handling, and monitoring.
 package program
 
 import (

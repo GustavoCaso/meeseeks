@@ -91,7 +91,7 @@ type Meeseek interface {
 	// One-time programs start immediately, while interval programs start their scheduling.
 	Start(ctx context.Context)
 	// Stop gracefully stops a specific program with the given timeout.
-	// Returns an error if the program is not found or cannot be stopped.
+	// Returns an error if the program is not found or cannot be stopped gracefully.
 	Stop(programName string, timeout time.Duration) error
 	// Run executes a specific program immediately, regardless of its scheduling configuration.
 	// Returns an error if the program is not found or is already running.
