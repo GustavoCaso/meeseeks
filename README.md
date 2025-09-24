@@ -1,7 +1,7 @@
 # Meeseeks
 
 <div align="center">
-  <img src="./images/logo.png" alt="Meeseeks Logo" style="width:400; border-radius:20%; object-fit:cover">
+  <img src="https://raw.githubusercontent.com/GustavoCaso/meeseeks/refs/heads/main/images/logo.png" alt="Meeseeks Logo" width="60%" height="auto">
 </div>
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/GustavoCaso/meeseeks)](https://goreportcard.com/report/github.com/GustavoCaso/meeseeks)
