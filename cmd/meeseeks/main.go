@@ -1,3 +1,20 @@
+/*
+Meeseks is a process manager that can execute programs once or on intervals,
+providing comprehensive monitoring, logging, and management capabilities.
+
+Usage: meeseeks <command> [options]
+
+Commands:
+
+	start          Start programs from config file
+	start-at-login Manage automatic startup at user login
+	status         Show status of running programs
+	run            Run a specific program
+	logs           Show logs for a specific program
+	stop           Stop a specific program
+	exit           Stop meeseeks process
+	version        Show version information
+*/
 package main
 
 import (
@@ -55,12 +72,13 @@ func main() {
 func printUsage() {
 	fmt.Fprintf(os.Stderr, "Usage: meeseeks <command> [options]\n\n")
 	fmt.Fprintf(os.Stderr, "Commands:\n")
-	fmt.Fprintf(os.Stderr, "  run           Start programs from config file\n")
-	fmt.Fprintf(os.Stderr, "  status        Show status of running programs\n")
-	fmt.Fprintf(os.Stderr, "  logs          Show logs for a specific program\n")
-	fmt.Fprintf(os.Stderr, "  stop          Stop running programs\n")
-	fmt.Fprintf(os.Stderr, "  run-at-login  Manage automatic startup at user login\n")
-	fmt.Fprintf(os.Stderr, "  exit          Stop meeseeks program\n")
-	fmt.Fprintf(os.Stderr, "  version       Show version information\n")
+	fmt.Fprintf(os.Stderr, "  start          Start programs from config file\n")
+	fmt.Fprintf(os.Stderr, "  start-at-login Manage automatic startup at user login\n")
+	fmt.Fprintf(os.Stderr, "  status         Show status of running programs\n")
+	fmt.Fprintf(os.Stderr, "  run            Run a specific program\n")
+	fmt.Fprintf(os.Stderr, "  logs           Show logs for a specific program\n")
+	fmt.Fprintf(os.Stderr, "  stop           Stop a specific program\n")
+	fmt.Fprintf(os.Stderr, "  exit           Stop meeseeks process\n")
+	fmt.Fprintf(os.Stderr, "  version        Show version information\n")
 	fmt.Fprintf(os.Stderr, "\nUse 'meeseeks <command> -h' for more information about a command.\n")
 }

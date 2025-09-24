@@ -1,3 +1,6 @@
+// Package program provides individual process execution and management capabilities.
+// It offers comprehensive process lifecycle management, I/O handling, monitoring,
+// and statistics collection for external programs.
 package program
 
 import (
@@ -17,29 +20,55 @@ import (
 	"github.com/GustavoCaso/meeseeks/pkg/logger"
 )
 
+// Program defines the interface for managing individual external processes.
+// It provides methods for execution, monitoring, I/O control, and lifecycle management
+// with support for both synchronous and asynchronous execution modes.
 type Program interface {
+	// Async returns true if the program runs asynchronously, false for synchronous execution.
 	Async() bool
+	// Name returns the human-readable name of this program.
 	Name() string
+	// Start begins program execution and returns a channel that closes when execution completes.
+	// Returns an error if the program cannot be started.
 	Start(ctx context.Context) (<-chan struct{}, error)
+	// Send writes data to the program's stdin. Requires KeepStdinOpen option.
+	// Returns an error if stdin is closed or the program is not running.
 	Send([]byte) error
+	// CloseStdin closes the program's stdin pipe. Requires KeepStdinOpen option.
+	// Returns an error if stdin is already closed or the program is not running.
 	CloseStdin() error
+	// Output returns all stdout content captured from the program.
 	Output() string
+	// Error returns all stderr content and error messages from the program.
 	Error() string
+	// State returns the current execution state of the program.
 	State() ProcessState
+	// String returns a human-readable representation of the program including name and command.
 	String() string
+	// Shutdown gracefully terminates the program with SIGTERM, falling back to SIGKILL after timeout.
+	// Returns an error if the shutdown process fails.
 	Shutdown(timeout time.Duration) error
 }
 
+// ProcessState represents the current execution state of a program.
 type ProcessState int
 
+// Process state constants define the possible execution states.
 const (
+	// StateNotStarted indicates the program has not been started yet.
 	StateNotStarted ProcessState = iota
+	// StateRunning indicates the program is currently executing.
 	StateRunning
+	// StateFinished indicates the program completed successfully.
 	StateFinished
+	// StateError indicates the program failed with an error.
 	StateError
+	// StateCancelled indicates the program was terminated by a signal.
 	StateCancelled
 )
 
+// StateToString provides human-readable string representations of process states.
+//
 //nolint:gochecknoglobals // This gloabls is convinient
 var StateToString = map[ProcessState]string{
 	StateNotStarted: "not started",
@@ -49,68 +78,92 @@ var StateToString = map[ProcessState]string{
 	StateCancelled:  "cancelled",
 }
 
+// Option defines a function type for configuring program instances.
 type Option func(*program)
 
+// StdoutFile redirects program stdout to the specified file path.
+// The file will be created if it doesn't exist, with output appended.
 func StdoutFile(file string) Option {
 	return func(p *program) {
 		p.stdoutFile = file
 	}
 }
 
+// StderrFile redirects program stderr to the specified file path.
+// The file will be created if it doesn't exist, with output appended.
 func StderrFile(file string) Option {
 	return func(p *program) {
 		p.stderrFile = file
 	}
 }
 
+// Stdout redirects program stdout to the provided io.Writer.
+// Output will be written to both the internal buffer and the provided writer.
 func Stdout(o io.Writer) Option {
 	return func(p *program) {
 		p.customStdout = o
 	}
 }
 
+// Stderr redirects program stderr to the provided io.Writer.
+// Output will be written to both the internal buffer and the provided writer.
 func Stderr(o io.Writer) Option {
 	return func(p *program) {
 		p.customStderr = o
 	}
 }
 
+// Stdin provides input to the program from the specified io.Reader.
+// Input will be available to the program's stdin in addition to any data sent via Send().
 func Stdin(o io.Reader) Option {
 	return func(p *program) {
 		p.customStdin = o
 	}
 }
 
+// Args sets the command-line arguments for the program.
+// These arguments will be passed to the program when it starts.
 func Args(args ...string) Option {
 	return func(p *program) {
 		p.arguments = args
 	}
 }
 
+// Envs sets additional environment variables for the program.
+// These are added to the current environment and should be in KEY=VALUE format.
 func Envs(envs ...string) Option {
 	return func(p *program) {
 		p.customEnv = envs
 	}
 }
 
+// KeepStdinOpen keeps the program's stdin pipe open for sending data.
+// Required if you plan to use Send() or CloseStdin() methods.
 func KeepStdinOpen() Option {
 	return func(p *program) {
 		p.keepStdinOpen = true
 	}
 }
 
+// Async configures the program to run asynchronously.
+// When async, Start() returns immediately without waiting for completion.
 func Async() Option {
 	return func(p *program) {
 		p.async = true
 	}
 }
 
+// Logger sets the logger instance for the program.
+// The logger will be used for internal logging operations and error reporting.
 func Logger(logger logger.Logger) Option {
 	return func(p *program) {
 		p.logger = logger
 	}
 }
 
+// BufferSizeLimit sets the maximum size in bytes for stdout/stderr buffers.
+// When the limit is reached, buffers are truncated to prevent memory issues.
+// A limit of 0 means no limit (buffers can grow indefinitely).
 func BufferSizeLimit(limit int) Option {
 	return func(p *program) {
 		p.bufferLimit = limit
@@ -568,6 +621,7 @@ func (p *program) forcekill() error {
 	return nil
 }
 
+// New creates a new Program instance with the provided options.
 func New(name, command string, opts ...Option) Program {
 	p := &program{
 		name:       name,
