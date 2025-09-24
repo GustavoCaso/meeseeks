@@ -70,8 +70,8 @@ func TestMainCommands(t *testing.T) {
 					t.Fatalf("Expected exit code %d, got %d", 0, exitCode)
 				}
 
-				if !strings.Contains(output, "meeseeks version 1.0.0") {
-					t.Fatalf("Expected output to contain %q, got %q", "meeseeks version 1.0.0", output)
+				if !strings.Contains(output, "meeseeks version development") {
+					t.Fatalf("Expected output to contain %q, got %q", "meeseeks version development", output)
 				}
 			},
 		},

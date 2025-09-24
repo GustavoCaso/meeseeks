@@ -24,6 +24,8 @@ import (
 	"github.com/GustavoCaso/meeseeks/internal/logger"
 )
 
+var version = "development"
+
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
@@ -54,7 +56,7 @@ func main() {
 	case "reload":
 		cmdErr = reloadCommand(args, logger)
 	case "version":
-		fmt.Fprintln(os.Stdout, "meeseeks version 1.0.0")
+		fmt.Fprintf(os.Stdout, "meeseeks version %s\n", version)
 	case "-h", "--help":
 		printUsage()
 	default:
