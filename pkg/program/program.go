@@ -442,6 +442,9 @@ func (p *program) writeOutput(buffer *strings.Builder, s string) {
 	if currentSize+spaceNeeded > threshold {
 		buffer.Reset()
 		fmt.Fprintf(buffer, "[%s] truncated due to buffer limit: %d bytes\n", time.Now(), p.bufferLimit)
+		if p.logger != nil {
+			p.logger.Info("buffer truncated", "program", p.name)
+		}
 	}
 
 	buffer.WriteString(newContent)
