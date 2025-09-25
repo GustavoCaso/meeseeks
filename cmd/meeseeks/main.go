@@ -12,8 +12,11 @@ Commands:
 	run            Run a specific program
 	logs           Show logs for a specific program
 	stop           Stop a specific program
+	reload         Reload configuration
 	exit           Stop meeseeks process
 	version        Show version information
+
+Use 'meeseeks <command> -h' for more information about a command.
 */
 package main
 
@@ -80,6 +83,7 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "  run            Run a specific program\n")
 	fmt.Fprintf(os.Stderr, "  logs           Show logs for a specific program\n")
 	fmt.Fprintf(os.Stderr, "  stop           Stop a specific program\n")
+	fmt.Fprintf(os.Stderr, "  reload         Reload configuration\n")
 	fmt.Fprintf(os.Stderr, "  exit           Stop meeseeks process\n")
 	fmt.Fprintf(os.Stderr, "  version        Show version information\n")
 	fmt.Fprintf(os.Stderr, "\nUse 'meeseeks <command> -h' for more information about a command.\n")

@@ -32,6 +32,7 @@ func TestMainCommands(t *testing.T) {
 					"run            Run a specific program",
 					"logs           Show logs for a specific program",
 					"stop           Stop a specific program",
+					"reload         Reload configuration",
 					"exit           Stop meeseeks process",
 					"version        Show version information",
 				}
