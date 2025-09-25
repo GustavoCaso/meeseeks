@@ -27,6 +27,8 @@ A simple and lightweight process manager for Go applications. Meeseeks can be us
 
 ### As a CLI Tool
 
+Grab a binary from [releases](https://github.com/GustavoCaso/meeseeks/releases) or:
+
 ```bash
 go install github.com/GustavoCaso/meeseeks/cmd/meeseeks@latest
 ```
