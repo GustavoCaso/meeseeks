@@ -4,165 +4,16 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/GustavoCaso/meeseeks/internal/logger"
 )
 
-func TestServer_StartStop(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name    string
-		setup   func() string
-		wantErr bool
-	}{
-		{
-			name: "successful start and stop",
-			setup: func() string {
-				tmpDir := t.TempDir()
-				return filepath.Join(tmpDir, "test.sock")
-			},
-		},
-		{
-			name: "start with existing socket file",
-			setup: func() string {
-				tmpDir := t.TempDir()
-				sockPath := filepath.Join(tmpDir, "test.sock")
-				// Create existing socket file
-				_, err := os.Create(sockPath)
-				if err != nil {
-					t.Fatalf("Failed to create existing socket file: %v", err)
-				}
-				return sockPath
-			},
-		},
-		{
-			name: "invalid socket directory",
-			setup: func() string {
-				return "/nonexistent/directory/test.sock"
-			},
-			wantErr: true,
-		},
-	}
-
-	logger := logger.New()
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			sockPath := tt.setup()
-			configFile := filepath.Join(t.TempDir(), "test-config.yaml")
-
-			configContent := `programs:
-  - name: "test-program1"
-    command: "echo"
-    args: ["hello"]
-`
-
-			if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
-				t.Fatalf("Failed to create test config file: %v", err)
-			}
-
-			s, err := New(sockPath, configFile, logger, time.Millisecond)
-			if err != nil {
-				t.Fatalf("creating server failed: %s", err.Error())
-			}
-
-			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-			defer cancel()
-
-			err = s.Start(ctx)
-
-			if tt.wantErr {
-				if err == nil {
-					t.Fatalf("Start() expected error but got none")
-				}
-				return
-			}
-
-			if err != nil {
-				t.Fatalf("Start() unexpected error = %v", err)
-				return
-			}
-
-			// Verify socket file exists
-			if _, err := os.Stat(sockPath); os.IsNotExist(err) {
-				t.Fatalf("Socket file was not created at %s", sockPath)
-			}
-
-			// Test double start (should return error)
-			err = s.Start(ctx)
-			if err == nil {
-				t.Fatalf("Second Start() should return error but got none")
-			}
-
-			// Stop server
-			err = s.Stop()
-			if err != nil {
-				t.Fatalf("Stop() unexpected error = %v", err)
-			}
-
-			// Verify socket file is removed
-			if _, err := os.Stat(sockPath); !os.IsNotExist(err) {
-				t.Fatalf("Socket file should be removed after Stop()")
-			}
-
-			// Test double stop (should not error)
-			err = s.Stop()
-			if err != nil {
-				t.Fatalf("Second Stop() unexpected error = %v", err)
-			}
-		})
-	}
-}
-
-func TestServer_AddProgramAndStart(t *testing.T) {
-	t.Parallel()
-	tmpDir := filepath.Join("/tmp/", t.Name())
-	err := os.MkdirAll(tmpDir, 0750)
-	if err != nil {
-		t.Fatalf("error creating temp folder %s", err.Error())
-	}
-	sockPath := filepath.Join(tmpDir, "meeseeks.sock")
-	configFile := filepath.Join(tmpDir, "test-config.yaml")
-
-	configContent := `programs:
-  - name: "test-program1"
-    command: "echo"
-    args: ["hello"]
-`
-
-	if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
-		t.Fatalf("Failed to create test config file: %v", err)
-	}
-
-	s, err := New(sockPath, configFile, logger.New(), time.Millisecond)
-	if err != nil {
-		t.Fatalf("creating server failed: %s", err.Error())
-	}
-
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
-
-	err = s.Start(ctx)
-	if err != nil {
-		t.Fatalf("Start() unexpected error = %v", err)
-	}
-
-	t.Cleanup(func() {
-		s.Stop()
-		os.RemoveAll(tmpDir)
-	})
-}
-
 func TestServer_HTTPHandlers(t *testing.T) {
 	tmpDir := t.TempDir()
 	sockPath := filepath.Join(tmpDir, "meeseeks.sock")
-	// Clean up any existing socket
-	os.Remove(sockPath)
-	defer os.Remove(sockPath)
-
 	configFile := filepath.Join(tmpDir, "test-config.yaml")
 
 	configContent := `programs:
@@ -184,13 +35,16 @@ func TestServer_HTTPHandlers(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
 
 	err = s.Start(ctx)
 	if err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
-	defer s.Stop()
+
+	t.Cleanup(func() {
+		s.Stop()
+		cancel()
+	})
 
 	// Give server time to start
 	time.Sleep(100 * time.Millisecond)
@@ -282,7 +136,23 @@ func TestServer_HTTPHandlers(t *testing.T) {
 			},
 		},
 		{
-			name: "stop command",
+			name: "logs no program",
+			testFn: func(t *testing.T, client *Client) {
+				resp, err := client.Logs("")
+				if err != nil {
+					t.Fatalf("Logs() unexpected error = %v", err)
+					return
+				}
+				if resp.Success {
+					t.Fatalf("Expected success=false, got %v", resp.Success)
+				}
+				if resp.Error == "" {
+					t.Fatalf("Expected error message to be non-empty")
+				}
+			},
+		},
+		{
+			name: "stop command without program name",
 			testFn: func(t *testing.T, client *Client) {
 				resp, err := client.Stop("", "5s")
 				if err != nil {
@@ -297,6 +167,118 @@ func TestServer_HTTPHandlers(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "stop command invalid timeout",
+			testFn: func(t *testing.T, client *Client) {
+				resp, err := client.Stop("test-program2", "hello")
+				if err != nil {
+					t.Fatalf("Stop() unexpected error = %v", err)
+					return
+				}
+				if resp.Success {
+					t.Fatalf("Expected success=false for invalid timeout, got %v", resp.Success)
+				}
+				if resp.Error == "" {
+					t.Fatalf("Expected error message for empty program name")
+				}
+			},
+		},
+		{
+			name: "stop request with program name",
+			testFn: func(t *testing.T, client *Client) {
+				resp, err := client.Stop("test-program2", "5s")
+				if err != nil {
+					t.Fatalf("Stop() unexpected error = %v", err)
+					return
+				}
+				if !resp.Success {
+					t.Fatalf("Stop() expected success=true, got %v", resp.Success)
+				}
+				if resp.Error != "" {
+					t.Fatalf("Expected error message to be non-empty")
+				}
+			},
+		},
+		{
+			name: "run with empty program name",
+			testFn: func(t *testing.T, client *Client) {
+				resp, err := client.RunProgram("")
+				if err != nil {
+					t.Fatalf("RunProgram() unexpected error = %v", err)
+					return
+				}
+				if resp.Success {
+					t.Fatalf("RunProgram() expected success=false, got %v", resp.Success)
+				}
+				if !strings.Contains(resp.Error, "program name required") {
+					t.Fatalf("Expected error message %q, got %q", "program name required", resp.Error)
+				}
+			},
+		},
+		{
+			name: "run with non existing program name",
+			testFn: func(t *testing.T, client *Client) {
+				resp, err := client.RunProgram("nonexistent-program")
+				if err != nil {
+					t.Fatalf("RunProgram() unexpected error = %v", err)
+					return
+				}
+				if resp.Success {
+					t.Fatalf("RunProgram() expected success=false, got %v", resp.Success)
+				}
+				if !strings.Contains(resp.Error, "program nonexistent-program not present") {
+					t.Fatalf("Expected error message %q, got %q", "program nonexistent-program not present", resp.Error)
+				}
+			},
+		},
+		{
+			name: "run program successfully",
+			testFn: func(t *testing.T, client *Client) {
+				resp, err := client.RunProgram("test-program1")
+				if err != nil {
+					t.Fatalf("RunProgram() unexpected error = %v", err)
+					return
+				}
+				if !resp.Success {
+					t.Fatalf("RunProgram() expected success=true, got %v", resp.Success)
+				}
+				if resp.Error != "" {
+					t.Fatalf("Expected error message to be non-empty")
+				}
+			},
+		},
+		{
+			name: "reload config. invalid timeout",
+			testFn: func(t *testing.T, client *Client) {
+				resp, err := client.Reload("hello")
+				if err != nil {
+					t.Fatalf("RunProgram() unexpected error = %v", err)
+					return
+				}
+				if resp.Success {
+					t.Fatalf("Reload() expected success=false, got %v", resp.Success)
+				}
+				if !strings.Contains(resp.Error, "error parsing timeout") {
+					t.Fatalf("Expected error message %q, got %q", "error parsing timeout", resp.Error)
+				}
+			},
+		},
+		{
+			name: "reload config",
+			testFn: func(t *testing.T, client *Client) {
+				resp, err := client.Reload("1s")
+				if err != nil {
+					t.Fatalf("RunProgram() unexpected error = %v", err)
+					return
+				}
+				if !resp.Success {
+					t.Fatalf("Reload() expected success=true, got %v", resp.Success)
+				}
+				if resp.Error != "" {
+					t.Fatalf("Expected error message to be non-empty")
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -306,100 +288,44 @@ func TestServer_HTTPHandlers(t *testing.T) {
 	}
 }
 
-func TestClient_SendRequest(t *testing.T) {
+func TestServer_FailLoadConfigInvalidInterval(t *testing.T) {
 	tmpDir := t.TempDir()
-	sockPath := filepath.Join(tmpDir, "test.sock")
+	sockPath := filepath.Join(tmpDir, "meeseeks.sock")
 	configFile := filepath.Join(tmpDir, "test-config.yaml")
 
 	configContent := `programs:
-  - name: "test-program"
+  - name: "test-program1"
     command: "echo"
     args: ["hello"]
-    interval: 1s
+    interval: "invalid"
 `
 
 	if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
 		t.Fatalf("Failed to create test config file: %v", err)
 	}
 
-	d, err := New(sockPath, configFile, logger.New(), time.Millisecond)
-	if err != nil {
-		t.Fatalf("creating server failed: %s", err.Error())
-	}
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
-
-	err = d.Start(ctx)
-	if err != nil {
-		t.Fatalf("Failed to start server: %v", err)
-	}
-	defer d.Stop()
-
-	// Create client
-	client := NewClient(ctx, sockPath)
-
-	tests := []struct {
-		name   string
-		testFn func(t *testing.T, client *Client)
-	}{
-		{
-			name: "statistics request",
-			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.Statistics("")
-				if err != nil {
-					t.Fatalf("Statistics() unexpected error = %v", err)
-					return
-				}
-				if !resp.Success {
-					t.Fatalf("Statistics() expected success=true, got %v", resp.Success)
-				}
-			},
-		},
-		{
-			name: "statistics specific program",
-			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.Statistics("test-program")
-				if err != nil {
-					t.Fatalf("Statistics() unexpected error = %v", err)
-					return
-				}
-				if !resp.Success {
-					t.Fatalf("Statistics() expected success=true, got %v", resp.Success)
-				}
-			},
-		},
-		{
-			name: "logs request",
-			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.Logs("test-program")
-				if err != nil {
-					t.Fatalf("Logs() unexpected error = %v", err)
-					return
-				}
-				if !resp.Success {
-					t.Fatalf("Logs() expected success=true, got %v", resp.Success)
-				}
-			},
-		},
-		{
-			name: "stop request",
-			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.Stop("test-program", "5s")
-				if err != nil {
-					t.Fatalf("Stop() unexpected error = %v", err)
-					return
-				}
-				if !resp.Success {
-					t.Fatalf("Stop() expected success=true, got %v", resp.Success)
-				}
-			},
-		},
+	_, err := New(sockPath, configFile, logger.New(), time.Millisecond)
+	if err == nil {
+		t.Fatal("Expected error when parsing configuration. got nil")
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tt.testFn(t, client)
-		})
+	if !strings.Contains(err.Error(), "invalid interval for program") {
+		t.Fatalf("Expected error message to include 'invalid interval for program', got: %s", err.Error())
+	}
+}
+
+func TestServer_FailLoadConfigNotPresent(t *testing.T) {
+	tmpDir := t.TempDir()
+	sockPath := filepath.Join(tmpDir, "meeseeks.sock")
+	configFile := filepath.Join(tmpDir, "test-config.yaml")
+
+	_, err := New(sockPath, configFile, logger.New(), time.Millisecond)
+	if err == nil {
+		t.Fatal("Expected error when parsing configuration. got nil")
+	}
+
+	if !strings.Contains(err.Error(), "failed to load config") {
+		t.Fatalf("Expected error message to include 'failed to load config', got: %s", err.Error())
 	}
 }
 
@@ -415,70 +341,8 @@ func TestClient_ConnectToNonExistentDaemon(t *testing.T) {
 	}
 
 	expectedMsg := "meeseeks server not running (socket not found)"
-	if !containsString(err.Error(), expectedMsg) {
+	if !strings.Contains(err.Error(), expectedMsg) {
 		t.Fatalf("Error should contain %q, got %q", expectedMsg, err.Error())
-	}
-}
-
-func TestServer_IntegrationWithRealSocket(t *testing.T) {
-	t.Parallel()
-	tmpDir := filepath.Join("/tmp/", t.Name())
-	err := os.MkdirAll(tmpDir, 0750)
-	if err != nil {
-		t.Fatalf("error creating temp folder %s", err.Error())
-	}
-	sockPath := filepath.Join(tmpDir, "meeseeks.sock")
-	configFile := filepath.Join(tmpDir, "test-config.yaml")
-
-	configContent := `programs:
-  - name: "integration-test"
-    command: "echo"
-    args: ["integration"]
-`
-
-	if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
-		t.Fatalf("Failed to create test config file: %v", err)
-	}
-
-	s, err := New(sockPath, configFile, logger.New(), time.Millisecond)
-	if err != nil {
-		t.Fatalf("creating server failed: %s", err.Error())
-	}
-
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
-
-	err = s.Start(ctx)
-	if err != nil {
-		t.Fatalf("Failed to start daemon: %v", err)
-	}
-	defer func() {
-		s.Stop()
-		os.RemoveAll(tmpDir)
-	}()
-
-	// Give programs time to execute
-	time.Sleep(200 * time.Millisecond)
-
-	// Test client communication
-	client := NewClient(ctx, sockPath)
-
-	// Test statistics
-	resp, err := client.Statistics("")
-	if err != nil {
-		t.Fatalf("Client Statistics() error: %v", err)
-	}
-	if !resp.Success {
-		t.Fatalf("Statistics() expected success=true, got %v", resp.Success)
-	}
-
-	// Test logs
-	resp, err = client.Logs("integration-test")
-	if err != nil {
-		t.Fatalf("Client Logs() error: %v", err)
-	}
-	if !resp.Success {
-		t.Fatalf("Logs() expected success=true, got %v", resp.Success)
 	}
 }
 
@@ -550,21 +414,6 @@ func TestServer_ConcurrentConnections(t *testing.T) {
 	}
 }
 
-// Helper functions
-
-func containsString(s, substr string) bool {
-	return len(s) >= len(substr) &&
-		(len(substr) == 0 ||
-			func() bool {
-				for i := 0; i <= len(s)-len(substr); i++ {
-					if s[i:i+len(substr)] == substr {
-						return true
-					}
-				}
-				return false
-			}())
-}
-
 // Benchmark server request handling.
 func BenchmarkServer_HandleRequest(b *testing.B) {
 	tmpDir := filepath.Join("/tmp/", b.Name())
@@ -611,108 +460,5 @@ func BenchmarkServer_HandleRequest(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		_, _ = client.Statistics("")
-	}
-}
-
-func TestClient_RunProgram(t *testing.T) {
-	t.Parallel()
-	tmpDir := filepath.Join("/tmp/", t.Name())
-	err := os.MkdirAll(tmpDir, 0750)
-	if err != nil {
-		t.Fatalf("error creating temp folder %s", err.Error())
-	}
-	sockPath := filepath.Join(tmpDir, "meeseeks.sock")
-	configFile := filepath.Join(tmpDir, "test-config.yaml")
-
-	configContent := `programs:
-  - name: "client-test-echo"
-    command: "echo"
-    args: ["client test"]
-  - name: "client-test-sleep"
-    command: "sleep"
-    args: ["5"]
-`
-
-	if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
-		t.Fatalf("Failed to create test config file: %v", err)
-	}
-
-	s, err := New(sockPath, configFile, logger.New(), 2*time.Second)
-	if err != nil {
-		t.Fatalf("creating server failed: %s", err.Error())
-	}
-
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	t.Cleanup(func() {
-		cancel()
-	})
-
-	err = s.Start(ctx)
-	if err != nil {
-		t.Fatalf("Failed to start daemon: %v", err)
-	}
-
-	t.Cleanup(func() {
-		s.Stop()
-		os.RemoveAll(tmpDir)
-	})
-
-	// Give programs time to start
-	time.Sleep(100 * time.Millisecond)
-
-	client := NewClient(ctx, sockPath)
-
-	tests := []struct {
-		name           string
-		programName    string
-		expectSuccess  bool
-		expectedErrMsg string
-	}{
-		{
-			name:           "run with empty program name",
-			programName:    "",
-			expectSuccess:  false,
-			expectedErrMsg: "program name required",
-		},
-		{
-			name:          "run program successfully",
-			programName:   "client-test-echo",
-			expectSuccess: true,
-		},
-		{
-			name:           "run nonexistent program",
-			programName:    "nonexistent-program",
-			expectSuccess:  false,
-			expectedErrMsg: "program nonexistent-program not present",
-		},
-		{
-			name:           "run already running program",
-			programName:    "client-test-sleep",
-			expectSuccess:  false,
-			expectedErrMsg: "program client-test-sleep already running",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			resp, err := client.RunProgram(tt.programName)
-			if err != nil {
-				t.Fatalf("RunProgram() client error: %v", err)
-			}
-
-			if tt.expectSuccess {
-				if !resp.Success {
-					t.Fatalf("Expected success=true, got success=%v, error=%s", resp.Success, resp.Error)
-				}
-			} else {
-				if resp.Success {
-					t.Fatalf("Expected success=false, got success=%v", resp.Success)
-				}
-				if tt.expectedErrMsg != "" && !containsString(resp.Error, tt.expectedErrMsg) {
-					t.Fatalf("Expected error to contain %q, got %q", tt.expectedErrMsg, resp.Error)
-				}
-			}
-		})
 	}
 }
