@@ -431,6 +431,8 @@ linters:
           - noctx
           - wrapcheck
           - gocognit
+          - gocyclo
+          - cyclop
       - path: 'pkg/meeseeks/meeseek.go'
         linters:
           - errname
