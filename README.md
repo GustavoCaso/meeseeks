@@ -121,7 +121,7 @@ When `MEESEEKS_CONFIG_DIR` is set, all meeseeks files are placed in this directo
 - `meeseeks.pid` - PID file for process tracking
 - `meeseeks.log` - Daemon internal log file
 
-1. **Create a configuration file** (`${MEESEEKS_CONFIG_DIR}/config.yaml`):
+**Create a configuration file** (`${MEESEEKS_CONFIG_DIR}/config.yaml`):
 
 ```yaml
 programs:
@@ -135,51 +135,51 @@ programs:
     interval: "30s"
 ```
 
-2. **Start in detached mode**:
+**Start in detached mode**:
 
 ```bash
 meeseeks start -d -config config.yaml
 ```
 
-3. **Check status**:
+**Check status**:
 
 ```bash
 meeseeks status
 meeseeks status web-server
 ```
 
-5. **Run particular program**
+**Run particular program**
 
 ```bash
 meeseeks run health-check
 ```
 
-4. **View logs**:
+**View logs**:
 
 ```bash
 meeseeks logs web-server
 ```
 
-5. **Stop processes**:
+**Stop processes**:
 
 ```bash
 meeseeks stop web-server  # Stop specific program
 meeseeks stop             # Stop all programs
 ```
 
-6. **Stop meseesks process**:
+**Stop meseesks process**:
 
 ```bash
 meeseeks exit # Stop meeseeks process
 ```
 
-7. **Reload configuration changes**
+**Reload configuration changes**
 
 ```bash
 meeseeks reload
 ```
 
-8. **Configure auto-start at login**:
+**Configure auto-start at login**:
 
 ```bash
 meeseeks start-at-login enable
