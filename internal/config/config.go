@@ -21,13 +21,13 @@ type Config struct {
 type ProgramConfig struct {
 	Name            string   `yaml:"name"                        json:"name"`
 	Command         string   `yaml:"command"                     json:"command"`
-	Args            []string `yaml:"args,omitempty"              json:"args,omitempty"`
-	Env             []string `yaml:"env,omitempty"               json:"env,omitempty"`
 	Interval        string   `yaml:"interval,omitempty"          json:"interval,omitempty"`
-	KeepStdinOpen   bool     `yaml:"keep_stdin_open,omitempty"   json:"keep_stdin_open,omitempty"`
 	Stdout          string   `yaml:"stdout,omitempty"            json:"stdout,omitempty"`
 	Stderr          string   `yaml:"stderr,omitempty"            json:"stderr,omitempty"`
 	BufferSizeLimit string   `yaml:"buffer_size_limit,omitempty" json:"buffer_size_limit,omitempty"`
+	Args            []string `yaml:"args,omitempty"              json:"args,omitempty"`
+	Env             []string `yaml:"env,omitempty"               json:"env,omitempty"`
+	KeepStdinOpen   bool     `yaml:"keep_stdin_open,omitempty"   json:"keep_stdin_open,omitempty"`
 }
 
 func (pc *ProgramConfig) GetInterval() (time.Duration, error) {

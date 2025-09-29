@@ -40,17 +40,10 @@ type ServiceConfig struct {
 
 // ServiceStatus represents the current state of a login service.
 type ServiceStatus struct {
-	// Enabled indicates if the service is configured to start at login
-	Enabled bool
-
-	// Running indicates if the service is currently running
-	Running bool
-
-	// LastRun is the timestamp of the last time the service was started
 	LastRun time.Time
-
-	// Error contains any error message if the service is in an error state
-	Error string
+	Error   string
+	Enabled bool
+	Running bool
 }
 
 // GetService returns the appropriate Service implementation

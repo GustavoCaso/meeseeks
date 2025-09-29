@@ -20,18 +20,18 @@ import (
 type Server struct {
 	meeseeks   meeseeks.Meeseek
 	server     *http.Server
+	logger     *logger.Logger
 	sockPath   string
 	configPath string
+	timeout    time.Duration
 	mu         sync.RWMutex
 	running    bool
-	logger     *logger.Logger
-	timeout    time.Duration
 }
 
 type Response struct {
-	Success bool        `json:"success"`
 	Data    interface{} `json:"data,omitempty"`
 	Error   string      `json:"error,omitempty"`
+	Success bool        `json:"success"`
 }
 
 func New(sockPath string, configPath string, logger *logger.Logger, timeout time.Duration) (*Server, error) {

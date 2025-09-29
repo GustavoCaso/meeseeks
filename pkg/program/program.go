@@ -170,34 +170,29 @@ func BufferSizeLimit(limit int) Option {
 }
 
 type program struct {
-	cmd       *exec.Cmd
-	name      string
-	command   string
-	arguments []string
-	async     bool
-	done      chan struct{}
-
-	customStdout io.Writer
-	customStderr io.Writer
-	customStdin  io.Reader
-	stdoutFile   string
-	stderrFile   string
-
-	keepStdinOpen bool
+	customStderr  io.Writer
+	logger        logger.Logger
+	customStdin   io.Reader
+	customStdout  io.Writer
+	pipes         *pipes
+	cmd           *exec.Cmd
+	done          chan struct{}
+	stderrFile    string
+	stdoutFile    string
+	name          string
+	command       string
+	errorBuffer   strings.Builder
+	outputBuffer  strings.Builder
+	arguments     []string
+	finalizers    []func() error
 	customEnv     []string
-
-	state        ProcessState
-	exitCode     int
-	outputBuffer strings.Builder
-	errorBuffer  strings.Builder
-	bufferLimit  int
-
-	dataLock sync.RWMutex
-	cmdLock  sync.Mutex
-
-	pipes      *pipes
-	logger     logger.Logger
-	finalizers []func() error
+	bufferLimit   int
+	exitCode      int
+	state         ProcessState
+	dataLock      sync.RWMutex
+	cmdLock       sync.Mutex
+	async         bool
+	keepStdinOpen bool
 }
 
 type pipes struct {
