@@ -15,6 +15,7 @@ import (
 	"github.com/GustavoCaso/meeseeks/internal/config"
 	"github.com/GustavoCaso/meeseeks/internal/logger"
 	"github.com/GustavoCaso/meeseeks/pkg/meeseeks"
+	"github.com/GustavoCaso/meeseeks/pkg/program"
 )
 
 type Server struct {
@@ -135,22 +136,12 @@ func (s *Server) loadConfig() error {
 	}
 
 	for _, programConfig := range cfg.Programs {
-		prog := createProgramFromConfig(programConfig, s.logger)
-
-		var p meeseeks.Program
-
-		// Check if this program has an interval - pass it to AddProgram
-		if programConfig.Interval != "" {
-			interval, intervalErr := programConfig.GetInterval()
-			if intervalErr != nil {
-				return fmt.Errorf("failed to parse interval for program %s: %w", programConfig.Name, intervalErr)
-			}
-			p = meeseeks.NewProgram(prog, &interval)
-		} else {
-			p = meeseeks.NewProgram(prog, nil)
+		prog, err := createProgramFromConfig(programConfig, s.logger)
+		if err != nil {
+			return err
 		}
 
-		if addErr := s.meeseeks.AddProgram(p); addErr != nil {
+		if addErr := s.meeseeks.AddProgram(prog); addErr != nil {
 			return fmt.Errorf("failed to add scheduled program %s: %w", programConfig.Name, addErr)
 		}
 	}
@@ -249,34 +240,24 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	programs := []meeseeks.Program{}
+	programs := []program.Program{}
 
 	for _, programConfig := range cfg.Programs {
-		prog := createProgramFromConfig(programConfig, s.logger)
-
-		var p meeseeks.Program
-
-		// Check if this program has an interval - pass it to AddProgram
-		if programConfig.Interval != "" {
-			interval, intervalErr := programConfig.GetInterval()
-			if intervalErr != nil {
-				resp := Response{
-					Success: false,
-					Error: fmt.Sprintf(
-						"failed to parse interval for program %s: %s",
-						programConfig.Name,
-						intervalErr.Error(),
-					),
-				}
-				handleResponse(w, resp)
-				return
+		prog, err := createProgramFromConfig(programConfig, s.logger)
+		if err != nil {
+			resp := Response{
+				Success: false,
+				Error: fmt.Sprintf(
+					"failed to create program from configuration %s: %s",
+					programConfig.Name,
+					err.Error(),
+				),
 			}
-			p = meeseeks.NewProgram(prog, &interval)
-		} else {
-			p = meeseeks.NewProgram(prog, nil)
+			handleResponse(w, resp)
+			return
 		}
 
-		programs = append(programs, p)
+		programs = append(programs, prog)
 	}
 
 	s.meeseeks.Reload(context.Background(), programs, duration)

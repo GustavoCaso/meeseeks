@@ -19,6 +19,18 @@ import (
 	"github.com/GustavoCaso/meeseeks/pkg/logger"
 )
 
+// Equal performs semantic comparison of two programs to determine if they have
+// identical configuration. This compares:
+// - Program string representation (name, command, arguments)
+// - Interval configuration.
+func Equal(program, other Program) bool {
+	if program.String() != other.String() {
+		return false
+	}
+
+	return program.Interval() == other.Interval()
+}
+
 // Program defines the interface for managing individual external processes.
 // It provides methods for execution, monitoring, I/O control, and lifecycle management
 // with support for both synchronous and asynchronous execution modes.
@@ -30,6 +42,8 @@ type Program interface {
 	// Start begins program execution and returns a channel that closes when execution completes.
 	// Returns an error if the program cannot be started.
 	Start(ctx context.Context) (<-chan struct{}, error)
+	// Interval return the interval information if configured using the Interval Option
+	Interval() time.Duration
 	// Send writes data to the program's stdin. Requires KeepStdinOpen option.
 	// Returns an error if stdin is closed or the program is not running.
 	Send([]byte) error
@@ -160,6 +174,14 @@ func Logger(logger logger.Logger) Option {
 	}
 }
 
+// Interval sets the interval information for the program
+// This information is used by the meeseeks package to schedule the program in a cron-like style.
+func Interval(duration time.Duration) Option {
+	return func(p *program) {
+		p.interval = duration
+	}
+}
+
 // BufferSizeLimit sets the maximum size in bytes for stdout/stderr buffers.
 // When the limit is reached, buffers are truncated to prevent memory issues.
 // A limit of 0 means no limit (buffers can grow indefinitely).
@@ -175,6 +197,7 @@ type program struct {
 	command   string
 	arguments []string
 	async     bool
+	interval  time.Duration
 	done      chan struct{}
 
 	customStdout io.Writer
@@ -539,6 +562,10 @@ func (p *program) CloseStdin() error {
 
 func (p *program) Async() bool {
 	return p.async
+}
+
+func (p *program) Interval() time.Duration {
+	return p.interval
 }
 
 func (p *program) Name() string {
