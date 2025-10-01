@@ -45,6 +45,17 @@ func TestCreateProgramFromConfig(t *testing.T) {
 			expectedName: "test-interval",
 		},
 		{
+			name: "program with invalid interval",
+			config: config.ProgramConfig{
+				Name:     "test-interval",
+				Command:  "echo",
+				Interval: "100ks",
+			},
+			expectedName: "test-interval",
+			expectError:  true,
+			errorMessage: "time: unknown unit \"ks\" in duration \"100ks\"",
+		},
+		{
 			name: "program with stdout file",
 			config: config.ProgramConfig{
 				Name:    "test-stdout-file",
@@ -96,7 +107,21 @@ func TestCreateProgramFromConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			prog := createProgramFromConfig(tt.config, logger)
+			prog, err := createProgramFromConfig(tt.config, logger)
+
+			if tt.expectError {
+				if err == nil {
+					t.Fatalf("Expected error but got none")
+				}
+				if err.Error() != tt.errorMessage {
+					t.Fatalf("Expected error message %q, got %q", tt.errorMessage, err.Error())
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
 
 			if prog.Name() != tt.expectedName {
 				t.Fatalf("Expected name %q, got %q", tt.expectedName, prog.Name())

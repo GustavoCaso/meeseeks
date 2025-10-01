@@ -57,20 +57,20 @@ import (
 func main() {
     // Create a new meeseeks instance
     m := meeseeks.New()
-    interval := 30*time.Second
-
+    
     // Add programs
     webServer := program.New("web-server", "python", 
         program.Args("-m", "http.server", "8080"),
-        programs.BufferSizeLimit(3 * 1024 * 1024) // 3MB
+        program.BufferSizeLimit(3 * 1024 * 1024) // 3MB
     )
     
     healthCheck := program.New("health-check", "curl", 
-      program.Args("http://localhost:8080")
+      program.Args("http://localhost:8080"),
+      program.Interval(30*time.Second)
     )
 
-    m.AddProgram(meeseeks.NewProgram(webServer, nil))
-    m.AddProgram(meeseeks.NewProgram(healthCheck, &interval))
+    m.AddProgram(webServer)
+    m.AddProgram(healthCheck)
 
     // Start all programs
     ctx := context.Background()
@@ -100,6 +100,7 @@ program.New("name", "command",
     program.Stderr(file),                   // Redirect stderr
     program.Stdin(reader),                  // Provide stdin input
     program.BufferSizeLimit(1024 * 1024),   // Limit output buffers (1MB)
+    program.Interval(30*time.Second),       // Interval. Useful when used with meeseeks package
 )
 ```
 

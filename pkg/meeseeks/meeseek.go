@@ -18,65 +18,13 @@ import (
 
 const intervalCheckDuration = 1 * time.Second
 
-// Program extends the program.Program interface with interval scheduling capabilities.
-// It represents a program that can be managed by Meeseeks with optional interval-based execution.
-type Program interface {
-	program.Program
-	Interval() *time.Duration
-	Equal(Program) bool
-}
-
-type meeseekProgram struct {
-	program.Program
-	interval *time.Duration
-}
-
-// Interval returns the execution interval for this program.
-// Returns nil for one-time programs or a duration pointer for scheduled programs.
-func (m *meeseekProgram) Interval() *time.Duration {
-	return m.interval
-}
-
-// Equal performs semantic comparison of two programs to determine if they have
-// identical configuration. This compares:
-// - Program string representation (name, command, arguments)
-// - Interval configuration (value, not pointer)
-// This avoids the fragility of reflect.DeepEqual with pointers and runtime state.
-func (m *meeseekProgram) Equal(other Program) bool {
-	// Compare program string representation (includes name, command, args)
-	if m.Program.String() != other.String() {
-		return false
-	}
-
-	// Compare interval configuration
-	otherInterval := other.Interval()
-	if m.interval == nil && otherInterval == nil {
-		return true
-	}
-	if m.interval == nil || otherInterval == nil {
-		return false
-	}
-	// Compare interval values, not pointers
-	return *m.interval == *otherInterval
-}
-
-// NewProgram creates a new Program instance that wraps a program.Program with optional interval scheduling.
-// If interval is nil, the program will execute once. If interval is provided, the program will execute
-// repeatedly at the specified interval.
-func NewProgram(prog program.Program, interval *time.Duration) Program {
-	return &meeseekProgram{
-		Program:  prog,
-		interval: interval,
-	}
-}
-
 // Meeseek defines the interface for managing multiple programs with scheduling capabilities.
 // It provides methods for adding programs, controlling execution, monitoring statistics,
 // and managing the lifecycle of all managed programs.
 type Meeseek interface {
 	// AddProgram adds a new program to the meeseeks manager.
 	// Returns an error if a program with the same name already exists.
-	AddProgram(Program) error
+	AddProgram(program.Program) error
 	// Programs returns a sorted list of all managed program names with their command details.
 	Programs() []string
 	// Reload performs a hot reload of the meeseeks configuration with new programs.
@@ -86,7 +34,7 @@ type Meeseek interface {
 	// AddProgram, etc.) are blocked until reload completes.
 	//
 	// If an error happens while shutdown of previous programs we log the error but continue the reload process.
-	Reload(context.Context, []Program, time.Duration)
+	Reload(context.Context, []program.Program, time.Duration)
 	// Start begins execution of all managed programs according to their configuration.
 	// One-time programs start immediately, while interval programs start their scheduling.
 	Start(ctx context.Context)
@@ -132,7 +80,7 @@ type executionTrack struct {
 type meeseek struct {
 	startTime      time.Time
 	endTime        time.Time
-	programs       map[string]Program         // Unified storage for all programs
+	programs       map[string]program.Program // Unified storage for all programs
 	schedulerStops map[string]chan struct{}   // Only for scheduled programs
 	executions     map[string]*executionTrack // execution tracking for each program
 	wg             *sync.WaitGroup
@@ -140,7 +88,7 @@ type meeseek struct {
 	logger         logger.Logger
 }
 
-func (m *meeseek) AddProgram(prog Program) error {
+func (m *meeseek) AddProgram(prog program.Program) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -161,12 +109,12 @@ func (m *meeseek) Start(ctx context.Context) {
 	m.startTime = time.Now()
 
 	// Start all programs
-	for _, program := range m.programs {
+	for _, p := range m.programs {
 		m.wg.Add(1)
-		go func(prog Program) {
+		go func(prog program.Program) {
 			m.runProgram(ctx, prog)
 			m.wg.Done()
-		}(program)
+		}(p)
 	}
 }
 
@@ -185,12 +133,12 @@ func (m *meeseek) Programs() []string {
 	return programs
 }
 
-func (m *meeseek) Reload(ctx context.Context, programs []Program, deadline time.Duration) {
+func (m *meeseek) Reload(ctx context.Context, programs []program.Program, deadline time.Duration) {
 	if len(programs) == 0 {
 		return
 	}
 
-	newPrograms := map[string]Program{}
+	newPrograms := map[string]program.Program{}
 	for _, prog := range programs {
 		newPrograms[prog.Name()] = prog
 	}
@@ -205,7 +153,7 @@ func (m *meeseek) Reload(ctx context.Context, programs []Program, deadline time.
 		if !exists {
 			removeState = append(removeState, name)
 		} else {
-			if oldProgram.Equal(newProgram) {
+			if program.Equal(oldProgram, newProgram) {
 				keepState = append(keepState, name)
 			} else {
 				removeState = append(removeState, name)
@@ -229,7 +177,7 @@ func (m *meeseek) Reload(ctx context.Context, programs []Program, deadline time.
 		delete(m.executions, name)
 	}
 
-	m.programs = map[string]Program{}
+	m.programs = map[string]program.Program{}
 
 	for name, prog := range newPrograms {
 		m.programs[name] = prog
@@ -322,7 +270,7 @@ func (m *meeseek) Stop(programName string, timeout time.Duration) error {
 		return fmt.Errorf("program %s not present", programName)
 	}
 
-	if program.Interval() == nil {
+	if program.Interval() <= 0 {
 		// Regular program - shutdown directly
 		return program.Shutdown(timeout)
 	}
@@ -377,16 +325,15 @@ func (m *meeseek) shutdown(timeout time.Duration) error {
 	return errors.Join(errs...)
 }
 
-func (m *meeseek) runProgram(ctx context.Context, prog Program) {
-	interval := prog.Interval()
-	if interval != nil && *interval > 0 {
+func (m *meeseek) runProgram(ctx context.Context, prog program.Program) {
+	if prog.Interval() > 0 {
 		m.runScheduledProgram(ctx, prog)
 	} else {
 		m.runOneTimeProgram(ctx, prog)
 	}
 }
 
-func (m *meeseek) runOneTimeProgram(ctx context.Context, prog Program) {
+func (m *meeseek) runOneTimeProgram(ctx context.Context, prog program.Program) {
 	done, err := prog.Start(ctx)
 	if err != nil {
 		if m.logger != nil {
@@ -409,9 +356,9 @@ func (m *meeseek) runOneTimeProgram(ctx context.Context, prog Program) {
 	m.trackProgramCompletion(prog.Name(), prog.State() == program.StateFinished)
 }
 
-func (m *meeseek) runScheduledProgram(ctx context.Context, prog Program) {
+func (m *meeseek) runScheduledProgram(ctx context.Context, prog program.Program) {
 	programName := prog.Name()
-	interval := *prog.Interval()
+	interval := prog.Interval()
 	ticker := time.NewTicker(intervalCheckDuration)
 
 	defer ticker.Stop()
@@ -509,7 +456,7 @@ func (m *meeseek) executeScheduledProgram(ctx context.Context, prog program.Prog
 	}
 }
 
-func (m *meeseek) collectProgramStatistics(prog Program, execRecord *executionTrack) Statistics {
+func (m *meeseek) collectProgramStatistics(prog program.Program, execRecord *executionTrack) Statistics {
 	programName := prog.Name()
 	progState := prog.State()
 
@@ -523,9 +470,9 @@ func (m *meeseek) collectProgramStatistics(prog Program, execRecord *executionTr
 
 	interval := prog.Interval()
 
-	if interval != nil && *interval > 0 {
+	if interval > 0 {
 		stats.Interval = interval.String()
-		stats.NextRunAt = execRecord.lastRunAt.Add(*interval).Format(time.DateTime)
+		stats.NextRunAt = execRecord.lastRunAt.Add(interval).Format(time.DateTime)
 	}
 
 	stats.Error = prog.Error()
@@ -569,7 +516,7 @@ func Logger(logger logger.Logger) Option {
 func New(opts ...Option) Meeseek {
 	m := &meeseek{
 		wg:             &sync.WaitGroup{},
-		programs:       make(map[string]Program),
+		programs:       make(map[string]program.Program),
 		schedulerStops: make(map[string]chan struct{}),
 		executions:     make(map[string]*executionTrack),
 	}
