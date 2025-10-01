@@ -51,7 +51,7 @@ func TestMeeseek_AddProgram(t *testing.T) {
 
 			var err error
 			for _, prog := range tt.programs {
-				err = m.AddProgram(NewProgram(prog, nil))
+				err = m.AddProgram(prog)
 				if err != nil && !tt.wantErr {
 					t.Fatalf("AddProgram() unexpected error = %v", err)
 					return
@@ -112,7 +112,7 @@ func TestMeeseek_StartAndWait(t *testing.T) {
 			m := New()
 
 			for _, prog := range tt.programs {
-				err := m.AddProgram(NewProgram(prog, nil))
+				err := m.AddProgram(prog)
 				if err != nil {
 					t.Fatalf("Failed to add program: %v", err)
 				}
@@ -185,7 +185,7 @@ func TestMeeseek_Statistic(t *testing.T) {
 			m := New()
 
 			for _, prog := range tt.programs {
-				err := m.AddProgram(NewProgram(prog, nil))
+				err := m.AddProgram(prog)
 				if err != nil {
 					t.Fatalf("Failed to add program: %v", err)
 				}
@@ -281,7 +281,7 @@ func TestMeeseek_Statistics(t *testing.T) {
 			m := New()
 
 			for _, prog := range tt.programs {
-				err := m.AddProgram(NewProgram(prog, nil))
+				err := m.AddProgram(prog)
 				if err != nil {
 					t.Fatalf("Failed to add program: %v", err)
 				}
@@ -347,7 +347,7 @@ func TestMeeseek_LongRunningStatistics(t *testing.T) {
 	m := New()
 
 	prog := program.New("long-runner", "sleep", program.Args("5"))
-	err := m.AddProgram(NewProgram(prog, nil))
+	err := m.AddProgram(prog)
 	if err != nil {
 		t.Fatalf("Failed to add program: %v", err)
 	}
@@ -418,7 +418,7 @@ func TestMeeseek_StatisticsWithOutput(t *testing.T) {
 			m := New()
 
 			prog := program.New("output-test", tt.programCmd, program.Args(tt.programArgs...))
-			err := m.AddProgram(NewProgram(prog, nil))
+			err := m.AddProgram(prog)
 			if err != nil {
 				t.Fatalf("Failed to add program: %v", err)
 			}
@@ -496,7 +496,7 @@ func TestMeeseek_FailingProgramStatistics(t *testing.T) {
 			m := New()
 
 			prog := program.New("failing-test", tt.programCmd, program.Args(tt.programArgs...))
-			err := m.AddProgram(NewProgram(prog, nil))
+			err := m.AddProgram(prog)
 			if err != nil {
 				t.Fatalf("Failed to add program: %v", err)
 			}
@@ -541,7 +541,7 @@ func TestMeeseek_ConcurrentAccess(t *testing.T) {
 		go func(id int) {
 			progName := "concurrent-" + string(rune('0'+id))
 			prog := program.New(progName, "echo", program.Args("test"))
-			err := m.AddProgram(NewProgram(prog, nil))
+			err := m.AddProgram(prog)
 			results <- err
 		}(i)
 	}
@@ -582,7 +582,7 @@ func TestMeeseek_ContextCancellation(t *testing.T) {
 	m := New()
 
 	prog := program.New("cancelable", "sleep", program.Args("10"))
-	err := m.AddProgram(NewProgram(prog, nil))
+	err := m.AddProgram(prog)
 	if err != nil {
 		t.Fatalf("Failed to add program: %v", err)
 	}
@@ -649,7 +649,7 @@ func TestMeeseek_Stop(t *testing.T) {
 			m := New()
 
 			for _, prog := range tt.programs {
-				err := m.AddProgram(NewProgram(prog, nil))
+				err := m.AddProgram(prog)
 				if err != nil {
 					t.Fatalf("Failed to add program: %v", err)
 				}
@@ -695,9 +695,8 @@ func TestMeeseek_Stop(t *testing.T) {
 func TestMeeseek_Stop_Same_Program_Multiple_Times(t *testing.T) {
 	t.Parallel()
 	m := New()
-	prog := program.New("interval1", "echo", program.Args("test"))
-	interval := 50 * time.Millisecond
-	err := m.AddProgram(NewProgram(prog, &interval))
+	prog := program.New("interval1", "echo", program.Args("test"), program.Interval(50*time.Millisecond))
+	err := m.AddProgram(prog)
 	if err != nil {
 		t.Fatalf("Failed to add program: %v", err)
 	}
@@ -721,34 +720,34 @@ func TestMeeseek_WaitWithIntervalPrograms_ContextCancellation(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name        string
-		programs    []programConfig
+		programs    []program.Program
 		waitTimeout time.Duration
 		cancelAfter time.Duration
 	}{
 		{
 			name: "single interval program context cancellation",
-			programs: []programConfig{
-				{name: "interval1", cmd: "echo", args: []string{"test"}, interval: 50 * time.Millisecond},
+			programs: []program.Program{
+				program.New("interval1", "echo", program.Args("test1"), program.Interval(50*time.Millisecond)),
 			},
 			waitTimeout: 2 * time.Second,
 			cancelAfter: 200 * time.Millisecond,
 		},
 		{
 			name: "multiple interval programs context cancellation",
-			programs: []programConfig{
-				{name: "interval1", cmd: "echo", args: []string{"test1"}, interval: 30 * time.Millisecond},
-				{name: "interval2", cmd: "echo", args: []string{"test2"}, interval: 40 * time.Millisecond},
-				{name: "interval3", cmd: "echo", args: []string{"test3"}, interval: 60 * time.Millisecond},
+			programs: []program.Program{
+				program.New("interval1", "echo", program.Args("test1"), program.Interval(30*time.Millisecond)),
+				program.New("interval2", "echo", program.Args("test2"), program.Interval(45*time.Millisecond)),
+				program.New("interval3", "echo", program.Args("test3"), program.Interval(60*time.Millisecond)),
 			},
 			waitTimeout: 2 * time.Second,
 			cancelAfter: 150 * time.Millisecond,
 		},
 		{
 			name: "mixed regular and interval programs context cancellation",
-			programs: []programConfig{
-				{name: "regular1", cmd: "echo", args: []string{"regular"}},
-				{name: "interval1", cmd: "echo", args: []string{"interval"}, interval: 50 * time.Millisecond},
-				{name: "regular2", cmd: "sleep", args: []string{"0.1"}},
+			programs: []program.Program{
+				program.New("regular1", "echo", program.Args("regular")),
+				program.New("interval1", "echo", program.Args("interval"), program.Interval(50*time.Millisecond)),
+				program.New("regular2", "sleep", program.Args("0.1")),
 			},
 			waitTimeout: 2 * time.Second,
 			cancelAfter: 300 * time.Millisecond,
@@ -761,18 +760,10 @@ func TestMeeseek_WaitWithIntervalPrograms_ContextCancellation(t *testing.T) {
 
 			m := New()
 
-			for _, pc := range tt.programs {
-				prog := program.New(pc.name, pc.cmd, program.Args(pc.args...))
-				if pc.interval > 0 {
-					err := m.AddProgram(NewProgram(prog, &pc.interval))
-					if err != nil {
-						t.Fatalf("Failed to add interval program %s: %v", pc.name, err)
-					}
-				} else {
-					err := m.AddProgram(NewProgram(prog, nil))
-					if err != nil {
-						t.Fatalf("Failed to add regular program %s: %v", pc.name, err)
-					}
+			for _, prog := range tt.programs {
+				err := m.AddProgram(prog)
+				if err != nil {
+					t.Fatalf("Failed to add program %s: %v", prog.Name(), err)
 				}
 			}
 
@@ -816,7 +807,7 @@ func TestMeeseek_WaitWithIntervalPrograms_Stop(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name               string
-		programs           []programConfig
+		programs           []program.Program
 		stopProgram        string
 		stopAfter          time.Duration
 		stopTimeout        time.Duration
@@ -825,8 +816,8 @@ func TestMeeseek_WaitWithIntervalPrograms_Stop(t *testing.T) {
 	}{
 		{
 			name: "stop all program should exit",
-			programs: []programConfig{
-				{name: "interval1", cmd: "echo", args: []string{"test1"}, interval: 50 * time.Millisecond},
+			programs: []program.Program{
+				program.New("interval1", "echo", program.Args("test1"), program.Interval(50*time.Millisecond)),
 			},
 			stopProgram:        "interval1",
 			stopAfter:          100 * time.Millisecond,
@@ -836,9 +827,9 @@ func TestMeeseek_WaitWithIntervalPrograms_Stop(t *testing.T) {
 		},
 		{
 			name: "stop all programs should not exit wait",
-			programs: []programConfig{
-				{name: "interval1", cmd: "echo", args: []string{"test1"}, interval: 50 * time.Millisecond},
-				{name: "interval2", cmd: "echo", args: []string{"test2"}, interval: 60 * time.Millisecond},
+			programs: []program.Program{
+				program.New("interval1", "echo", program.Args("test1"), program.Interval(50*time.Millisecond)),
+				program.New("interval2", "echo", program.Args("test2"), program.Interval(50*time.Millisecond)),
 			},
 			stopProgram:        "interval1",
 			stopAfter:          100 * time.Millisecond,
@@ -853,18 +844,10 @@ func TestMeeseek_WaitWithIntervalPrograms_Stop(t *testing.T) {
 			t.Parallel()
 			m := New()
 
-			for _, pc := range tt.programs {
-				prog := program.New(pc.name, pc.cmd, program.Args(pc.args...))
-				if pc.interval > 0 {
-					err := m.AddProgram(NewProgram(prog, &pc.interval))
-					if err != nil {
-						t.Fatalf("Failed to add interval program %s: %v", pc.name, err)
-					}
-				} else {
-					err := m.AddProgram(NewProgram(prog, nil))
-					if err != nil {
-						t.Fatalf("Failed to add regular program %s: %v", pc.name, err)
-					}
+			for _, prog := range tt.programs {
+				err := m.AddProgram(prog)
+				if err != nil {
+					t.Fatalf("Failed to add program %s: %v", prog.Name(), err)
 				}
 			}
 
@@ -911,15 +894,15 @@ func TestMeeseek_WaitWithIntervalPrograms_Shutdown(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name              string
-		programs          []programConfig
+		programs          []program.Program
 		shutdownAfter     time.Duration
 		shutdownTimeout   time.Duration
 		waitAfterShutdown time.Duration
 	}{
 		{
 			name: "shutdown with single interval program",
-			programs: []programConfig{
-				{name: "interval1", cmd: "echo", args: []string{"test"}, interval: 50 * time.Millisecond},
+			programs: []program.Program{
+				program.New("interval1", "echo", program.Args("test"), program.Interval(50*time.Millisecond)),
 			},
 			shutdownAfter:     150 * time.Millisecond,
 			shutdownTimeout:   2 * time.Second,
@@ -927,10 +910,10 @@ func TestMeeseek_WaitWithIntervalPrograms_Shutdown(t *testing.T) {
 		},
 		{
 			name: "shutdown with multiple interval programs",
-			programs: []programConfig{
-				{name: "interval1", cmd: "echo", args: []string{"test1"}, interval: 30 * time.Millisecond},
-				{name: "interval2", cmd: "echo", args: []string{"test2"}, interval: 45 * time.Millisecond},
-				{name: "interval3", cmd: "echo", args: []string{"test3"}, interval: 60 * time.Millisecond},
+			programs: []program.Program{
+				program.New("interval1", "echo", program.Args("test1"), program.Interval(30*time.Millisecond)),
+				program.New("interval2", "echo", program.Args("test2"), program.Interval(45*time.Millisecond)),
+				program.New("interval3", "echo", program.Args("test3"), program.Interval(60*time.Millisecond)),
 			},
 			shutdownAfter:     200 * time.Millisecond,
 			shutdownTimeout:   2 * time.Second,
@@ -938,10 +921,10 @@ func TestMeeseek_WaitWithIntervalPrograms_Shutdown(t *testing.T) {
 		},
 		{
 			name: "shutdown with mixed regular and interval programs",
-			programs: []programConfig{
-				{name: "regular1", cmd: "sleep", args: []string{"2"}},
-				{name: "interval1", cmd: "echo", args: []string{"interval"}, interval: 40 * time.Millisecond},
-				{name: "regular2", cmd: "sleep", args: []string{"2"}},
+			programs: []program.Program{
+				program.New("regular1", "sleep", program.Args("2")),
+				program.New("interval1", "echo", program.Args("interval"), program.Interval(40*time.Millisecond)),
+				program.New("regular2", "sleep", program.Args("2")),
 			},
 			shutdownAfter:     150 * time.Millisecond,
 			shutdownTimeout:   1 * time.Second,
@@ -954,18 +937,10 @@ func TestMeeseek_WaitWithIntervalPrograms_Shutdown(t *testing.T) {
 			t.Parallel()
 			m := New()
 
-			for _, pc := range tt.programs {
-				prog := program.New(pc.name, pc.cmd, program.Args(pc.args...))
-				if pc.interval > 0 {
-					err := m.AddProgram(NewProgram(prog, &pc.interval))
-					if err != nil {
-						t.Fatalf("Failed to add interval program %s: %v", pc.name, err)
-					}
-				} else {
-					err := m.AddProgram(NewProgram(prog, nil))
-					if err != nil {
-						t.Fatalf("Failed to add regular program %s: %v", pc.name, err)
-					}
+			for _, prog := range tt.programs {
+				err := m.AddProgram(prog)
+				if err != nil {
+					t.Fatalf("Failed to add program %s: %v", prog.Name(), err)
 				}
 			}
 
@@ -1005,10 +980,10 @@ func TestMeeseek_IntervalPrograms_ConcurrentOperations(t *testing.T) {
 	numPrograms := 5
 	for i := range numPrograms {
 		progName := fmt.Sprintf("interval-%d", i)
-		prog := program.New(progName, "echo", program.Args("concurrent-test"))
 		duration := 30 + i*10
 		interval := time.Duration(duration) * time.Millisecond
-		err := m.AddProgram(NewProgram(prog, &interval))
+		prog := program.New(progName, "echo", program.Args("concurrent-test"), program.Interval(interval))
+		err := m.AddProgram(prog)
 		if err != nil {
 			t.Fatalf("Failed to add interval program %s: %v", progName, err)
 		}
@@ -1070,8 +1045,8 @@ func TestMeeseekReload(t *testing.T) {
 
 	tests := []struct {
 		name                      string
-		initialPrograms           []Program
-		reloadPrograms            []Program
+		initialPrograms           []program.Program
+		reloadPrograms            []program.Program
 		expectedPrograms          []string
 		verifyStatisticsPreserved bool
 		preservedProgramName      string
@@ -1079,15 +1054,15 @@ func TestMeeseekReload(t *testing.T) {
 	}{
 		{
 			name: "basic reload with statistics preservation",
-			initialPrograms: []Program{
-				NewProgram(program.New("test1", "echo", program.Args("hello")), nil),
-				NewProgram(program.New("test2", "echo", program.Args("world")), nil),
-				NewProgram(program.New("test3", "ls", program.Args("-la")), nil),
+			initialPrograms: []program.Program{
+				program.New("test1", "echo", program.Args("hello")),
+				program.New("test2", "echo", program.Args("world")),
+				program.New("test3", "ls", program.Args("-la")),
 			},
-			reloadPrograms: []Program{
-				NewProgram(program.New("test4", "echo", program.Args("foo")), nil),
-				NewProgram(program.New("test3", "ls", program.Args("-la")), nil),
-				NewProgram(program.New("test5", "echo", program.Args("bar")), nil),
+			reloadPrograms: []program.Program{
+				program.New("test4", "echo", program.Args("foo")),
+				program.New("test3", "ls", program.Args("-la")),
+				program.New("test5", "echo", program.Args("bar")),
 			},
 			expectedPrograms:          []string{"test3 [ls -la]", "test4 [echo foo]", "test5 [echo bar]"},
 			verifyStatisticsPreserved: true,
@@ -1095,29 +1070,29 @@ func TestMeeseekReload(t *testing.T) {
 		},
 		{
 			name:                      "reload to empty (early return)",
-			initialPrograms:           []Program{NewProgram(program.New("test1", "echo", program.Args("hello")), nil)},
-			reloadPrograms:            []Program{},
+			initialPrograms:           []program.Program{program.New("test1", "echo", program.Args("hello"))},
+			reloadPrograms:            []program.Program{},
 			expectedPrograms:          []string{"test1 [echo hello]"},
 			verifyStatisticsPreserved: true,
 			preservedProgramName:      "test1",
 		},
 		{
 			name:            "reload from empty",
-			initialPrograms: []Program{},
-			reloadPrograms: []Program{
-				NewProgram(program.New("test1", "echo", program.Args("hello")), nil),
+			initialPrograms: []program.Program{},
+			reloadPrograms: []program.Program{
+				program.New("test1", "echo", program.Args("hello")),
 			},
 			expectedPrograms:          []string{"test1 [echo hello]"},
 			verifyStatisticsPreserved: false,
 		},
 		{
 			name: "interval program statistics preservation",
-			initialPrograms: []Program{
-				NewProgram(program.New("interval1", "echo", program.Args("test1")), &interval50ms),
+			initialPrograms: []program.Program{
+				program.New("interval1", "echo", program.Args("test1"), program.Interval(interval50ms)),
 			},
-			reloadPrograms: []Program{
-				NewProgram(program.New("interval1", "echo", program.Args("test1")), &interval50ms),
-				NewProgram(program.New("interval2", "echo", program.Args("test2")), &interval100ms),
+			reloadPrograms: []program.Program{
+				program.New("interval1", "echo", program.Args("test1"), program.Interval(interval50ms)),
+				program.New("interval2", "echo", program.Args("test2"), program.Interval(interval100ms)),
 			},
 			expectedPrograms:          []string{"interval1 [echo test1]", "interval2 [echo test2]"},
 			verifyStatisticsPreserved: true,
@@ -1125,22 +1100,22 @@ func TestMeeseekReload(t *testing.T) {
 		},
 		{
 			name: "interval change resets statistics",
-			initialPrograms: []Program{
-				NewProgram(program.New("prog1", "echo", program.Args("test")), &interval50ms),
+			initialPrograms: []program.Program{
+				program.New("prog1", "echo", program.Args("test"), program.Interval(interval50ms)),
 			},
-			reloadPrograms: []Program{
-				NewProgram(program.New("prog1", "echo", program.Args("test")), &interval100ms),
+			reloadPrograms: []program.Program{
+				program.New("prog1", "echo", program.Args("test"), program.Interval(interval100ms)),
 			},
 			expectedPrograms:          []string{"prog1 [echo test]"},
 			verifyStatisticsPreserved: false,
 		},
 		{
 			name: "short timeout handling",
-			initialPrograms: []Program{
-				NewProgram(program.New("slow-shutdown", "sleep", program.Args("2")), nil),
+			initialPrograms: []program.Program{
+				program.New("slow-shutdown", "sleep", program.Args("2")),
 			},
-			reloadPrograms: []Program{
-				NewProgram(program.New("fast-program", "echo", program.Args("hello")), nil),
+			reloadPrograms: []program.Program{
+				program.New("fast-program", "echo", program.Args("hello")),
 			},
 			expectedPrograms: []string{"fast-program [echo hello]"},
 			shortTimeout:     true,
@@ -1214,11 +1189,11 @@ func TestMeeseekReload(t *testing.T) {
 func TestMeeseekReload_BlockingOperations(t *testing.T) {
 	t.Parallel()
 	interval50ms := 50 * time.Millisecond
-	initialPrograms := []Program{
-		NewProgram(program.New("long-runner", "sleep", program.Args("2")), &interval50ms),
+	initialPrograms := []program.Program{
+		program.New("long-runner", "sleep", program.Args("2"), program.Interval(interval50ms)),
 	}
-	reloadPrograms := []Program{
-		NewProgram(program.New("new-prog", "echo", program.Args("hello")), nil),
+	reloadPrograms := []program.Program{
+		program.New("new-prog", "echo", program.Args("hello")),
 	}
 
 	m := New()
@@ -1269,11 +1244,11 @@ func TestMeeseekReload_BlockingOperations(t *testing.T) {
 func TestMeeseekReload_WaitDoNotExistWhileReloading(t *testing.T) {
 	t.Parallel()
 	interval50ms := 50 * time.Millisecond
-	initialPrograms := []Program{
-		NewProgram(program.New("long-runner", "sleep", program.Args("2")), &interval50ms),
+	initialPrograms := []program.Program{
+		program.New("long-runner", "sleep", program.Args("2"), program.Interval(interval50ms)),
 	}
-	reloadPrograms := []Program{
-		NewProgram(program.New("new-prog", "echo", program.Args("hello")), nil),
+	reloadPrograms := []program.Program{
+		program.New("new-prog", "echo", program.Args("hello")),
 	}
 
 	m := New()
@@ -1328,7 +1303,7 @@ func TestMeeseek_Run(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		setupPrograms []Program
+		setupPrograms []program.Program
 		runProgram    string
 		startMesseks  bool
 		wantErr       bool
@@ -1336,17 +1311,17 @@ func TestMeeseek_Run(t *testing.T) {
 	}{
 		{
 			name: "run existing program",
-			setupPrograms: []Program{
-				NewProgram(program.New("test-echo", "echo", program.Args("hello")), nil),
-				NewProgram(program.New("test-sleep", "sleep", program.Args("0.01")), nil),
+			setupPrograms: []program.Program{
+				program.New("test-echo", "echo", program.Args("hello")),
+				program.New("test-sleep", "sleep", program.Args("0.01")),
 			},
 			runProgram: "test-echo",
 			wantErr:    false,
 		},
 		{
 			name: "run nonexistent program",
-			setupPrograms: []Program{
-				NewProgram(program.New("test-echo", "echo", program.Args("hello")), nil),
+			setupPrograms: []program.Program{
+				program.New("test-echo", "echo", program.Args("hello")),
 			},
 			runProgram: "nonexistent",
 			wantErr:    true,
@@ -1354,8 +1329,8 @@ func TestMeeseek_Run(t *testing.T) {
 		},
 		{
 			name: "run already running program",
-			setupPrograms: []Program{
-				NewProgram(program.New("long-sleep", "sleep", program.Args("10")), nil),
+			setupPrograms: []program.Program{
+				program.New("long-sleep", "sleep", program.Args("10")),
 			},
 			runProgram:   "long-sleep",
 			startMesseks: true,
@@ -1364,11 +1339,8 @@ func TestMeeseek_Run(t *testing.T) {
 		},
 		{
 			name: "run scheduled program",
-			setupPrograms: []Program{
-				NewProgram(
-					program.New("scheduled", "echo", program.Args("hello")),
-					&interval,
-				),
+			setupPrograms: []program.Program{
+				program.New("scheduled", "echo", program.Args("hello"), program.Interval(interval)),
 			},
 			runProgram: "scheduled",
 			wantErr:    false,
@@ -1430,11 +1402,4 @@ func TestMeeseek_Run(t *testing.T) {
 			}
 		})
 	}
-}
-
-type programConfig struct {
-	name     string
-	cmd      string
-	args     []string
-	interval time.Duration
 }
