@@ -114,30 +114,30 @@ type Meeseek interface {
 type Statistics struct {
 	ProgramName string `json:"program_name"`
 	State       string `json:"state"`
-	Successful  int    `json:"successful_runs"`
-	Failed      int    `json:"failed_runs"`
 	Output      string `json:"output"`
 	Error       string `json:"error"`
 	Interval    string `json:"interval,omitempty"`
 	LastRunAt   string `json:"last_run_at"`
 	NextRunAt   string `json:"next_run,omitempty"`
+	Successful  int    `json:"successful_runs"`
+	Failed      int    `json:"failed_runs"`
 }
 
 type executionTrack struct {
+	lastRunAt  time.Time
 	successful int
 	failed     int
-	lastRunAt  time.Time
 }
 
 type meeseek struct {
 	startTime      time.Time
 	endTime        time.Time
-	programs       map[string]Program         // Unified storage for all programs
-	schedulerStops map[string]chan struct{}   // Only for scheduled programs
-	executions     map[string]*executionTrack // execution tracking for each program
+	logger         logger.Logger
+	programs       map[string]Program
+	schedulerStops map[string]chan struct{}
+	executions     map[string]*executionTrack
 	wg             *sync.WaitGroup
 	mu             sync.RWMutex
-	logger         logger.Logger
 }
 
 func (m *meeseek) AddProgram(prog Program) error {

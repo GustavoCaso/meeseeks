@@ -13,8 +13,8 @@ import (
 )
 
 type Client struct {
-	sockPath string
 	client   *http.Client
+	sockPath string
 }
 
 func NewClient(ctx context.Context, sockPath string) *Client {

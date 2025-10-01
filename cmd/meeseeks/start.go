@@ -15,10 +15,10 @@ import (
 )
 
 type cmd struct {
+	logger     *logger.Logger
 	configPath string
 	pidFile    string
 	socketPath string
-	logger     *logger.Logger
 	detach     bool
 }
 
