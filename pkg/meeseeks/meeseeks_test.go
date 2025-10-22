@@ -623,6 +623,14 @@ func TestMeeseek_Stop(t *testing.T) {
 			timeout:     1 * time.Second,
 		},
 		{
+			name: "stop with interval",
+			programs: []program.Program{
+				program.New("test-stop-1", "sleep", program.Args("1"), program.Interval(20*time.Second)),
+			},
+			stopProgram: "test-stop-1",
+			timeout:     2 * time.Second,
+		},
+		{
 			name: "stop non-existing program",
 			programs: []program.Program{
 				program.New("test-stop-1", "sleep", program.Args("10")),
@@ -684,7 +692,7 @@ func TestMeeseek_Stop(t *testing.T) {
 
 			if stat.State == "running" {
 				t.Fatalf(
-					"Program %s should be stopped but it still running",
+					"Program %s should be stopped but it still running.",
 					tt.stopProgram,
 				)
 			}

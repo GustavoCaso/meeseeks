@@ -462,10 +462,13 @@ func (p *program) monitorProcess() {
 
 	p.dataLock.Lock()
 	if err != nil {
-		if strings.Contains(err.Error(), "signal: killed") {
-			p.state = StateCancelled
-		} else {
-			p.state = StateError
+		p.state = StateError
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) {
+			status, _ := exitError.Sys().(syscall.WaitStatus)
+			if status.Signaled() {
+				p.state = StateCancelled
+			}
 		}
 		p.writeOutput(&p.errorBuffer, err.Error())
 	} else {

@@ -270,27 +270,25 @@ func (m *meeseek) Stop(programName string, timeout time.Duration) error {
 		return fmt.Errorf("program %s not present", programName)
 	}
 
-	if program.Interval() <= 0 {
-		// Regular program - shutdown directly
-		return program.Shutdown(timeout)
-	}
+	err := program.Shutdown(timeout)
 
-	// Scheduled program - stop via channel
-	m.mu.Lock()
-	stop, exists := m.schedulerStops[programName]
-	m.mu.Unlock()
+	if program.Interval() > 0 {
+		// Stop schedule loop
+		m.mu.Lock()
+		stop, exists := m.schedulerStops[programName]
+		m.mu.Unlock()
 
-	if exists {
-		select {
-		case <-stop:
-			// Channel already closed
-		default:
-			close(stop)
+		if exists {
+			select {
+			case <-stop:
+				// Channel already closed
+			default:
+				close(stop)
+			}
 		}
-		// Note: cleanup is handled by the defer in runScheduledProgram
 	}
 
-	return nil
+	return err
 }
 
 func (m *meeseek) Shutdown(timeout time.Duration) error {
@@ -451,7 +449,6 @@ func (m *meeseek) executeScheduledProgram(ctx context.Context, prog program.Prog
 		return
 	case <-stop:
 		// Stop signal while program was running - shutdown gracefully
-		_ = prog.Shutdown(5 * time.Second)
 		return
 	}
 }
