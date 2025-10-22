@@ -448,7 +448,7 @@ func (m *meeseek) executeScheduledProgram(ctx context.Context, prog program.Prog
 		// Context cancelled while program was running
 		return
 	case <-stop:
-		// Stop signal while program was running - shutdown gracefully
+		// Program was stop while running
 		return
 	}
 }
