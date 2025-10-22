@@ -1,4 +1,4 @@
-.PHONY: build test lint generate-test-coverage clean help
+.PHONY: build test test-race lint generate-test-coverage clean help
 
 .DEFAULT_GOAL := help
 
@@ -7,6 +7,9 @@ build:
 
 test:
 	go test ./...
+	
+test-race:
+	go test ./... -race
 
 lint:
 	golangci-lint run
@@ -27,6 +30,7 @@ help:
 	@echo "Available targets:"
 	@echo "  build                  - Build the CLI binary"
 	@echo "  test                   - Run all tests"
+	@echo "  test-race              - Run all tests with the race detector"
 	@echo "  generate-test-coverage - Generate coverage report"
 	@echo "  lint                   - Run golangci-lint"
 	@echo "  clean                  - Clean build artifacts"
