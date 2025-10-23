@@ -47,6 +47,9 @@ type Meeseek interface {
 	// Wait blocks until all programs have finished execution or the context is cancelled.
 	// Returns an error if the context is cancelled before completion.
 	Wait(ctx context.Context) error
+	// SubscribeLogs return a channel to consume logs in real-time.
+	// The caller is responsible for closing the context which ensure the channel is closed.
+	SubscribeLogs(ctx context.Context, programName string) (<-chan program.LogLine, error)
 	// Statistic returns detailed execution statistics for a specific program.
 	// Returns an error if the program is not found.
 	Statistic(program string) (Statistics, error)
@@ -131,6 +134,18 @@ func (m *meeseek) Programs() []string {
 	}
 
 	return programs
+}
+
+func (m *meeseek) SubscribeLogs(ctx context.Context, programName string) (<-chan program.LogLine, error) {
+	m.mu.RLock()
+	prog, ok := m.programs[programName]
+	m.mu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("program %s not present", programName)
+	}
+
+	return prog.SubscribeLogs(ctx), nil
 }
 
 func (m *meeseek) Reload(ctx context.Context, programs []program.Program, deadline time.Duration) {
