@@ -12,12 +12,8 @@ import (
 
 	"github.com/GustavoCaso/meeseeks/internal/logger"
 	"github.com/GustavoCaso/meeseeks/internal/server"
+	"github.com/GustavoCaso/meeseeks/pkg/program"
 )
-
-type logLine struct {
-	Message string `json:"message"`
-	Error   bool   `json:"error"`
-}
 
 func logsCommand(args []string, _ *logger.Logger) error {
 	fs := flag.NewFlagSet("logs", flag.ExitOnError)
@@ -66,7 +62,7 @@ func logsCommand(args []string, _ *logger.Logger) error {
 		defer close(done)
 
 		for line := range logsLine {
-			var log logLine
+			var log program.LogLine
 			err := json.Unmarshal(line, &log)
 
 			if err != nil {
@@ -74,7 +70,7 @@ func logsCommand(args []string, _ *logger.Logger) error {
 				continue
 			}
 
-			if log.Error {
+			if log.IsError {
 				fmt.Fprintf(os.Stderr, "%s", log.Message)
 			} else {
 				fmt.Fprintf(os.Stdout, "%s", log.Message)

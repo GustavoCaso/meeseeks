@@ -34,8 +34,8 @@ func Equal(program, other Program) bool {
 
 // LogLine represent a log line sent to the subscription channel.
 type LogLine struct {
-	Content string
-	IsError bool
+	Message string `json:"message"`
+	IsError bool   `json:"is_error"`
 }
 
 // Program defines the interface for managing individual external processes.
@@ -562,7 +562,7 @@ func (p *program) SubscribeLogs(ctx context.Context) <-chan LogLine {
 		for _, line := range strings.Split(existingOutput, "\n") {
 			if line != "" {
 				select {
-				case ch <- LogLine{Content: line, IsError: false}:
+				case ch <- LogLine{Message: line, IsError: false}:
 				case <-ctx.Done():
 				default:
 					// Channel full - drop the log line
@@ -575,7 +575,7 @@ func (p *program) SubscribeLogs(ctx context.Context) <-chan LogLine {
 		for _, line := range strings.Split(existingError, "\n") {
 			if line != "" {
 				select {
-				case ch <- LogLine{Content: line, IsError: true}:
+				case ch <- LogLine{Message: line, IsError: true}:
 				case <-ctx.Done():
 				default:
 					// Channel full - drop the log line
@@ -597,7 +597,7 @@ func (p *program) SubscribeLogs(ctx context.Context) <-chan LogLine {
 
 func (p *program) broadcastLogSubscriptions(content string, isError bool) {
 	logLine := LogLine{
-		Content: content,
+		Message: content,
 		IsError: isError,
 	}
 

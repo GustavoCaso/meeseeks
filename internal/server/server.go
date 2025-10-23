@@ -209,8 +209,8 @@ func (s *Server) handleFollowLogs(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			data, err := json.Marshal(map[string]interface{}{
-				"message": msg.Content,
-				"error":   msg.IsError,
+				"message":  msg.Message,
+				"is_error": msg.IsError,
 			})
 			if err != nil {
 				return

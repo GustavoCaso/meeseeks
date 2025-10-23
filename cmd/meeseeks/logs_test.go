@@ -61,5 +61,7 @@ func TestLogsCommand_Help(t *testing.T) {
 	testCommandHelp(t, []string{"logs"}, []string{
 		"Usage: meeseeks logs <program_name>",
 		"Show logs for a specific program",
+		"-f",
+		"similar to tail -f",
 	})
 }

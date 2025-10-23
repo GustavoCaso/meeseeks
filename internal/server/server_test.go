@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/GustavoCaso/meeseeks/internal/logger"
+	"github.com/GustavoCaso/meeseeks/pkg/program"
 )
 
 func TestServer_HTTPHandlers(t *testing.T) {
@@ -461,4 +463,421 @@ func BenchmarkServer_HandleRequest(b *testing.B) {
 	for range b.N {
 		_, _ = client.Statistics("")
 	}
+}
+
+func TestFollowLogs(t *testing.T) {
+	t.Run("existing program", func(t *testing.T) {
+		tmpDir := filepath.Join("/tmp", t.Name())
+		err := os.MkdirAll(tmpDir, 0750)
+		if err != nil {
+			t.Fatalf("Failed to create temp dir: %v", err)
+		}
+		t.Cleanup(func() {
+			os.RemoveAll(tmpDir)
+		})
+
+		sockPath := filepath.Join(tmpDir, "meeseeks.sock")
+		configFile := filepath.Join(tmpDir, "test-config.yaml")
+
+		configContent := `programs:
+  - name: "streaming-program"
+    command: "bash"
+    args: ["-c", "for i in 1 2 3 4 5; do echo line$i; sleep 0.2; done"]
+`
+
+		if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
+			t.Fatalf("Failed to create test config file: %v", err)
+		}
+
+		s, err := New(sockPath, configFile, logger.New(), time.Millisecond)
+		if err != nil {
+			t.Fatalf("creating server failed: %s", err.Error())
+		}
+
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+		defer cancel()
+
+		err = s.Start(ctx)
+		if err != nil {
+			t.Fatalf("Failed to start server: %v", err)
+		}
+
+		t.Cleanup(func() {
+			s.Stop()
+		})
+
+		time.Sleep(100 * time.Millisecond)
+
+		client := NewClient(ctx, sockPath)
+
+		logLines := make(chan []byte, 10)
+		err = client.FollowLogs(ctx, "streaming-program", logLines)
+		if err != nil {
+			t.Fatalf("FollowLogs() unexpected error = %v", err)
+		}
+
+		// Wait a bit for program to start generating logs
+		time.Sleep(200 * time.Millisecond)
+
+		// Collect logs
+		var logs []program.LogLine
+		timeout := time.After(3 * time.Second)
+	collectLoop:
+		for {
+			select {
+			case line, ok := <-logLines:
+				if !ok {
+					break collectLoop
+				}
+				var log program.LogLine
+				if err := json.Unmarshal(line, &log); err != nil {
+					// Can happen when context cancelled mid-transmission
+					continue
+				}
+				logs = append(logs, log)
+				if len(logs) >= 3 {
+					cancel()
+					// Give a tiny bit of time for graceful shutdown
+					time.Sleep(10 * time.Millisecond)
+					break collectLoop
+				}
+			case <-timeout:
+				break collectLoop
+			}
+		}
+
+		if len(logs) < 3 {
+			t.Errorf("Expected at least 3 log lines, got %d", len(logs))
+		}
+
+		// Verify we got the expected lines
+		foundLine1 := false
+		for _, log := range logs {
+			if strings.Contains(log.Message, "line1") {
+				foundLine1 = true
+				break
+			}
+		}
+		if !foundLine1 {
+			t.Errorf("Expected to find 'line1' in logs. Logs: %+v", logs)
+		}
+	})
+
+	t.Run("nonexistent", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := filepath.Join("/tmp", t.Name())
+		err := os.MkdirAll(tmpDir, 0750)
+		if err != nil {
+			t.Fatalf("Failed to create temp dir: %v", err)
+		}
+		t.Cleanup(func() {
+			os.RemoveAll(tmpDir)
+		})
+
+		sockPath := filepath.Join(tmpDir, "meeseeks.sock")
+		configFile := filepath.Join(tmpDir, "test-config.yaml")
+
+		configContent := `programs:
+  - name: "test-program"
+    command: "echo"
+    args: ["hello"]
+`
+
+		if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
+			t.Fatalf("Failed to create test config file: %v", err)
+		}
+
+		s, err := New(sockPath, configFile, logger.New(), time.Millisecond)
+		if err != nil {
+			t.Fatalf("creating server failed: %s", err.Error())
+		}
+
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
+
+		err = s.Start(ctx)
+		if err != nil {
+			t.Fatalf("Failed to start server: %v", err)
+		}
+
+		t.Cleanup(func() {
+			s.Stop()
+		})
+
+		time.Sleep(100 * time.Millisecond)
+
+		client := NewClient(ctx, sockPath)
+		logLines := make(chan []byte, 10)
+
+		err = client.FollowLogs(ctx, "nonexistent", logLines)
+		if err == nil {
+			t.Fatal("Expected error for nonexistent program, got none")
+		}
+		if !strings.Contains(err.Error(), "program nonexistent not present") {
+			t.Fatalf("Expected error to contain 'program nonexistent not present', got %q", err.Error())
+		}
+	})
+
+	t.Run("empty name", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := filepath.Join("/tmp", t.Name())
+		err := os.MkdirAll(tmpDir, 0750)
+		if err != nil {
+			t.Fatalf("Failed to create temp dir: %v", err)
+		}
+		t.Cleanup(func() {
+			os.RemoveAll(tmpDir)
+		})
+
+		sockPath := filepath.Join(tmpDir, "meeseeks.sock")
+		configFile := filepath.Join(tmpDir, "test-config.yaml")
+
+		configContent := `programs:
+  - name: "test-program"
+    command: "echo"
+    args: ["hello"]
+`
+
+		if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
+			t.Fatalf("Failed to create test config file: %v", err)
+		}
+
+		s, err := New(sockPath, configFile, logger.New(), time.Millisecond)
+		if err != nil {
+			t.Fatalf("creating server failed: %s", err.Error())
+		}
+
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
+
+		err = s.Start(ctx)
+		if err != nil {
+			t.Fatalf("Failed to start server: %v", err)
+		}
+
+		t.Cleanup(func() {
+			s.Stop()
+		})
+
+		time.Sleep(100 * time.Millisecond)
+
+		client := NewClient(ctx, sockPath)
+		logLines := make(chan []byte, 10)
+
+		err = client.FollowLogs(ctx, "", logLines)
+		if err == nil {
+			t.Fatal("Expected error for empty program name, got none")
+		}
+		if !strings.Contains(err.Error(), "program name required") {
+			t.Fatalf("Expected error to contain 'program name required', got %q", err.Error())
+		}
+	})
+
+	t.Run("stdout stderr", func(t *testing.T) {
+		tmpDir := filepath.Join("/tmp", t.Name())
+		err := os.MkdirAll(tmpDir, 0750)
+		if err != nil {
+			t.Fatalf("Failed to create temp dir: %v", err)
+		}
+		t.Cleanup(func() {
+			os.RemoveAll(tmpDir)
+		})
+
+		sockPath := filepath.Join(tmpDir, "meeseeks.sock")
+		configFile := filepath.Join(tmpDir, "test-config.yaml")
+
+		configContent := `programs:
+  - name: "mixed-output"
+    command: "bash"
+    args: ["-c", "echo stdout1; sleep 0.1; echo stderr1 >&2; sleep 0.1; echo stdout2; sleep 0.5"]
+`
+
+		if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
+			t.Fatalf("Failed to create test config file: %v", err)
+		}
+
+		s, err := New(sockPath, configFile, logger.New(), time.Millisecond)
+		if err != nil {
+			t.Fatalf("creating server failed: %s", err.Error())
+		}
+
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
+
+		err = s.Start(ctx)
+		if err != nil {
+			t.Fatalf("Failed to start server: %v", err)
+		}
+
+		t.Cleanup(func() {
+			s.Stop()
+		})
+
+		time.Sleep(100 * time.Millisecond)
+
+		client := NewClient(ctx, sockPath)
+		logLines := make(chan []byte, 10)
+
+		err = client.FollowLogs(ctx, "mixed-output", logLines)
+		if err != nil {
+			t.Fatalf("FollowLogs() unexpected error = %v", err)
+		}
+
+		// Wait a bit for program to start generating logs
+		time.Sleep(200 * time.Millisecond)
+
+		// Collect logs
+		var logs []program.LogLine
+		timeout := time.After(3 * time.Second)
+	collectLoop2:
+		for {
+			select {
+			case line, ok := <-logLines:
+				if !ok {
+					break collectLoop2
+				}
+				var log program.LogLine
+				if err := json.Unmarshal(line, &log); err != nil {
+					// Can happen when context cancelled mid-transmission
+					continue
+				}
+				logs = append(logs, log)
+				if len(logs) >= 3 {
+					cancel()
+					time.Sleep(10 * time.Millisecond)
+					break collectLoop2
+				}
+			case <-timeout:
+				break collectLoop2
+			}
+		}
+
+		if len(logs) < 3 {
+			t.Errorf("Expected at least 3 log lines, got %d", len(logs))
+		}
+
+		// Verify we got both stdout and stderr
+		var stdoutLines []string
+		var stderrLines []string
+		for _, log := range logs {
+			if log.IsError {
+				stderrLines = append(stderrLines, log.Message)
+			} else {
+				stdoutLines = append(stdoutLines, log.Message)
+			}
+		}
+
+		if len(stdoutLines) < 2 {
+			t.Errorf("Expected at least 2 stdout lines, got %d", len(stdoutLines))
+		}
+		if len(stderrLines) < 1 {
+			t.Errorf("Expected at least 1 stderr line, got %d", len(stderrLines))
+		}
+	})
+
+	t.Run("cancel ctx", func(t *testing.T) {
+		tmpDir := filepath.Join("/tmp", t.Name())
+		err := os.MkdirAll(tmpDir, 0750)
+		if err != nil {
+			t.Fatalf("Failed to create temp dir: %v", err)
+		}
+		t.Cleanup(func() {
+			os.RemoveAll(tmpDir)
+		})
+
+		sockPath := filepath.Join(tmpDir, "meeseeks.sock")
+		configFile := filepath.Join(tmpDir, "test-config.yaml")
+
+		configContent := `programs:
+  - name: "long-runner"
+    command: "bash"
+    args: ["-c", "for i in {1..100}; do echo line$i; sleep 0.05; done"]
+`
+
+		if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
+			t.Fatalf("Failed to create test config file: %v", err)
+		}
+
+		s, err := New(sockPath, configFile, logger.New(), time.Millisecond)
+		if err != nil {
+			t.Fatalf("creating server failed: %s", err.Error())
+		}
+
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+		defer cancel()
+
+		err = s.Start(ctx)
+		if err != nil {
+			t.Fatalf("Failed to start server: %v", err)
+		}
+
+		t.Cleanup(func() {
+			s.Stop()
+		})
+
+		time.Sleep(100 * time.Millisecond)
+
+		streamCtx, streamCancel := context.WithCancel(ctx)
+		defer streamCancel()
+
+		client := NewClient(streamCtx, sockPath)
+		logLines := make(chan []byte, 10)
+
+		err = client.FollowLogs(streamCtx, "long-runner", logLines)
+		if err != nil {
+			t.Fatalf("FollowLogs() unexpected error = %v", err)
+		}
+
+		// Receive a few logs then cancel
+		logsReceived := 0
+	receiveLoop:
+		for {
+			select {
+			case line, ok := <-logLines:
+				if !ok {
+					break receiveLoop
+				}
+				var log program.LogLine
+				if err := json.Unmarshal(line, &log); err != nil {
+					// Can happen when context cancelled mid-transmission
+					continue
+				}
+				logsReceived++
+				if logsReceived >= 3 {
+					streamCancel()
+					time.Sleep(10 * time.Millisecond)
+					break receiveLoop
+				}
+			case <-time.After(2 * time.Second):
+				break receiveLoop
+			}
+		}
+
+		if logsReceived < 3 {
+			t.Errorf("Expected at least 3 logs before cancellation, got %d", logsReceived)
+		}
+
+		// Channel should eventually be closed after cancellation
+		// Need to drain any buffered messages first
+		timeout := time.After(1 * time.Second)
+		channelClosed := false
+	drainLoop:
+		for {
+			select {
+			case _, ok := <-logLines:
+				if !ok {
+					// Channel is closed
+					channelClosed = true
+					break drainLoop
+				}
+				// Keep draining buffered messages
+			case <-timeout:
+				break drainLoop
+			}
+		}
+
+		if !channelClosed {
+			t.Error("Expected channel to be closed after context cancellation")
+		}
+	})
 }

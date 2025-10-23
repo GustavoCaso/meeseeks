@@ -1301,7 +1301,7 @@ func TestProgram_SubscribeLogs(t *testing.T) {
 			t.Fatal("Did not receive stderr message")
 		}
 
-		if stderrLogs[0].Content == "stderr message" {
+		if stderrLogs[0].Message == "stderr message" {
 			t.Fatal("Did not receive correct stderr message")
 		}
 
@@ -1310,7 +1310,7 @@ func TestProgram_SubscribeLogs(t *testing.T) {
 		}
 
 		for _, log := range sdoutLogs {
-			if strings.Contains(log.Content, "stderr") {
+			if strings.Contains(log.Message, "stderr") {
 				t.Fatal("Did not receive correct stdout message. Message conatins stderr")
 			}
 		}
