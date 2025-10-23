@@ -1038,3 +1038,281 @@ func TestBufferSizeLimit(t *testing.T) {
 		}
 	})
 }
+
+func TestProgram_SubscribeLogs(t *testing.T) {
+	t.Parallel()
+
+	t.Run("basic functionality", func(t *testing.T) {
+		t.Parallel()
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+
+		p := New("log-test", "bash",
+			Args("-c", "echo 'line1'; echo 'line2'; echo 'line3'"),
+			Async())
+
+		logCh := p.SubscribeLogs(ctx)
+
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
+		}
+
+		var received []LogLine
+		timeout := time.After(1 * time.Second)
+
+	collectLoop:
+		for {
+			select {
+			case log := <-logCh:
+				received = append(received, log)
+			case <-done:
+				// Program finished, drain remaining logs
+				for {
+					select {
+					case log := <-logCh:
+						received = append(received, log)
+					default:
+						// No more logs to drain
+						break collectLoop
+					}
+				}
+			case <-timeout:
+				t.Fatal("Timeout waiting for logs")
+			}
+		}
+
+		if len(received) < 3 {
+			t.Fatalf("Expected at least 3 log lines, got %d", len(received))
+		}
+	})
+
+	t.Run("historical logs", func(t *testing.T) {
+		t.Parallel()
+
+		p := New("historical-test", "echo", Args("historical output"))
+
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
+		}
+		<-done
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		logCh := p.SubscribeLogs(ctx)
+
+		timeout := time.After(1 * time.Second)
+		var received []LogLine
+
+	collectLoop:
+		for {
+			select {
+			case log := <-logCh:
+				received = append(received, log)
+				if len(received) == 1 {
+					break collectLoop
+				}
+			case <-timeout:
+				break collectLoop
+			}
+		}
+
+		if len(received) != 1 {
+			t.Fatal("Expected to receive historical logs")
+		}
+	})
+
+	t.Run("multiple subscribers", func(t *testing.T) {
+		t.Parallel()
+
+		p := New("multi-sub-test", "bash",
+			Args("-c", "for i in {1..5}; do echo \"message $i\"; sleep 0.05; done"),
+			Async())
+
+		ctx1, cancel1 := context.WithCancel(t.Context())
+		ctx2, cancel2 := context.WithCancel(t.Context())
+		ctx3, cancel3 := context.WithCancel(t.Context())
+
+		logCh1 := p.SubscribeLogs(ctx1)
+		logCh2 := p.SubscribeLogs(ctx2)
+		logCh3 := p.SubscribeLogs(ctx3)
+
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
+		}
+
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		allReceived := make([][]LogLine, 3)
+
+		collectFunc := func(id int, ch <-chan LogLine) {
+			defer wg.Done()
+			timeout := time.After(3 * time.Second)
+			for {
+				select {
+				case log, ok := <-ch:
+					if !ok {
+						return
+					}
+					mu.Lock()
+					allReceived[id] = append(allReceived[id], log)
+					mu.Unlock()
+				case <-timeout:
+					return
+				}
+			}
+		}
+
+		wg.Add(3)
+		go collectFunc(0, logCh1)
+		go collectFunc(1, logCh2)
+		go collectFunc(2, logCh3)
+
+		<-done
+
+		cancel1()
+		cancel2()
+		cancel3()
+		wg.Wait()
+
+		for i, logs := range allReceived {
+			if len(logs) != 5 {
+				t.Errorf("Subscriber %d received %d logs, expected 5", i, len(logs))
+			}
+		}
+	})
+
+	t.Run("context cancellation", func(t *testing.T) {
+		t.Parallel()
+
+		p := New("cancel-sub-test", "bash",
+			Args("-c", "for i in {1..100}; do echo \"line $i\"; sleep 0.05; done"),
+			Async())
+
+		ctx, cancel := context.WithCancel(t.Context())
+		logCh := p.SubscribeLogs(ctx)
+
+		_, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
+		}
+
+		receivedCount := 0
+		timeout := time.After(1 * time.Second)
+		for receivedCount < 3 {
+			select {
+			case <-logCh:
+				receivedCount++
+			case <-timeout:
+				t.Fatal("Timeout waiting for initial logs")
+			}
+		}
+
+		cancel()
+
+		// Channel should be close
+		_, ok := <-logCh
+		if ok {
+			t.Error("Expected channel to be closed after context cancellation")
+		}
+
+		shutdownErr := p.Shutdown(1 * time.Second)
+		if shutdownErr != nil {
+			t.Fatalf("Error shutting down the program %s", shutdownErr.Error())
+		}
+	})
+
+	t.Run("program finishes continues streaming", func(t *testing.T) {
+		t.Parallel()
+
+		p := New("finish-stream-test", "echo", Args("finish test"), Async())
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		logCh := p.SubscribeLogs(ctx)
+
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
+		}
+
+		<-done
+
+		_, ok := <-logCh
+		if !ok {
+			t.Error("Expected channel to remain open after program finishes (tail -f behavior)")
+		}
+
+		// Explicitly cancel context
+		cancel()
+	})
+
+	t.Run("stdout and stderr distinction", func(t *testing.T) {
+		t.Parallel()
+
+		p := New("stdout-stderr-test", "bash",
+			Args("-c", "echo 'stdout message'; echo 'stderr message' >&2; echo 'stdout message 2'"),
+			Async())
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		logCh := p.SubscribeLogs(ctx)
+
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
+		}
+
+		var sdoutLogs []LogLine
+		var stderrLogs []LogLine
+		timeout := time.After(1 * time.Second)
+
+	collectLoop:
+		for {
+			select {
+			case log := <-logCh:
+				if log.IsError {
+					stderrLogs = append(stderrLogs, log)
+				} else {
+					sdoutLogs = append(sdoutLogs, log)
+				}
+			case <-done:
+				// Drain remaining logs
+				for {
+					select {
+					case log := <-logCh:
+						if log.IsError {
+							stderrLogs = append(stderrLogs, log)
+						} else {
+							sdoutLogs = append(sdoutLogs, log)
+						}
+					default:
+						break collectLoop
+					}
+				}
+			case <-timeout:
+				t.Fatal("Timeout collecting logs")
+			}
+		}
+
+		if len(stderrLogs) != 1 {
+			t.Fatal("Did not receive stderr message")
+		}
+
+		if stderrLogs[0].Content == "stderr message" {
+			t.Fatal("Did not receive correct stderr message")
+		}
+
+		if len(sdoutLogs) != 2 {
+			t.Fatal("Did not receive stdout messages")
+		}
+
+		for _, log := range sdoutLogs {
+			if strings.Contains(log.Content, "stderr") {
+				t.Fatal("Did not receive correct stdout message. Message conatins stderr")
+			}
+		}
+	})
+}
