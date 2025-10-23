@@ -32,6 +32,7 @@ func Equal(program, other Program) bool {
 	return program.Interval() == other.Interval()
 }
 
+// LogLine represent a log line sent to the subscription channel.
 type LogLine struct {
 	Content string
 	IsError bool
@@ -223,7 +224,8 @@ type program struct {
 	outputBuffer            strings.Builder
 	errorBuffer             strings.Builder
 	bufferLimit             int
-	logSubscriptionChannels map[uint64]chan LogLine
+	subscriptionIDCounter   atomic.Uint32
+	logSubscriptionChannels map[uint32]chan LogLine
 	subsLock                sync.RWMutex
 
 	dataLock sync.RWMutex
@@ -542,11 +544,9 @@ func (p *program) writeOutput(buffer *strings.Builder, s string, isError bool) {
 	p.broadcastLogSubscriptions(newContent, isError)
 }
 
-var subscriptionIDCounter atomic.Uint64
-
 func (p *program) SubscribeLogs(ctx context.Context) <-chan LogLine {
 	ch := make(chan LogLine, 1000)
-	id := subscriptionIDCounter.Add(1)
+	id := p.subscriptionIDCounter.Add(1)
 
 	p.subsLock.Lock()
 	p.logSubscriptionChannels[id] = ch
@@ -740,7 +740,7 @@ func New(name, command string, opts ...Option) Program {
 		name:                    name,
 		command:                 command,
 		finalizers:              []func() error{},
-		logSubscriptionChannels: make(map[uint64]chan LogLine),
+		logSubscriptionChannels: make(map[uint32]chan LogLine),
 	}
 
 	for _, opt := range opts {
