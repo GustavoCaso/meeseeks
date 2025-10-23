@@ -37,10 +37,6 @@ type LogLine struct {
 	IsError bool
 }
 
-type logSubscription struct {
-	ch chan LogLine
-}
-
 // Program defines the interface for managing individual external processes.
 // It provides methods for execution, monitoring, I/O control, and lifecycle management
 // with support for both synchronous and asynchronous execution modes.
@@ -64,7 +60,8 @@ type Program interface {
 	Output() string
 	// Error returns all stderr content and error messages from the program.
 	Error() string
-	// SubscribeLogs return a channel to consume logs in real-time
+	// SubscribeLogs return a channel to consume logs in real-time.
+	// The caller is responsible for closing the context which ensure the channel is closed.
 	SubscribeLogs(ctx context.Context) <-chan LogLine
 	// State returns the current execution state of the program.
 	State() ProcessState
@@ -221,13 +218,13 @@ type program struct {
 	keepStdinOpen bool
 	customEnv     []string
 
-	state            ProcessState
-	exitCode         int
-	outputBuffer     strings.Builder
-	errorBuffer      strings.Builder
-	bufferLimit      int
-	logSubscriptions map[uint64]*logSubscription
-	subsLock         sync.RWMutex
+	state                   ProcessState
+	exitCode                int
+	outputBuffer            strings.Builder
+	errorBuffer             strings.Builder
+	bufferLimit             int
+	logSubscriptionChannels map[uint64]chan LogLine
+	subsLock                sync.RWMutex
 
 	dataLock sync.RWMutex
 	cmdLock  sync.Mutex
@@ -551,11 +548,8 @@ func (p *program) SubscribeLogs(ctx context.Context) <-chan LogLine {
 	ch := make(chan LogLine, 1000)
 	id := subscriptionIDCounter.Add(1)
 
-	subscription := &logSubscription{
-		ch: ch,
-	}
 	p.subsLock.Lock()
-	p.logSubscriptions[id] = subscription
+	p.logSubscriptionChannels[id] = ch
 	p.subsLock.Unlock()
 
 	p.dataLock.RLock()
@@ -593,7 +587,7 @@ func (p *program) SubscribeLogs(ctx context.Context) <-chan LogLine {
 	go func() {
 		<-ctx.Done()
 		p.subsLock.Lock()
-		delete(p.logSubscriptions, id)
+		delete(p.logSubscriptionChannels, id)
 		p.subsLock.Unlock()
 		close(ch)
 	}()
@@ -609,9 +603,9 @@ func (p *program) broadcastLogSubscriptions(content string, isError bool) {
 
 	p.subsLock.RLock()
 	defer p.subsLock.RUnlock()
-	for _, sub := range p.logSubscriptions {
+	for _, ch := range p.logSubscriptionChannels {
 		select {
-		case sub.ch <- logLine:
+		case ch <- logLine:
 		default:
 			// Channel full - drop the log line
 		}
@@ -743,10 +737,10 @@ func (p *program) forcekill() error {
 // New creates a new Program instance with the provided options.
 func New(name, command string, opts ...Option) Program {
 	p := &program{
-		name:             name,
-		command:          command,
-		finalizers:       []func() error{},
-		logSubscriptions: make(map[uint64]*logSubscription),
+		name:                    name,
+		command:                 command,
+		finalizers:              []func() error{},
+		logSubscriptionChannels: make(map[uint64]chan LogLine),
 	}
 
 	for _, opt := range opts {
