@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -29,6 +30,15 @@ func Equal(program, other Program) bool {
 	}
 
 	return program.Interval() == other.Interval()
+}
+
+type LogLine struct {
+	Content string
+	IsError bool
+}
+
+type logSubscription struct {
+	ch chan LogLine
 }
 
 // Program defines the interface for managing individual external processes.
@@ -54,6 +64,8 @@ type Program interface {
 	Output() string
 	// Error returns all stderr content and error messages from the program.
 	Error() string
+	// SubscribeLogs return a channel to consume logs in real-time
+	SubscribeLogs(ctx context.Context) <-chan LogLine
 	// State returns the current execution state of the program.
 	State() ProcessState
 	// String returns a human-readable representation of the program including name and command.
@@ -209,11 +221,13 @@ type program struct {
 	keepStdinOpen bool
 	customEnv     []string
 
-	state        ProcessState
-	exitCode     int
-	outputBuffer strings.Builder
-	errorBuffer  strings.Builder
-	bufferLimit  int
+	state            ProcessState
+	exitCode         int
+	outputBuffer     strings.Builder
+	errorBuffer      strings.Builder
+	bufferLimit      int
+	logSubscriptions map[uint64]*logSubscription
+	subsLock         sync.RWMutex
 
 	dataLock sync.RWMutex
 	cmdLock  sync.Mutex
@@ -273,6 +287,7 @@ func (p *program) finalize() {
 			}
 		}
 	}
+	p.finalizers = []func() error{}
 
 	close(p.done)
 }
@@ -385,7 +400,7 @@ func (p *program) run() error {
 
 	if err != nil {
 		p.dataLock.Lock()
-		p.writeOutput(&p.errorBuffer, err.Error())
+		p.writeOutput(&p.errorBuffer, err.Error(), true)
 
 		p.state = StateError
 		p.dataLock.Unlock()
@@ -470,7 +485,7 @@ func (p *program) monitorProcess() {
 				p.state = StateCancelled
 			}
 		}
-		p.writeOutput(&p.errorBuffer, err.Error())
+		p.writeOutput(&p.errorBuffer, err.Error(), true)
 	} else {
 		p.state = StateFinished
 	}
@@ -486,9 +501,9 @@ func (p *program) readOutput(reader io.Reader, isError bool) {
 		line := scanner.Text()
 		p.dataLock.Lock()
 		if isError {
-			p.writeOutput(&p.errorBuffer, line)
+			p.writeOutput(&p.errorBuffer, line, true)
 		} else {
-			p.writeOutput(&p.outputBuffer, line)
+			p.writeOutput(&p.outputBuffer, line, false)
 		}
 		p.dataLock.Unlock()
 	}
@@ -496,18 +511,19 @@ func (p *program) readOutput(reader io.Reader, isError bool) {
 	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
 		if isError {
 			p.dataLock.Lock()
-			p.writeOutput(&p.errorBuffer, "Scanner error: "+err.Error())
+			p.writeOutput(&p.errorBuffer, "Scanner error: "+err.Error(), true)
 			p.dataLock.Unlock()
 		}
 	}
 }
 
 // writeOutput handles buffer management with proper truncation and thread safety.
-func (p *program) writeOutput(buffer *strings.Builder, s string) {
+func (p *program) writeOutput(buffer *strings.Builder, s string, isError bool) {
 	newContent := s + "\n"
 
 	if p.bufferLimit <= 0 {
 		buffer.WriteString(newContent)
+		p.broadcastLogSubscriptions(newContent, isError)
 		return
 	}
 
@@ -526,6 +542,80 @@ func (p *program) writeOutput(buffer *strings.Builder, s string) {
 	}
 
 	buffer.WriteString(newContent)
+	p.broadcastLogSubscriptions(newContent, isError)
+}
+
+var subscriptionIDCounter atomic.Uint64
+
+func (p *program) SubscribeLogs(ctx context.Context) <-chan LogLine {
+	ch := make(chan LogLine, 1000)
+	id := subscriptionIDCounter.Add(1)
+
+	subscription := &logSubscription{
+		ch: ch,
+	}
+	p.subsLock.Lock()
+	p.logSubscriptions[id] = subscription
+	p.subsLock.Unlock()
+
+	p.dataLock.RLock()
+	existingOutput := p.outputBuffer.String()
+	existingError := p.errorBuffer.String()
+	p.dataLock.RUnlock()
+
+	// Send existing log lines
+	if existingOutput != "" {
+		for _, line := range strings.Split(existingOutput, "\n") {
+			if line != "" {
+				select {
+				case ch <- LogLine{Content: line, IsError: false}:
+				case <-ctx.Done():
+				default:
+					// Channel full - drop the log line
+				}
+			}
+		}
+	}
+
+	if existingError != "" {
+		for _, line := range strings.Split(existingError, "\n") {
+			if line != "" {
+				select {
+				case ch <- LogLine{Content: line, IsError: true}:
+				case <-ctx.Done():
+				default:
+					// Channel full - drop the log line
+				}
+			}
+		}
+	}
+
+	go func() {
+		<-ctx.Done()
+		p.subsLock.Lock()
+		delete(p.logSubscriptions, id)
+		p.subsLock.Unlock()
+		close(ch)
+	}()
+
+	return ch
+}
+
+func (p *program) broadcastLogSubscriptions(content string, isError bool) {
+	logLine := LogLine{
+		Content: content,
+		IsError: isError,
+	}
+
+	p.subsLock.RLock()
+	defer p.subsLock.RUnlock()
+	for _, sub := range p.logSubscriptions {
+		select {
+		case sub.ch <- logLine:
+		default:
+			// Channel full - drop the log line
+		}
+	}
 }
 
 func (p *program) Send(data []byte) error {
@@ -653,9 +743,10 @@ func (p *program) forcekill() error {
 // New creates a new Program instance with the provided options.
 func New(name, command string, opts ...Option) Program {
 	p := &program{
-		name:       name,
-		command:    command,
-		finalizers: []func() error{},
+		name:             name,
+		command:          command,
+		finalizers:       []func() error{},
+		logSubscriptions: make(map[uint64]*logSubscription),
 	}
 
 	for _, opt := range opts {
