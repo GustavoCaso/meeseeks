@@ -199,6 +199,9 @@ func (s *Server) handleFollowLogs(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	rc := http.NewResponseController(w)
+	// Since we do not know how often programs log
+	// we want to keep the connection open as long as the user want.
+	_ = rc.SetWriteDeadline(time.Time{})
 
 	for {
 		select {
