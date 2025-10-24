@@ -517,7 +517,8 @@ func TestFollowLogs(t *testing.T) {
 
 		// Collect logs
 		var logs []program.LogLine
-		timeout := time.After(3 * time.Second)
+		timeout := time.After(1 * time.Second)
+
 	collectLoop:
 		for {
 			select {
@@ -527,7 +528,6 @@ func TestFollowLogs(t *testing.T) {
 				}
 				var log program.LogLine
 				if err := json.Unmarshal(line, &log); err != nil {
-					// Can happen when context cancelled mid-transmission
 					continue
 				}
 				logs = append(logs, log)
@@ -544,7 +544,6 @@ func TestFollowLogs(t *testing.T) {
 			t.Errorf("Expected at least 3 log lines, got %d", len(logs))
 		}
 
-		// Verify we got the expected lines
 		foundLine1 := false
 		for _, log := range logs {
 			if strings.Contains(log.Message, "line1") {
@@ -712,43 +711,39 @@ func TestFollowLogs(t *testing.T) {
 		}
 
 		// Collect logs
-		var logs []program.LogLine
-		timeout := time.After(3 * time.Second)
-	collectLoop2:
+		var stdoutLines []program.LogLine
+		var stderrLines []program.LogLine
+		total := 0
+		timeout := time.After(1 * time.Second)
+
+	collectLoop:
 		for {
 			select {
 			case line, ok := <-logLines:
 				if !ok {
-					break collectLoop2
+					break collectLoop
 				}
 				var log program.LogLine
 				if err := json.Unmarshal(line, &log); err != nil {
-					// Can happen when context cancelled mid-transmission
 					continue
 				}
-				logs = append(logs, log)
-				if len(logs) >= 3 {
+				if log.IsError {
+					stderrLines = append(stderrLines, log)
+				} else {
+					stdoutLines = append(stdoutLines, log)
+				}
+				total++
+				if total >= 3 {
 					cancel()
-					break collectLoop2
+					break collectLoop
 				}
 			case <-timeout:
-				break collectLoop2
+				break collectLoop
 			}
 		}
 
-		if len(logs) < 3 {
-			t.Errorf("Expected at least 3 log lines, got %d", len(logs))
-		}
-
-		// Verify we got both stdout and stderr
-		var stdoutLines []string
-		var stderrLines []string
-		for _, log := range logs {
-			if log.IsError {
-				stderrLines = append(stderrLines, log.Message)
-			} else {
-				stdoutLines = append(stdoutLines, log.Message)
-			}
+		if total < 3 {
+			t.Errorf("Expected at least 3 log lines, got %d", total)
 		}
 
 		if len(stdoutLines) < 2 {
@@ -812,25 +807,24 @@ func TestFollowLogs(t *testing.T) {
 
 		// Receive a few logs then cancel
 		logsReceived := 0
-	receiveLoop:
+	collectLoop:
 		for {
 			select {
 			case line, ok := <-logLines:
 				if !ok {
-					break receiveLoop
+					break collectLoop
 				}
 				var log program.LogLine
 				if err := json.Unmarshal(line, &log); err != nil {
-					// Can happen when context cancelled mid-transmission
 					continue
 				}
 				logsReceived++
 				if logsReceived >= 3 {
 					streamCancel()
-					break receiveLoop
+					break collectLoop
 				}
 			case <-time.After(2 * time.Second):
-				break receiveLoop
+				break collectLoop
 			}
 		}
 
@@ -842,6 +836,7 @@ func TestFollowLogs(t *testing.T) {
 		// Need to drain any buffered messages first
 		timeout := time.After(1 * time.Second)
 		channelClosed := false
+
 	drainLoop:
 		for {
 			select {
