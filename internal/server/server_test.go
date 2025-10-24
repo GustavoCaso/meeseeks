@@ -506,8 +506,6 @@ func TestFollowLogs(t *testing.T) {
 			s.Stop()
 		})
 
-		time.Sleep(100 * time.Millisecond)
-
 		client := NewClient(ctx, sockPath)
 
 		logLines := make(chan []byte, 10)
@@ -515,9 +513,6 @@ func TestFollowLogs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("FollowLogs() unexpected error = %v", err)
 		}
-
-		// Wait a bit for program to start generating logs
-		time.Sleep(200 * time.Millisecond)
 
 		// Collect logs
 		var logs []program.LogLine
@@ -537,8 +532,6 @@ func TestFollowLogs(t *testing.T) {
 				logs = append(logs, log)
 				if len(logs) >= 3 {
 					cancel()
-					// Give a tiny bit of time for graceful shutdown
-					time.Sleep(10 * time.Millisecond)
 					break collectLoop
 				}
 			case <-timeout:
@@ -604,8 +597,6 @@ func TestFollowLogs(t *testing.T) {
 			s.Stop()
 		})
 
-		time.Sleep(100 * time.Millisecond)
-
 		client := NewClient(ctx, sockPath)
 		logLines := make(chan []byte, 10)
 
@@ -659,8 +650,6 @@ func TestFollowLogs(t *testing.T) {
 			s.Stop()
 		})
 
-		time.Sleep(100 * time.Millisecond)
-
 		client := NewClient(ctx, sockPath)
 		logLines := make(chan []byte, 10)
 
@@ -713,8 +702,6 @@ func TestFollowLogs(t *testing.T) {
 			s.Stop()
 		})
 
-		time.Sleep(100 * time.Millisecond)
-
 		client := NewClient(ctx, sockPath)
 		logLines := make(chan []byte, 10)
 
@@ -722,9 +709,6 @@ func TestFollowLogs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("FollowLogs() unexpected error = %v", err)
 		}
-
-		// Wait a bit for program to start generating logs
-		time.Sleep(200 * time.Millisecond)
 
 		// Collect logs
 		var logs []program.LogLine
@@ -744,7 +728,6 @@ func TestFollowLogs(t *testing.T) {
 				logs = append(logs, log)
 				if len(logs) >= 3 {
 					cancel()
-					time.Sleep(10 * time.Millisecond)
 					break collectLoop2
 				}
 			case <-timeout:
@@ -815,8 +798,6 @@ func TestFollowLogs(t *testing.T) {
 			s.Stop()
 		})
 
-		time.Sleep(100 * time.Millisecond)
-
 		streamCtx, streamCancel := context.WithCancel(ctx)
 		defer streamCancel()
 
@@ -845,7 +826,6 @@ func TestFollowLogs(t *testing.T) {
 				logsReceived++
 				if logsReceived >= 3 {
 					streamCancel()
-					time.Sleep(10 * time.Millisecond)
 					break receiveLoop
 				}
 			case <-time.After(2 * time.Second):
