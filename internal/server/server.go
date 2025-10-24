@@ -170,6 +170,7 @@ func (s *Server) handleStatistics(w http.ResponseWriter, r *http.Request) {
 	handleResponse(w, resp)
 }
 
+//nolint:gocognit //The complexity is acceptable
 func (s *Server) handleFollowLogs(w http.ResponseWriter, r *http.Request) {
 	programName := r.URL.Query().Get("program")
 
@@ -198,7 +199,6 @@ func (s *Server) handleFollowLogs(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	rc := http.NewResponseController(w)
-	rc.SetWriteDeadline(time.Time{})
 
 	for {
 		select {
@@ -209,11 +209,11 @@ func (s *Server) handleFollowLogs(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if len(msg.Message) > 0 {
-				data, err := json.Marshal(map[string]interface{}{
+				data, dataErr := json.Marshal(map[string]interface{}{
 					"message":  msg.Message,
 					"is_error": msg.IsError,
 				})
-				if err != nil {
+				if dataErr != nil {
 					return
 				}
 				_, err = fmt.Fprintf(w, "data: %s\n\n", data)

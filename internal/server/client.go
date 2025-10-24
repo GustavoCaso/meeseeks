@@ -98,9 +98,8 @@ func (c *Client) Logs(programName string) (*Response, error) {
 	return c.sendRequest("/logs", params)
 }
 
-var (
-	headerData = []byte("data:")
-)
+//nolint:gochecknoglobals // This gloabls is convinient
+var headerData = []byte("data:")
 
 func (c *Client) FollowLogs(ctx context.Context, programName string, logLines chan []byte) error {
 	if _, err := os.Stat(c.sockPath); os.IsNotExist(err) {
@@ -122,6 +121,7 @@ func (c *Client) FollowLogs(ctx context.Context, programName string, logLines ch
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
+	//nolint:bodyclose // We can not use defer as we close the inside a goroutine
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return err
@@ -131,7 +131,7 @@ func (c *Client) FollowLogs(ctx context.Context, programName string, logLines ch
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		var response Response
-		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		if err = json.NewDecoder(resp.Body).Decode(&response); err != nil {
 			return fmt.Errorf("server returned status %d: %w", resp.StatusCode, err)
 		}
 		return fmt.Errorf("failed to follow logs: %s", response.Error)
@@ -144,7 +144,7 @@ func (c *Client) FollowLogs(ctx context.Context, programName string, logLines ch
 		scanner := bufio.NewScanner(resp.Body)
 		for scanner.Scan() {
 			line := scanner.Bytes()
-			if len(line) <= 0 {
+			if len(line) == 0 {
 				// Skip empty
 				continue
 			}
@@ -178,7 +178,7 @@ func processEvent(msg []byte) *event {
 		switch {
 		case bytes.HasPrefix(line, headerData):
 			// The spec allows for multiple data fields per event, concatenated them with "\n".
-			e.Data = append(e.Data[:], append(trimHeader(len(headerData), line), byte('\n'))...)
+			e.Data = append(e.Data, append(trimHeader(len(headerData), line), byte('\n'))...)
 		// The spec says that a line that simply contains the string "data" should be treated as a data field with an empty body.
 		case bytes.Equal(line, bytes.TrimSuffix(headerData, []byte(":"))):
 			e.Data = append(e.Data, byte('\n'))

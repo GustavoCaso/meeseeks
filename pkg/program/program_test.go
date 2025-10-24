@@ -1212,7 +1212,7 @@ func TestProgram_SubscribeLogs(t *testing.T) {
 
 		cancel()
 
-		// Channel should be close
+		// Channel should be closed
 		_, ok := <-logCh
 		if ok {
 			t.Error("Expected channel to be closed after context cancellation")

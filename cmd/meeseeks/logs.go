@@ -63,10 +63,10 @@ func logsCommand(args []string, _ *logger.Logger) error {
 
 		for line := range logsLine {
 			var log program.LogLine
-			err := json.Unmarshal(line, &log)
+			unmarshalErr := json.Unmarshal(line, &log)
 
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error unmarshaling log: %s\n", err)
+			if unmarshalErr != nil {
+				fmt.Fprintf(os.Stderr, "Error unmarshaling log: %s\n", unmarshalErr)
 				continue
 			}
 

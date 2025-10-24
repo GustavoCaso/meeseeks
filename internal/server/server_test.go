@@ -466,6 +466,7 @@ func BenchmarkServer_HandleRequest(b *testing.B) {
 }
 
 func TestFollowLogs(t *testing.T) {
+	t.Parallel()
 	t.Run("existing program", func(t *testing.T) {
 		tmpDir := filepath.Join("/tmp", t.Name())
 		err := os.MkdirAll(tmpDir, 0750)
