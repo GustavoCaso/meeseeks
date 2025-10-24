@@ -21,7 +21,7 @@ func statusCommand(args []string, _ *logger.Logger) error {
 	format := fs.String("format", tableFormat, "Output format: table, json")
 	fs.StringVar(format, "f", tableFormat, "Output format: table, json (shorthand)")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: meeseeks status [options] [program_name]\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: meeseeks status [options] [program_name] \n\n")
 		fmt.Fprintf(os.Stderr, "Show status of running programs\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		fs.PrintDefaults()

@@ -1,6 +1,8 @@
 package server
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -94,6 +96,118 @@ func (c *Client) Logs(programName string) (*Response, error) {
 		"program": programName,
 	}
 	return c.sendRequest("/logs", params)
+}
+
+//nolint:gochecknoglobals // This gloabls is convinient
+var headerData = []byte("data:")
+
+func (c *Client) FollowLogs(ctx context.Context, programName string, logLines chan []byte) error {
+	if _, err := os.Stat(c.sockPath); os.IsNotExist(err) {
+		return errors.New("meeseeks server not running (socket not found)")
+	}
+
+	reqURL := &url.URL{
+		Scheme: "http",
+		Host:   "unix",
+		Path:   "/follow-logs",
+	}
+
+	q := reqURL.Query()
+	q.Set("program", programName)
+	reqURL.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL.String(), nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	//nolint:bodyclose // We can not use defer as we close the inside a goroutine
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return err
+	}
+
+	// Check for HTTP errors before attempting to parse SSE
+	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		var response Response
+		if err = json.NewDecoder(resp.Body).Decode(&response); err != nil {
+			return fmt.Errorf("server returned status %d: %w", resp.StatusCode, err)
+		}
+		return fmt.Errorf("failed to follow logs: %s", response.Error)
+	}
+
+	go func() {
+		defer resp.Body.Close()
+		defer close(logLines)
+
+		scanner := bufio.NewScanner(resp.Body)
+		for scanner.Scan() {
+			line := scanner.Bytes()
+			if len(line) == 0 {
+				// Skip empty
+				continue
+			}
+			event := processEvent(line)
+
+			select {
+			case <-ctx.Done():
+				return
+			case logLines <- event.Data:
+			}
+		}
+
+		if err = scanner.Err(); err != nil && !errors.Is(err, context.Canceled) {
+			fmt.Fprintf(os.Stderr, "Error reading body follow logs:%s\n", err)
+		}
+	}()
+
+	return nil
+}
+
+type event struct {
+	Data []byte
+}
+
+func processEvent(msg []byte) *event {
+	var e event
+
+	// Normalize the crlf to lf to make it easier to split the lines.
+	// Split the line by "\n" or "\r", per the spec.
+	for _, line := range bytes.FieldsFunc(msg, func(r rune) bool { return r == '\n' || r == '\r' }) {
+		switch {
+		case bytes.HasPrefix(line, headerData):
+			// The spec allows for multiple data fields per event, concatenated them with "\n".
+			e.Data = append(e.Data, append(trimHeader(len(headerData), line), byte('\n'))...)
+		// The spec says that a line that simply contains the string "data" should be treated as a data field with an empty body.
+		case bytes.Equal(line, bytes.TrimSuffix(headerData, []byte(":"))):
+			e.Data = append(e.Data, byte('\n'))
+		default:
+			// We only care about data
+		}
+	}
+
+	// Trim the last "\n" per the spec.
+	e.Data = bytes.TrimSuffix(e.Data, []byte("\n"))
+
+	return &e
+}
+
+func trimHeader(size int, data []byte) []byte {
+	if data == nil || len(data) < size {
+		return data
+	}
+
+	data = data[size:]
+	// Remove optional leading whitespace
+	if len(data) > 0 && data[0] == 32 {
+		data = data[1:]
+	}
+	// Remove trailing new line
+	if len(data) > 0 && data[len(data)-1] == 10 {
+		data = data[:len(data)-1]
+	}
+	return data
 }
 
 func (c *Client) Stop(programName, timeout string) (*Response, error) {

@@ -81,9 +81,63 @@ func main() {
     
     // Print statistics
     for _, stat := range m.Statistics() {
-        fmt.Printf("Program: %s, Successful: %d, Failed: %d\n", 
+        fmt.Printf("Program: %s, Successful: %d, Failed: %d\n",
             stat.ProgramName, stat.Successful, stat.Failed)
     }
+}
+```
+
+#### Real-time Log Streaming
+
+Subscribe to program logs in real-time using `SubscribeLogs()`:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "os"
+
+    "github.com/GustavoCaso/meeseeks/pkg/program"
+)
+
+func main() {
+    // Create a program
+    p := program.New("web-server", "python",
+        program.Args("-m", "http.server", "8080"),
+        program.Async(),
+    )
+
+    // Subscribe to logs before starting
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel()
+
+    logCh := p.SubscribeLogs(ctx)
+
+    // Process logs in a separate goroutine
+    go func() {
+        for log := range logCh {
+            if log.IsError {
+                fmt.Fprintf(os.Stderr, "[ERROR] %s", log.Content)
+            } else {
+                fmt.Fprintf(os.Stdout, "[OUTPUT] %s", log.Content)
+            }
+        }
+    }()
+
+    // Start the program
+    done, err := p.Start(context.Background())
+    if err != nil {
+        fmt.Printf("Failed to start: %v\n", err)
+        return
+    }
+
+    // Wait for program to finish (logs continue streaming)
+    <-done
+
+    // Cancel context to stop log subscription
+    cancel()
 }
 ```
 
@@ -145,8 +199,9 @@ meeseeks start -d -config config.yaml
 **Check status**:
 
 ```bash
-meeseeks status
-meeseeks status web-server
+meeseeks status # Status of all programs
+meeseeks status web-server  # Status of a single program
+meeseeks status -f json web-server # Status of a single program with json output
 ```
 
 **Run particular program**
@@ -159,6 +214,7 @@ meeseeks run health-check
 
 ```bash
 meeseeks logs web-server
+meeseeks logs -f web-server # Get logs in real-time
 ```
 
 **Stop processes**:

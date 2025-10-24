@@ -1304,6 +1304,45 @@ func TestMeeseekReload_WaitDoNotExistWhileReloading(t *testing.T) {
 	}
 }
 
+func TestMeeseek_SubscribeLogs(t *testing.T) {
+	t.Parallel()
+
+	t.Run("subscribe to existing program", func(t *testing.T) {
+		t.Parallel()
+		m := New()
+
+		prog := program.New("test-logs", "bash",
+			program.Args("-c", "echo 'line1'; echo 'line2'; echo 'error' >&2"),
+		)
+		err := m.AddProgram(prog)
+		if err != nil {
+			t.Fatalf("Failed to add program: %v", err)
+		}
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+
+		_, err = m.SubscribeLogs(ctx, "test-logs")
+		if err != nil {
+			t.Fatalf("Failed to subscribe to logs: %v", err)
+		}
+	})
+
+	t.Run("subscribe to nonexistent program", func(t *testing.T) {
+		t.Parallel()
+		m := New()
+
+		ctx := context.Background()
+		_, err := m.SubscribeLogs(ctx, "nonexistent")
+		if err == nil {
+			t.Fatal("Expected error for nonexistent program, got none")
+		}
+		if !strings.Contains(err.Error(), "program nonexistent not present") {
+			t.Fatalf("Expected error to contain 'program nonexistent not present', got %q", err.Error())
+		}
+	})
+}
+
 func TestMeeseek_Run(t *testing.T) {
 	t.Parallel()
 

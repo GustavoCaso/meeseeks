@@ -53,6 +53,7 @@ func New(sockPath string, configPath string, logger *logger.Logger, timeout time
 	mux.HandleFunc("/statistics", s.handleStatistics)
 	mux.HandleFunc("/reload", s.handleReload)
 	mux.HandleFunc("/logs", s.handleLogs)
+	mux.HandleFunc("/follow-logs", s.handleFollowLogs)
 	mux.HandleFunc("/stop", s.handleStop)
 	mux.HandleFunc("/run-program", s.handleRunProgram)
 
@@ -167,6 +168,68 @@ func (s *Server) handleStatistics(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	handleResponse(w, resp)
+}
+
+//nolint:gocognit //The complexity is acceptable
+func (s *Server) handleFollowLogs(w http.ResponseWriter, r *http.Request) {
+	programName := r.URL.Query().Get("program")
+
+	if programName == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		resp := Response{Success: false, Error: "program name required"}
+		handleResponse(w, resp)
+		return
+	}
+
+	ctx := r.Context()
+	channel, err := s.meeseeks.SubscribeLogs(ctx, programName)
+
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		resp := Response{Success: false, Error: err.Error()}
+		handleResponse(w, resp)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+
+	rc := http.NewResponseController(w)
+	// Since we do not know how often programs log
+	// we want to keep the connection open as long as the user want.
+	_ = rc.SetWriteDeadline(time.Time{})
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg, ok := <-channel:
+			if !ok {
+				return
+			}
+			if len(msg.Message) > 0 {
+				data, dataErr := json.Marshal(map[string]interface{}{
+					"message":  msg.Message,
+					"is_error": msg.IsError,
+				})
+				if dataErr != nil {
+					return
+				}
+				_, err = fmt.Fprintf(w, "data: %s\n\n", data)
+				if err != nil {
+					return
+				}
+				err = rc.Flush()
+				if err != nil {
+					return
+				}
+			}
+		}
+	}
 }
 
 func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
