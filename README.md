@@ -213,6 +213,7 @@ meeseeks run health-check
 
 ```bash
 meeseeks logs web-server
+meeseeks logs web-server -f # receive logs in realtime
 ```
 
 **Stop processes**:
