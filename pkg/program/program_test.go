@@ -1301,8 +1301,11 @@ func TestProgram_SubscribeLogs(t *testing.T) {
 			t.Fatal("Did not receive stderr message")
 		}
 
-		if stderrLogs[0].Message == "stderr message" {
-			t.Fatal("Did not receive correct stderr message")
+		if !strings.Contains(stderrLogs[0].Message, "stderr") {
+			t.Fatalf(
+				"Did not receive correct stderr message. Expected \"stderr message\" got: %s",
+				stderrLogs[0].Message,
+			)
 		}
 
 		if len(sdoutLogs) != 2 {
