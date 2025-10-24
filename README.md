@@ -199,8 +199,9 @@ meeseeks start -d -config config.yaml
 **Check status**:
 
 ```bash
-meeseeks status
-meeseeks status web-server
+meeseeks status # Status of all programs
+meeseeks status web-server  # Status of a single program
+meeseeks status -f json web-server # Status of a single program with json output
 ```
 
 **Run particular program**
@@ -213,7 +214,7 @@ meeseeks run health-check
 
 ```bash
 meeseeks logs web-server
-meeseeks logs web-server -f # receive logs in realtime
+meeseeks logs -f web-server # Get logs in real-time
 ```
 
 **Stop processes**:

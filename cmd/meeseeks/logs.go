@@ -20,7 +20,7 @@ func logsCommand(args []string, _ *logger.Logger) error {
 	follow := fs.Bool("f", false, "similar to tail -f")
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: meeseeks logs <program_name> [options]\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: meeseeks logs [options] <program_name>\n\n")
 		fmt.Fprintf(os.Stderr, "Show logs for a specific program\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		fs.PrintDefaults()
@@ -71,9 +71,9 @@ func logsCommand(args []string, _ *logger.Logger) error {
 			}
 
 			if log.IsError {
-				fmt.Fprintf(os.Stderr, "%s", log.Message)
+				fmt.Fprintf(os.Stderr, "%s\n", log.Message)
 			} else {
-				fmt.Fprintf(os.Stdout, "%s", log.Message)
+				fmt.Fprintf(os.Stdout, "%s\n", log.Message)
 			}
 		}
 	}()

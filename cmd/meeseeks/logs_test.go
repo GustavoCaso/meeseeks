@@ -59,7 +59,7 @@ func TestLogsCommand(t *testing.T) {
 func TestLogsCommand_Help(t *testing.T) {
 	t.Parallel()
 	testCommandHelp(t, []string{"logs"}, []string{
-		"Usage: meeseeks logs <program_name>",
+		"Usage: meeseeks logs [options] <program_name>",
 		"Show logs for a specific program",
 		"-f",
 		"similar to tail -f",
