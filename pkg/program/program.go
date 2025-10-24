@@ -522,7 +522,8 @@ func (p *program) writeOutput(buffer *strings.Builder, s string, isError bool) {
 
 	if p.bufferLimit <= 0 {
 		buffer.WriteString(newContent)
-		p.broadcastLogSubscriptions(newContent, isError)
+		// We use `s` because since we are broadcasting each line we do not need the new line from `newContent`
+		p.broadcastLogSubscriptions(s, isError)
 		return
 	}
 
@@ -541,7 +542,8 @@ func (p *program) writeOutput(buffer *strings.Builder, s string, isError bool) {
 	}
 
 	buffer.WriteString(newContent)
-	p.broadcastLogSubscriptions(newContent, isError)
+	// We use `s` because since we are broadcasting each line we do not need the new line from `newContent`
+	p.broadcastLogSubscriptions(s, isError)
 }
 
 func (p *program) SubscribeLogs(ctx context.Context) <-chan LogLine {

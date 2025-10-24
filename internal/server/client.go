@@ -144,6 +144,10 @@ func (c *Client) FollowLogs(ctx context.Context, programName string, logLines ch
 		scanner := bufio.NewScanner(resp.Body)
 		for scanner.Scan() {
 			line := scanner.Bytes()
+			if len(line) <= 0 {
+				// Skip empty
+				continue
+			}
 			event := processEvent(line)
 
 			select {
@@ -153,7 +157,7 @@ func (c *Client) FollowLogs(ctx context.Context, programName string, logLines ch
 			}
 		}
 
-		if err = scanner.Err(); err != nil {
+		if err = scanner.Err(); err != nil && !errors.Is(err, context.Canceled) {
 			fmt.Fprintf(os.Stderr, "Error reading body follow logs:%s\n", err)
 		}
 	}()

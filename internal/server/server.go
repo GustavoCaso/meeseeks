@@ -208,20 +208,22 @@ func (s *Server) handleFollowLogs(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			data, err := json.Marshal(map[string]interface{}{
-				"message":  msg.Message,
-				"is_error": msg.IsError,
-			})
-			if err != nil {
-				return
-			}
-			_, err = fmt.Fprintf(w, "data: %s\n\n", data)
-			if err != nil {
-				return
-			}
-			err = rc.Flush()
-			if err != nil {
-				return
+			if len(msg.Message) > 0 {
+				data, err := json.Marshal(map[string]interface{}{
+					"message":  msg.Message,
+					"is_error": msg.IsError,
+				})
+				if err != nil {
+					return
+				}
+				_, err = fmt.Fprintf(w, "data: %s\n\n", data)
+				if err != nil {
+					return
+				}
+				err = rc.Flush()
+				if err != nil {
+					return
+				}
 			}
 		}
 	}
