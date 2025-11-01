@@ -55,10 +55,10 @@ type Program interface {
 	// CloseStdin closes the program's stdin pipe. Requires KeepStdinOpen option.
 	// Returns an error if stdin is already closed or the program is not running.
 	CloseStdin() error
-	// Output returns all stdout content captured from the program.
-	Output() string
-	// Error returns all stderr content and error messages from the program.
-	Error() string
+	// Stdout returns all stdout content captured from the program.
+	Stdout() string
+	// Stderr returns all stderr content and error messages from the program.
+	Stderr() string
 	// SubscribeLogs return a channel to consume logs in real-time.
 	// The caller is responsible for closing the context which ensure the channel is closed.
 	SubscribeLogs(ctx context.Context) <-chan LogLine
@@ -555,14 +555,14 @@ func (p *program) Name() string {
 	return p.name
 }
 
-func (p *program) Output() string {
+func (p *program) Stdout() string {
 	p.dataLock.RLock()
 	defer p.dataLock.RUnlock()
 
 	return p.outputBuffer.String()
 }
 
-func (p *program) Error() string {
+func (p *program) Stderr() string {
 	p.dataLock.RLock()
 	defer p.dataLock.RUnlock()
 

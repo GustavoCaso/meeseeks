@@ -24,13 +24,13 @@ func TestOneShot(t *testing.T) {
 		}
 		<-done
 
-		output := p.Output()
+		output := p.Stdout()
 		if !strings.Contains(output, "hello world") {
 			t.Fatalf("Expected output to contain 'hello world', got: %q", output)
 		}
 
-		if p.Error() != "" {
-			t.Fatalf("Expected no error output, got: %q", p.Error())
+		if p.Stderr() != "" {
+			t.Fatalf("Expected no error output, got: %q", p.Stderr())
 		}
 	})
 
@@ -44,7 +44,7 @@ func TestOneShot(t *testing.T) {
 		}
 		<-done
 
-		errorMessage := p.Error()
+		errorMessage := p.Stderr()
 		if !strings.Contains(errorMessage, "exit status 2") {
 			t.Fatalf("Expected errors to contain 'exit status 2', got: %q", errorMessage)
 		}
@@ -60,7 +60,7 @@ func TestOneShot(t *testing.T) {
 		}
 		<-done
 
-		if errOutput := p.Error(); !strings.Contains(errOutput, "error message") {
+		if errOutput := p.Stderr(); !strings.Contains(errOutput, "error message") {
 			t.Fatalf("Expected stderr to contain 'error message', got: %q", errOutput)
 		}
 	})
@@ -111,7 +111,7 @@ func TestCustomIO(t *testing.T) {
 		}
 		<-done
 
-		if output := p.Output(); !strings.Contains(output, "hello from stdin") {
+		if output := p.Stdout(); !strings.Contains(output, "hello from stdin") {
 			t.Fatalf("Expected output to contain stdin content, got: %q", output)
 		}
 	})
@@ -126,7 +126,7 @@ func TestCustomIO(t *testing.T) {
 		}
 		<-done
 
-		if output := p.Output(); !strings.Contains(output, "test_value") {
+		if output := p.Stdout(); !strings.Contains(output, "test_value") {
 			t.Fatalf("Expected output to contain env var value, got: %q", output)
 		}
 	})
@@ -180,7 +180,7 @@ func TestAsync(t *testing.T) {
 			t.Fatal("Process failed to complete within timeout")
 		}
 
-		output := p.Output()
+		output := p.Stdout()
 		if !strings.Contains(output, "iteration 1") {
 			t.Fatalf("Expected output to contain iteration 1, got: %q", output)
 		}
@@ -213,7 +213,7 @@ func TestAsync(t *testing.T) {
 			t.Fatalf("cancelled programs should have 'cancelled' state, got: %s", state)
 		}
 
-		errorMessage := p.Error()
+		errorMessage := p.Stderr()
 		// Context cancellation can result in either error or finished status depending on timing
 		if !strings.Contains(errorMessage, "signal: killed") {
 			t.Fatalf("Expected errorMessage to indicate error or finished after cancellation, got: %q", errorMessage)
@@ -264,7 +264,7 @@ func TestEdgeCases(t *testing.T) {
 			t.Fatal("Expected error for non-existent command but got nil")
 		}
 
-		errorMessage := p.Error()
+		errorMessage := p.Stderr()
 		if !strings.Contains(errorMessage, "executable file not found in $PATH") {
 			t.Fatalf("Expected errorMessage to indicate error, got: %q", errorMessage)
 		}
@@ -291,7 +291,7 @@ func TestEdgeCases(t *testing.T) {
 		}
 		<-done
 
-		output := p.Output()
+		output := p.Stdout()
 		if len(output) < 90000 {
 			t.Fatalf("Expected large output, got only %d bytes", len(output))
 		}
@@ -321,8 +321,8 @@ func TestEdgeCases(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				for range 5 {
-					_ = p.Output()
-					_ = p.Error()
+					_ = p.Stdout()
+					_ = p.Stderr()
 					time.Sleep(30 * time.Millisecond)
 				}
 			}()
@@ -337,7 +337,7 @@ func TestEdgeCases(t *testing.T) {
 			t.Fatal("Process failed to complete within timeout")
 		}
 
-		if len(p.Output()) == 0 {
+		if len(p.Stdout()) == 0 {
 			t.Fatal("Expected some output from concurrent access test")
 		}
 	})
@@ -379,7 +379,7 @@ func TestSend(t *testing.T) {
 			t.Fatal("Process failed to complete within timeout")
 		}
 
-		output := p.Output()
+		output := p.Stdout()
 		if !strings.Contains(output, "hello world") {
 			t.Fatalf("Expected output to contain 'hello world', got: %q", output)
 		}
@@ -416,7 +416,7 @@ func TestSend(t *testing.T) {
 			t.Fatal("Process failed to complete within timeout")
 		}
 
-		output := p.Output()
+		output := p.Stdout()
 		if !strings.Contains(output, "initial input") {
 			t.Fatalf("Expected output to contain 'initial input', got: %q", output)
 		}
@@ -471,7 +471,7 @@ func TestMultiplePrograms(t *testing.T) {
 		}
 
 		for i, p := range programs {
-			output := p.Output()
+			output := p.Stdout()
 			expected := fmt.Sprintf("output from program %d", i)
 			if !strings.Contains(output, expected) {
 				t.Fatalf("Program %s: expected output to contain %q, got: %q", p.Name(), expected, output)
@@ -633,7 +633,7 @@ func TestFileOutput(t *testing.T) {
 		}
 
 		// Verify program's internal Output() still works
-		output := p.Output()
+		output := p.Stdout()
 		if !strings.Contains(output, "hello stdout file") {
 			t.Fatalf("Expected program output to contain 'hello stdout file', got: %q", output)
 		}
@@ -663,7 +663,7 @@ func TestFileOutput(t *testing.T) {
 		}
 
 		// Verify program's internal Error() still works
-		errorOutput := p.Error()
+		errorOutput := p.Stderr()
 		if !strings.Contains(errorOutput, "error message") {
 			t.Fatalf("Expected program error to contain 'error message', got: %q", errorOutput)
 		}
@@ -736,8 +736,8 @@ func TestFileOutput(t *testing.T) {
 		}
 
 		// Verify program's internal output
-		if !strings.Contains(p.Output(), "mixed output test") {
-			t.Fatalf("Expected program output to contain 'mixed output test', got: %q", p.Output())
+		if !strings.Contains(p.Stdout(), "mixed output test") {
+			t.Fatalf("Expected program output to contain 'mixed output test', got: %q", p.Stdout())
 		}
 	})
 
@@ -926,7 +926,7 @@ func TestBufferSizeLimit(t *testing.T) {
 		}
 		<-done
 
-		output := p.Output()
+		output := p.Stdout()
 
 		if strings.Contains(output, "truncated due to buffer limit") {
 			t.Fatalf("Expected output to not be truncated")
@@ -945,7 +945,7 @@ func TestBufferSizeLimit(t *testing.T) {
 		}
 		<-done
 
-		output := p.Output()
+		output := p.Stdout()
 
 		if strings.Contains(output, "truncated") {
 			t.Fatalf("Expected no truncation with zero limit, but found truncation message")
@@ -965,7 +965,7 @@ func TestBufferSizeLimit(t *testing.T) {
 		}
 		<-done
 
-		output := p.Output()
+		output := p.Stdout()
 
 		if !strings.Contains(output, "truncated due to buffer limit") {
 			t.Fatalf("Expected truncation message in output, got: %q", output)
@@ -996,7 +996,7 @@ func TestBufferSizeLimit(t *testing.T) {
 		}
 		<-done
 
-		errorOutput := p.Error()
+		errorOutput := p.Stderr()
 
 		if !strings.Contains(errorOutput, "truncated due to buffer limit") {
 			t.Fatalf("Expected truncation message in error output, got: %q", errorOutput)
@@ -1023,7 +1023,7 @@ func TestBufferSizeLimit(t *testing.T) {
 		}
 		<-done
 
-		internalOutput := p.Output()
+		internalOutput := p.Stdout()
 		if !strings.Contains(internalOutput, "truncated") && len(internalOutput) > bufferLimit+200 {
 			t.Fatalf("Expected internal buffer to be limited")
 		}

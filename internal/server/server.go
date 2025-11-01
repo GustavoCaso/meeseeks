@@ -250,8 +250,8 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := Response{Success: true, Data: map[string]interface{}{
-		"output": stats.Output,
-		"error":  stats.Error,
+		"stdout": stats.Stdout,
+		"stderr": stats.Stderr,
 	}}
 
 	handleResponse(w, resp)

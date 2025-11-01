@@ -112,23 +112,23 @@ func nonFollowLogs(client *server.Client, programName string) error {
 		return err
 	}
 
-	output, ok := response["output"].(string)
+	output, ok := response["stdout"].(string)
 	if !ok {
-		return errors.New("failed to extract output information")
+		return errors.New("failed to extract stdout information")
 	}
-	errOutput, ok := response["error"].(string)
+	errOutput, ok := response["stderr"].(string)
 	if !ok {
-		return errors.New("failed to extract error information")
+		return errors.New("failed to extract stderr information")
 	}
 
 	if output != "" {
-		fmt.Fprintln(os.Stdout, "---------------------------- OUTPUT ------------------------------------")
+		fmt.Fprintln(os.Stdout, "---------------------------- Stdout ------------------------------------")
 		fmt.Fprintln(os.Stdout, output)
 	}
 
 	if errOutput != "" {
 		fmt.Fprintln(os.Stdout)
-		fmt.Fprintln(os.Stdout, "---------------------------- ERROR ------------------------------------")
+		fmt.Fprintln(os.Stdout, "---------------------------- Stderr ------------------------------------")
 		fmt.Fprintln(os.Stdout, errOutput)
 	}
 

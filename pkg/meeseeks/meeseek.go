@@ -67,8 +67,8 @@ type Statistics struct {
 	State       string `json:"state"`
 	Successful  int    `json:"successful_runs"`
 	Failed      int    `json:"failed_runs"`
-	Output      string `json:"output"`
-	Error       string `json:"error"`
+	Stdout      string `json:"stdout"`
+	Stderr      string `json:"stderr"`
 	Interval    string `json:"interval,omitempty"`
 	LastRunAt   string `json:"last_run_at"`
 	NextRunAt   string `json:"next_run,omitempty"`
@@ -487,8 +487,8 @@ func (m *meeseek) collectProgramStatistics(prog program.Program, execRecord *exe
 		stats.NextRunAt = execRecord.lastRunAt.Add(interval).Format(time.DateTime)
 	}
 
-	stats.Error = prog.Error()
-	stats.Output = prog.Output()
+	stats.Stderr = prog.Stderr()
+	stats.Stdout = prog.Stdout()
 
 	return stats
 }
