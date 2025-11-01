@@ -26,6 +26,7 @@ func TestLoadConfig(t *testing.T) {
     args: ["hello"]
     env: ["VAR=value"]
     interval: "30s"
+    initial_delay: "15s"
     buffer_size_limit: "3MB"
     keep_stdin_open: true
     stdout: "/tmp/out.log"
@@ -38,6 +39,7 @@ func TestLoadConfig(t *testing.T) {
 						Args:            []string{"hello"},
 						Env:             []string{"VAR=value"},
 						Interval:        "30s",
+						InitialDelay:    "15s",
 						BufferSizeLimit: "3MB",
 						KeepStdinOpen:   true,
 						Stdout:          "/tmp/out.log",
@@ -281,6 +283,81 @@ func TestProgramConfig_GetInterval(t *testing.T) {
 
 			if duration != tt.expected {
 				t.Fatalf("GetInterval() = %v, want %v", duration, tt.expected)
+			}
+		})
+	}
+}
+
+func TestProgramConfig_GetInitialDelay(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		interval    string
+		expected    time.Duration
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:     "empty interval",
+			interval: "",
+			expected: 0,
+		},
+		{
+			name:     "valid seconds",
+			interval: "30s",
+			expected: 30 * time.Second,
+		},
+		{
+			name:     "valid minutes",
+			interval: "5m",
+			expected: 5 * time.Minute,
+		},
+		{
+			name:     "valid hours",
+			interval: "2h",
+			expected: 2 * time.Hour,
+		},
+		{
+			name:     "complex duration",
+			interval: "1h30m45s",
+			expected: 1*time.Hour + 30*time.Minute + 45*time.Second,
+		},
+		{
+			name:        "invalid interval",
+			interval:    "invalid",
+			wantErr:     true,
+			errContains: "time: invalid duration",
+		},
+		{
+			name:     "negative interval",
+			interval: "-5s",
+			expected: -5 * time.Second, // time.ParseDuration allows negative durations
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			pc := &ProgramConfig{InitialDelay: tt.interval}
+
+			duration, err := pc.GetInitialDelay()
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("GetInitialDelay() expected error but got none")
+				}
+				if tt.errContains != "" && !containsString(err.Error(), tt.errContains) {
+					t.Fatalf("GetInitialDelay() error = %q, want error containing %q", err.Error(), tt.errContains)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("GetInitialDelay() unexpected error = %v", err)
+			}
+
+			if duration != tt.expected {
+				t.Fatalf("GetInitialDelay() = %v, want %v", duration, tt.expected)
 			}
 		})
 	}

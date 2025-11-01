@@ -356,6 +356,10 @@ func (m *meeseek) shutdown(timeout time.Duration) error {
 }
 
 func (m *meeseek) runProgram(ctx context.Context, prog program.Program) {
+	if prog.InitialDelay() > 0 {
+		time.Sleep(prog.InitialDelay())
+	}
+
 	if prog.Interval() > 0 {
 		m.runScheduledProgram(ctx, prog)
 	} else {

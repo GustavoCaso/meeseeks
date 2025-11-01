@@ -139,6 +139,34 @@ func TestMeeseek_StartAndWait(t *testing.T) {
 	}
 }
 
+func TestMeeseek_StartInitialDelay(t *testing.T) {
+	t.Parallel()
+	initialDelay := time.Second * 1
+	prog := program.New("echo1", "echo", program.Args("hello"), program.InitialDelay(initialDelay))
+
+	m := New()
+
+	err := m.AddProgram(prog)
+	if err != nil {
+		t.Fatalf("Failed to add program: %v", err)
+	}
+	ctx := context.Background()
+
+	start := time.Now()
+	m.Start(ctx)
+
+	err = m.Wait(ctx)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("Wait() expected error but got none")
+	}
+
+	if elapsed < initialDelay {
+		t.Fatalf("expected to meeseek to respect the initial delay option")
+	}
+}
+
 func TestMeeseek_Statistic(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

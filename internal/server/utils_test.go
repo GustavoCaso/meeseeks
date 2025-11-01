@@ -51,7 +51,25 @@ func TestCreateProgramFromConfig(t *testing.T) {
 				Command:  "echo",
 				Interval: "100ks",
 			},
-			expectedName: "test-interval",
+			expectError:  true,
+			errorMessage: "time: unknown unit \"ks\" in duration \"100ks\"",
+		},
+		{
+			name: "program with initial delay",
+			config: config.ProgramConfig{
+				Name:         "test-initial-delay",
+				Command:      "echo",
+				InitialDelay: "30s",
+			},
+			expectedName: "test-initial-delay",
+		},
+		{
+			name: "program with invalid initial delay",
+			config: config.ProgramConfig{
+				Name:         "test-initial-delay",
+				Command:      "echo",
+				InitialDelay: "100ks",
+			},
 			expectError:  true,
 			errorMessage: "time: unknown unit \"ks\" in duration \"100ks\"",
 		},
@@ -97,6 +115,7 @@ func TestCreateProgramFromConfig(t *testing.T) {
 				Stdout:        "/tmp/test_all_stdout.log",
 				Stderr:        "/tmp/test_all_stderr.log",
 				Interval:      "60s",
+				InitialDelay:  "10s",
 			},
 			expectedName: "test-all-options",
 		},
@@ -113,6 +132,11 @@ func TestCreateProgramFromConfig(t *testing.T) {
 				if err == nil {
 					t.Fatalf("Expected error but got none")
 				}
+
+				if prog != nil {
+					t.Fatalf("Expected nil program but got %+v", prog)
+				}
+
 				if err.Error() != tt.errorMessage {
 					t.Fatalf("Expected error message %q, got %q", tt.errorMessage, err.Error())
 				}
