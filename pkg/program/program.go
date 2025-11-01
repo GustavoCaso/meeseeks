@@ -163,18 +163,29 @@ func (p *pipes) closeReaders() error {
 	return nil
 }
 
-func (p *program) finalize() {
-	for _, finalizer := range p.finalizers {
-		err := finalizer()
-		if err != nil {
-			if p.logger != nil {
-				p.logger.Warn("error when executing finalizers", "error", err.Error())
-			}
-		}
+// New creates a new Program instance with the provided options.
+func New(name, command string, opts ...Option) Program {
+	p := &program{
+		name:                    name,
+		command:                 command,
+		finalizers:              []func() error{},
+		logSubscriptionChannels: make(map[uint32]chan LogLine),
 	}
-	p.finalizers = []func() error{}
 
-	close(p.done)
+	for _, opt := range opts {
+		opt(p)
+	}
+
+	if p.bufferLimit > 0 {
+		p.outputBuffer.Grow(p.bufferLimit)
+		p.errorBuffer.Grow(p.bufferLimit)
+	}
+
+	return p
+}
+
+func (p *program) Name() string {
+	return p.name
 }
 
 func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
@@ -193,6 +204,170 @@ func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
 	p.done = make(chan struct{}, 1)
 
 	return p.done, p.run()
+}
+
+func (p *program) Interval() time.Duration {
+	return p.interval
+}
+
+func (p *program) Send(data []byte) error {
+	p.dataLock.RLock()
+	canSend := p.state == StateRunning
+	p.dataLock.RUnlock()
+
+	if !canSend {
+		return errors.New("can not send data to a non-running program")
+	}
+
+	if !p.keepStdinOpen {
+		return errors.New("to send data to a running please use the KeepStdinOpen option when initialazing the program")
+	}
+
+	_, err := p.pipes.inWriter.Write(data)
+	return err
+}
+
+func (p *program) CloseStdin() error {
+	p.dataLock.RLock()
+	canClose := p.state == StateRunning
+	p.dataLock.RUnlock()
+
+	if !canClose {
+		return errors.New("closing stdin of non-running process has no effect")
+	}
+
+	if !p.keepStdinOpen {
+		return errors.New(
+			"stding is already closed please KeepStdinOpen option when initialazing the program to have full control over stdin",
+		)
+	}
+
+	return p.pipes.inWriter.Close()
+}
+
+func (p *program) Stdout() string {
+	p.dataLock.RLock()
+	defer p.dataLock.RUnlock()
+
+	return p.outputBuffer.String()
+}
+
+func (p *program) Stderr() string {
+	p.dataLock.RLock()
+	defer p.dataLock.RUnlock()
+
+	return p.errorBuffer.String()
+}
+
+func (p *program) SubscribeLogs(ctx context.Context) <-chan LogLine {
+	ch := make(chan LogLine, 1000)
+	id := p.subscriptionIDCounter.Add(1)
+
+	p.subsLock.Lock()
+	p.logSubscriptionChannels[id] = ch
+	p.subsLock.Unlock()
+
+	p.dataLock.RLock()
+	existingOutput := p.outputBuffer.String()
+	existingError := p.errorBuffer.String()
+	p.dataLock.RUnlock()
+
+	// Send existing log lines
+	if existingOutput != "" {
+		for _, line := range strings.Split(existingOutput, "\n") {
+			if line != "" {
+				select {
+				case ch <- LogLine{Message: line, IsError: false}:
+				case <-ctx.Done():
+				default:
+					// Channel full - drop the log line
+				}
+			}
+		}
+	}
+
+	if existingError != "" {
+		for _, line := range strings.Split(existingError, "\n") {
+			if line != "" {
+				select {
+				case ch <- LogLine{Message: line, IsError: true}:
+				case <-ctx.Done():
+				default:
+					// Channel full - drop the log line
+				}
+			}
+		}
+	}
+
+	go func() {
+		<-ctx.Done()
+		p.subsLock.Lock()
+		delete(p.logSubscriptionChannels, id)
+		p.subsLock.Unlock()
+		close(ch)
+	}()
+
+	return ch
+}
+
+func (p *program) State() ProcessState {
+	p.dataLock.RLock()
+	defer p.dataLock.RUnlock()
+	return p.state
+}
+
+func (p *program) String() string {
+	s := fmt.Sprintf("name: %s, command: %s, arguments: (%s)", p.name,
+		p.command,
+		strings.Join(p.arguments, " "))
+
+	if p.interval > 0 {
+		s += fmt.Sprintf(", interval: %s", p.interval)
+	}
+
+	return s
+}
+
+func (p *program) Shutdown(timeout time.Duration) error {
+	p.cmdLock.Lock()
+	if p.cmd == nil || p.cmd.Process == nil {
+		p.cmdLock.Unlock()
+		return nil
+	}
+
+	// Send SIGTERM for graceful shutdown
+	err := p.cmd.Process.Signal(syscall.SIGTERM)
+	p.cmdLock.Unlock()
+	if err != nil {
+		if errors.Is(err, os.ErrProcessDone) {
+			return nil
+		}
+		// If SIGTERM fails, fall back to force kill
+		return p.forcekill()
+	}
+
+	// Wait for the existing monitoring to handle process exit
+	select {
+	case <-p.done:
+		return nil
+	case <-time.After(timeout):
+		// Timeout exceeded, force kill
+		return p.forcekill()
+	}
+}
+
+func (p *program) finalize() {
+	for _, finalizer := range p.finalizers {
+		err := finalizer()
+		if err != nil {
+			if p.logger != nil {
+				p.logger.Warn("error when executing finalizers", "error", err.Error())
+			}
+		}
+	}
+	p.finalizers = []func() error{}
+
+	close(p.done)
 }
 
 func (p *program) setupCmd(ctx context.Context) (*exec.Cmd, error) {
@@ -432,57 +607,6 @@ func (p *program) writeOutput(buffer *strings.Builder, s string, isError bool) {
 	p.broadcastLogSubscriptions(s, isError)
 }
 
-func (p *program) SubscribeLogs(ctx context.Context) <-chan LogLine {
-	ch := make(chan LogLine, 1000)
-	id := p.subscriptionIDCounter.Add(1)
-
-	p.subsLock.Lock()
-	p.logSubscriptionChannels[id] = ch
-	p.subsLock.Unlock()
-
-	p.dataLock.RLock()
-	existingOutput := p.outputBuffer.String()
-	existingError := p.errorBuffer.String()
-	p.dataLock.RUnlock()
-
-	// Send existing log lines
-	if existingOutput != "" {
-		for _, line := range strings.Split(existingOutput, "\n") {
-			if line != "" {
-				select {
-				case ch <- LogLine{Message: line, IsError: false}:
-				case <-ctx.Done():
-				default:
-					// Channel full - drop the log line
-				}
-			}
-		}
-	}
-
-	if existingError != "" {
-		for _, line := range strings.Split(existingError, "\n") {
-			if line != "" {
-				select {
-				case ch <- LogLine{Message: line, IsError: true}:
-				case <-ctx.Done():
-				default:
-					// Channel full - drop the log line
-				}
-			}
-		}
-	}
-
-	go func() {
-		<-ctx.Done()
-		p.subsLock.Lock()
-		delete(p.logSubscriptionChannels, id)
-		p.subsLock.Unlock()
-		close(ch)
-	}()
-
-	return ch
-}
-
 func (p *program) broadcastLogSubscriptions(content string, isError bool) {
 	logLine := LogLine{
 		Message: content,
@@ -498,109 +622,6 @@ func (p *program) broadcastLogSubscriptions(content string, isError bool) {
 			// Channel full - drop the log line
 		}
 	}
-}
-
-func (p *program) Send(data []byte) error {
-	p.dataLock.RLock()
-	canSend := p.state == StateRunning
-	p.dataLock.RUnlock()
-
-	if !canSend {
-		return errors.New("can not send data to a non-running program")
-	}
-
-	if !p.keepStdinOpen {
-		return errors.New("to send data to a running please use the KeepStdinOpen option when initialazing the program")
-	}
-
-	_, err := p.pipes.inWriter.Write(data)
-	return err
-}
-
-func (p *program) CloseStdin() error {
-	p.dataLock.RLock()
-	canClose := p.state == StateRunning
-	p.dataLock.RUnlock()
-
-	if !canClose {
-		return errors.New("closing stdin of non-running process has no effect")
-	}
-
-	if !p.keepStdinOpen {
-		return errors.New(
-			"stding is already closed please KeepStdinOpen option when initialazing the program to have full control over stdin",
-		)
-	}
-
-	return p.pipes.inWriter.Close()
-}
-
-func (p *program) Interval() time.Duration {
-	return p.interval
-}
-
-func (p *program) Name() string {
-	return p.name
-}
-
-func (p *program) Stdout() string {
-	p.dataLock.RLock()
-	defer p.dataLock.RUnlock()
-
-	return p.outputBuffer.String()
-}
-
-func (p *program) Stderr() string {
-	p.dataLock.RLock()
-	defer p.dataLock.RUnlock()
-
-	return p.errorBuffer.String()
-}
-
-func (p *program) State() ProcessState {
-	p.dataLock.RLock()
-	defer p.dataLock.RUnlock()
-	return p.state
-}
-
-func (p *program) Shutdown(timeout time.Duration) error {
-	p.cmdLock.Lock()
-	if p.cmd == nil || p.cmd.Process == nil {
-		p.cmdLock.Unlock()
-		return nil
-	}
-
-	// Send SIGTERM for graceful shutdown
-	err := p.cmd.Process.Signal(syscall.SIGTERM)
-	p.cmdLock.Unlock()
-	if err != nil {
-		if errors.Is(err, os.ErrProcessDone) {
-			return nil
-		}
-		// If SIGTERM fails, fall back to force kill
-		return p.forcekill()
-	}
-
-	// Wait for the existing monitoring to handle process exit
-	select {
-	case <-p.done:
-		return nil
-	case <-time.After(timeout):
-		// Timeout exceeded, force kill
-		return p.forcekill()
-	}
-}
-
-func (p *program) String() string {
-	s := fmt.Sprintf("name: %s, command: %s, arguments: (%s)", p.name,
-		p.command,
-		strings.Join(p.arguments, " "))
-
-	if p.interval > 0 {
-		s += fmt.Sprintf(", interval: %s", p.interval)
-	}
-
-	return s
 }
 
 func (p *program) forcekill() error {
@@ -624,25 +645,4 @@ func (p *program) forcekill() error {
 	}
 
 	return nil
-}
-
-// New creates a new Program instance with the provided options.
-func New(name, command string, opts ...Option) Program {
-	p := &program{
-		name:                    name,
-		command:                 command,
-		finalizers:              []func() error{},
-		logSubscriptionChannels: make(map[uint32]chan LogLine),
-	}
-
-	for _, opt := range opts {
-		opt(p)
-	}
-
-	if p.bufferLimit > 0 {
-		p.outputBuffer.Grow(p.bufferLimit)
-		p.errorBuffer.Grow(p.bufferLimit)
-	}
-
-	return p
 }
