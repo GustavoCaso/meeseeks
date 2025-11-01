@@ -91,6 +91,23 @@ type meeseek struct {
 	logger         logger.Logger
 }
 
+// New creates a new Meeseek instance with the provided options.
+// The returned instance is ready to have programs added and can be started.
+func New(opts ...Option) Meeseek {
+	m := &meeseek{
+		wg:             &sync.WaitGroup{},
+		programs:       make(map[string]program.Program),
+		schedulerStops: make(map[string]chan struct{}),
+		executions:     make(map[string]*executionTrack),
+	}
+
+	for _, opt := range opts {
+		opt(m)
+	}
+
+	return m
+}
+
 func (m *meeseek) AddProgram(prog program.Program) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -103,22 +120,6 @@ func (m *meeseek) AddProgram(prog program.Program) error {
 	m.programs[name] = prog
 	m.executions[name] = &executionTrack{}
 	return nil
-}
-
-func (m *meeseek) Start(ctx context.Context) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	m.startTime = time.Now()
-
-	// Start all programs
-	for _, p := range m.programs {
-		m.wg.Add(1)
-		go func(prog program.Program) {
-			m.runProgram(ctx, prog)
-			m.wg.Done()
-		}(p)
-	}
 }
 
 func (m *meeseek) Programs() []string {
@@ -134,18 +135,6 @@ func (m *meeseek) Programs() []string {
 	}
 
 	return programs
-}
-
-func (m *meeseek) SubscribeLogs(ctx context.Context, programName string) (<-chan program.LogLine, error) {
-	m.mu.RLock()
-	prog, ok := m.programs[programName]
-	m.mu.RUnlock()
-
-	if !ok {
-		return nil, fmt.Errorf("program %s not present", programName)
-	}
-
-	return prog.SubscribeLogs(ctx), nil
 }
 
 func (m *meeseek) Reload(ctx context.Context, programs []program.Program, deadline time.Duration) {
@@ -206,8 +195,100 @@ func (m *meeseek) Reload(ctx context.Context, programs []program.Program, deadli
 	m.Start(ctx)
 }
 
-func equal(p1, p2 program.Program) bool {
-	return p1.String() == p2.String()
+func (m *meeseek) Start(ctx context.Context) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	m.startTime = time.Now()
+
+	// Start all programs
+	for _, p := range m.programs {
+		m.wg.Add(1)
+		go func(prog program.Program) {
+			m.runProgram(ctx, prog)
+			m.wg.Done()
+		}(p)
+	}
+}
+
+func (m *meeseek) Stop(programName string, timeout time.Duration) error {
+	m.mu.RLock()
+	program, ok := m.programs[programName]
+	m.mu.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("program %s not present", programName)
+	}
+
+	err := program.Shutdown(timeout)
+
+	if program.Interval() > 0 {
+		// Stop schedule loop
+		m.mu.Lock()
+		stop, exists := m.schedulerStops[programName]
+		m.mu.Unlock()
+
+		if exists {
+			select {
+			case <-stop:
+				// Channel already closed
+			default:
+				close(stop)
+			}
+		}
+	}
+
+	return err
+}
+
+func (m *meeseek) Run(programName string) error {
+	m.mu.RLock()
+	prog, ok := m.programs[programName]
+	m.mu.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("program %s not present", programName)
+	}
+
+	state := prog.State()
+	if state == program.StateRunning {
+		return fmt.Errorf("program %s already running", programName)
+	}
+
+	m.runOneTimeProgram(context.Background(), prog)
+
+	return nil
+}
+
+func (m *meeseek) Wait(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		m.wg.Wait()
+		close(done)
+	}()
+
+	defer func() {
+		m.endTime = time.Now()
+	}()
+
+	select {
+	case <-ctx.Done():
+		return errors.New("context cancelled while waiting for programs to finalize")
+	case <-done:
+		return nil
+	}
+}
+
+func (m *meeseek) SubscribeLogs(ctx context.Context, programName string) (<-chan program.LogLine, error) {
+	m.mu.RLock()
+	prog, ok := m.programs[programName]
+	m.mu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("program %s not present", programName)
+	}
+
+	return prog.SubscribeLogs(ctx), nil
 }
 
 func (m *meeseek) Statistic(programName string) (Statistics, error) {
@@ -240,74 +321,6 @@ func (m *meeseek) Statistics() map[string]Statistics {
 	}
 
 	return statistics
-}
-
-func (m *meeseek) Wait(ctx context.Context) error {
-	done := make(chan struct{})
-	go func() {
-		m.wg.Wait()
-		close(done)
-	}()
-
-	defer func() {
-		m.endTime = time.Now()
-	}()
-
-	select {
-	case <-ctx.Done():
-		return errors.New("context cancelled while waiting for programs to finalize")
-	case <-done:
-		return nil
-	}
-}
-
-func (m *meeseek) Run(programName string) error {
-	m.mu.RLock()
-	prog, ok := m.programs[programName]
-	m.mu.RUnlock()
-
-	if !ok {
-		return fmt.Errorf("program %s not present", programName)
-	}
-
-	state := prog.State()
-	if state == program.StateRunning {
-		return fmt.Errorf("program %s already running", programName)
-	}
-
-	m.runOneTimeProgram(context.Background(), prog)
-
-	return nil
-}
-
-func (m *meeseek) Stop(programName string, timeout time.Duration) error {
-	m.mu.RLock()
-	program, ok := m.programs[programName]
-	m.mu.RUnlock()
-
-	if !ok {
-		return fmt.Errorf("program %s not present", programName)
-	}
-
-	err := program.Shutdown(timeout)
-
-	if program.Interval() > 0 {
-		// Stop schedule loop
-		m.mu.Lock()
-		stop, exists := m.schedulerStops[programName]
-		m.mu.Unlock()
-
-		if exists {
-			select {
-			case <-stop:
-				// Channel already closed
-			default:
-				close(stop)
-			}
-		}
-	}
-
-	return err
 }
 
 func (m *meeseek) Shutdown(timeout time.Duration) error {
@@ -516,19 +529,6 @@ func (m *meeseek) trackProgramCompletion(programName string, success bool) {
 	execRecord.lastRunAt = time.Now()
 }
 
-// New creates a new Meeseek instance with the provided options.
-// The returned instance is ready to have programs added and can be started.
-func New(opts ...Option) Meeseek {
-	m := &meeseek{
-		wg:             &sync.WaitGroup{},
-		programs:       make(map[string]program.Program),
-		schedulerStops: make(map[string]chan struct{}),
-		executions:     make(map[string]*executionTrack),
-	}
-
-	for _, opt := range opts {
-		opt(m)
-	}
-
-	return m
+func equal(p1, p2 program.Program) bool {
+	return p1.String() == p2.String()
 }
