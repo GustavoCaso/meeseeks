@@ -33,7 +33,7 @@ func runCommand(args []string, logger *logger.Logger) error {
 	defer cancel()
 
 	client := server.NewClient(ctx, getSocketPath())
-	resp, err := client.RunProgram(programName)
+	resp, err := client.RunProgram(ctx, programName)
 	if err != nil {
 		return err
 	}

@@ -43,7 +43,7 @@ func statusCommand(args []string, _ *logger.Logger) error {
 	defer cancel()
 
 	client := server.NewClient(ctx, getSocketPath())
-	resp, err := client.Statistics(programName)
+	resp, err := client.Statistics(ctx, programName)
 	if err != nil {
 		return err
 	}

@@ -19,6 +19,10 @@ type Client struct {
 	client   *http.Client
 }
 
+type event struct {
+	Data []byte
+}
+
 func NewClient(ctx context.Context, sockPath string) *Client {
 	return &Client{
 		sockPath: sockPath,
@@ -35,67 +39,19 @@ func NewClient(ctx context.Context, sockPath string) *Client {
 	}
 }
 
-func (c *Client) sendRequest(endpoint string, params map[string]string) (*Response, error) {
-	if _, err := os.Stat(c.sockPath); os.IsNotExist(err) {
-		return nil, errors.New("meeseeks server not running (socket not found)")
-	}
-
-	// Create URL with query parameters
-	reqURL := &url.URL{
-		Scheme: "http",
-		Host:   "unix",
-		Path:   endpoint,
-	}
-
-	if len(params) > 0 {
-		q := reqURL.Query()
-		for key, value := range params {
-			q.Set(key, value)
-		}
-		reqURL.RawQuery = q.Encode()
-	}
-
-	req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, reqURL.String(), nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, readErr := io.ReadAll(resp.Body)
-		if readErr != nil {
-			return nil, readErr
-		}
-
-		return nil, fmt.Errorf("response failed: %s", bodyBytes)
-	}
-
-	var response Response
-	if err = json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return &response, nil
-}
-
-func (c *Client) Statistics(programName string) (*Response, error) {
+func (c *Client) Statistics(ctx context.Context, programName string) (*Response, error) {
 	params := make(map[string]string)
 	if programName != "" {
 		params["program"] = programName
 	}
-	return c.sendRequest("/statistics", params)
+	return c.sendRequest(ctx, "/statistics", params)
 }
 
-func (c *Client) Logs(programName string) (*Response, error) {
+func (c *Client) Logs(ctx context.Context, programName string) (*Response, error) {
 	params := map[string]string{
 		"program": programName,
 	}
-	return c.sendRequest("/logs", params)
+	return c.sendRequest(ctx, "/logs", params)
 }
 
 //nolint:gochecknoglobals // This gloabls is convinient
@@ -165,8 +121,77 @@ func (c *Client) FollowLogs(ctx context.Context, programName string, logLines ch
 	return nil
 }
 
-type event struct {
-	Data []byte
+func (c *Client) Stop(ctx context.Context, programName, timeout string) (*Response, error) {
+	params := map[string]string{
+		"program": programName,
+		"timeout": timeout,
+	}
+
+	return c.sendRequest(ctx, "/stop", params)
+}
+
+func (c *Client) Reload(ctx context.Context, timeout string) (*Response, error) {
+	params := map[string]string{
+		"timeout": timeout,
+	}
+
+	return c.sendRequest(ctx, "/reload", params)
+}
+
+func (c *Client) RunProgram(ctx context.Context, programName string) (*Response, error) {
+	params := map[string]string{
+		"program": programName,
+	}
+
+	return c.sendRequest(ctx, "/run-program", params)
+}
+
+func (c *Client) sendRequest(ctx context.Context, endpoint string, params map[string]string) (*Response, error) {
+	if _, err := os.Stat(c.sockPath); os.IsNotExist(err) {
+		return nil, errors.New("meeseeks server not running (socket not found)")
+	}
+
+	// Create URL with query parameters
+	reqURL := &url.URL{
+		Scheme: "http",
+		Host:   "unix",
+		Path:   endpoint,
+	}
+
+	if len(params) > 0 {
+		q := reqURL.Query()
+		for key, value := range params {
+			q.Set(key, value)
+		}
+		reqURL.RawQuery = q.Encode()
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return nil, readErr
+		}
+
+		return nil, fmt.Errorf("response failed: %s", bodyBytes)
+	}
+
+	var response Response
+	if err = json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &response, nil
 }
 
 func processEvent(msg []byte) *event {
@@ -208,29 +233,4 @@ func trimHeader(size int, data []byte) []byte {
 		data = data[:len(data)-1]
 	}
 	return data
-}
-
-func (c *Client) Stop(programName, timeout string) (*Response, error) {
-	params := map[string]string{
-		"program": programName,
-		"timeout": timeout,
-	}
-
-	return c.sendRequest("/stop", params)
-}
-
-func (c *Client) Reload(timeout string) (*Response, error) {
-	params := map[string]string{
-		"timeout": timeout,
-	}
-
-	return c.sendRequest("/reload", params)
-}
-
-func (c *Client) RunProgram(programName string) (*Response, error) {
-	params := map[string]string{
-		"program": programName,
-	}
-
-	return c.sendRequest("/run-program", params)
 }

@@ -60,7 +60,7 @@ func TestServer_HTTPHandlers(t *testing.T) {
 		{
 			name: "statistics all programs",
 			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.Statistics("")
+				resp, err := client.Statistics(t.Context(), "")
 				if err != nil {
 					t.Fatalf("Statistics() unexpected error = %v", err)
 					return
@@ -76,7 +76,7 @@ func TestServer_HTTPHandlers(t *testing.T) {
 		{
 			name: "statistics specific program",
 			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.Statistics("test-program1")
+				resp, err := client.Statistics(t.Context(), "test-program1")
 				if err != nil {
 					t.Fatalf("Statistics() unexpected error = %v", err)
 					return
@@ -92,7 +92,7 @@ func TestServer_HTTPHandlers(t *testing.T) {
 		{
 			name: "statistics nonexistent program",
 			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.Statistics("nonexistent")
+				resp, err := client.Statistics(t.Context(), "nonexistent")
 				if err != nil {
 					t.Fatalf("Statistics() unexpected error = %v", err)
 					return
@@ -108,7 +108,7 @@ func TestServer_HTTPHandlers(t *testing.T) {
 		{
 			name: "logs with program name",
 			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.Logs("test-program1")
+				resp, err := client.Logs(t.Context(), "test-program1")
 				if err != nil {
 					t.Fatalf("Logs() unexpected error = %v", err)
 					return
@@ -124,7 +124,7 @@ func TestServer_HTTPHandlers(t *testing.T) {
 		{
 			name: "logs nonexistent program",
 			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.Logs("nonexistent")
+				resp, err := client.Logs(t.Context(), "nonexistent")
 				if err != nil {
 					t.Fatalf("Logs() unexpected error = %v", err)
 					return
@@ -140,7 +140,7 @@ func TestServer_HTTPHandlers(t *testing.T) {
 		{
 			name: "logs no program",
 			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.Logs("")
+				resp, err := client.Logs(t.Context(), "")
 				if err != nil {
 					t.Fatalf("Logs() unexpected error = %v", err)
 					return
@@ -156,7 +156,7 @@ func TestServer_HTTPHandlers(t *testing.T) {
 		{
 			name: "stop command without program name",
 			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.Stop("", "5s")
+				resp, err := client.Stop(t.Context(), "", "5s")
 				if err != nil {
 					t.Fatalf("Stop() unexpected error = %v", err)
 					return
@@ -172,7 +172,7 @@ func TestServer_HTTPHandlers(t *testing.T) {
 		{
 			name: "stop command invalid timeout",
 			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.Stop("test-program2", "hello")
+				resp, err := client.Stop(t.Context(), "test-program2", "hello")
 				if err != nil {
 					t.Fatalf("Stop() unexpected error = %v", err)
 					return
@@ -188,7 +188,7 @@ func TestServer_HTTPHandlers(t *testing.T) {
 		{
 			name: "stop request with program name",
 			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.Stop("test-program2", "5s")
+				resp, err := client.Stop(t.Context(), "test-program2", "5s")
 				if err != nil {
 					t.Fatalf("Stop() unexpected error = %v", err)
 					return
@@ -204,7 +204,7 @@ func TestServer_HTTPHandlers(t *testing.T) {
 		{
 			name: "run with empty program name",
 			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.RunProgram("")
+				resp, err := client.RunProgram(t.Context(), "")
 				if err != nil {
 					t.Fatalf("RunProgram() unexpected error = %v", err)
 					return
@@ -220,7 +220,7 @@ func TestServer_HTTPHandlers(t *testing.T) {
 		{
 			name: "run with non existing program name",
 			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.RunProgram("nonexistent-program")
+				resp, err := client.RunProgram(t.Context(), "nonexistent-program")
 				if err != nil {
 					t.Fatalf("RunProgram() unexpected error = %v", err)
 					return
@@ -236,7 +236,7 @@ func TestServer_HTTPHandlers(t *testing.T) {
 		{
 			name: "run program successfully",
 			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.RunProgram("test-program1")
+				resp, err := client.RunProgram(t.Context(), "test-program1")
 				if err != nil {
 					t.Fatalf("RunProgram() unexpected error = %v", err)
 					return
@@ -252,7 +252,7 @@ func TestServer_HTTPHandlers(t *testing.T) {
 		{
 			name: "reload config. invalid timeout",
 			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.Reload("hello")
+				resp, err := client.Reload(t.Context(), "hello")
 				if err != nil {
 					t.Fatalf("RunProgram() unexpected error = %v", err)
 					return
@@ -268,7 +268,7 @@ func TestServer_HTTPHandlers(t *testing.T) {
 		{
 			name: "reload config",
 			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.Reload("1s")
+				resp, err := client.Reload(t.Context(), "1s")
 				if err != nil {
 					t.Fatalf("RunProgram() unexpected error = %v", err)
 					return
@@ -337,7 +337,7 @@ func TestClient_ConnectToNonExistentDaemon(t *testing.T) {
 	defer cancel()
 	client := NewClient(ctx, "/nonexistent/path.sock")
 
-	_, err := client.Statistics("")
+	_, err := client.Statistics(t.Context(), "")
 	if err == nil {
 		t.Fatalf("Expected error when connecting to non-existent daemon")
 	}
@@ -394,7 +394,7 @@ func TestServer_ConcurrentConnections(t *testing.T) {
 	for i := range numClients {
 		go func(_ int) {
 			client := NewClient(ctx, sockPath)
-			resp, err := client.Statistics("")
+			resp, err := client.Statistics(t.Context(), "")
 			if err != nil {
 				results <- err
 				return
@@ -461,7 +461,7 @@ func BenchmarkServer_HandleRequest(b *testing.B) {
 
 	b.ResetTimer()
 	for range b.N {
-		_, _ = client.Statistics("")
+		_, _ = client.Statistics(b.Context(), "")
 	}
 }
 

@@ -333,8 +333,8 @@ func TestMeeseek_Statistics(t *testing.T) {
 					if stat.State == "finished" && stat.Successful == 0 {
 						t.Errorf("Statistics()[%s]: finished program should have Successful > 0", name)
 					}
-					if stat.Output == "" {
-						t.Errorf("Statistics()[%s].Output = %s, should not be empty", name, stat.Output)
+					if stat.Stdout == "" {
+						t.Errorf("Statistics()[%s].Stdout = %s, should not be empty", name, stat.Stdout)
 					}
 				}
 			}
@@ -437,14 +437,14 @@ func TestMeeseek_StatisticsWithOutput(t *testing.T) {
 				t.Fatalf("Failed to get statistic: %v", err)
 			}
 
-			output := stat.Output
+			output := stat.Stdout
 
 			if tt.expectOutput {
 				if output == "" {
 					t.Error("Expected Output to be non-empty")
 				}
 			} else if output != "" {
-				t.Errorf("Expected Output empty for no-output program, got %s", stat.Output)
+				t.Errorf("Expected Output empty for no-output program, got %s", stat.Stdout)
 			}
 
 			if tt.expectMultiline {
@@ -520,8 +520,8 @@ func TestMeeseek_FailingProgramStatistics(t *testing.T) {
 					t.Errorf("Expected State to be 'error' or 'finished', got %q", stat.State)
 				}
 
-				if stat.Error == "" && stat.State == "error" {
-					t.Error("Expected Error to be non-empty for error state")
+				if stat.Stderr == "" && stat.State == "error" {
+					t.Error("Expected Stderr to be non-empty for error state")
 				}
 			} else if stat.Successful == 0 {
 				t.Error("Expected Succesful > 0 for succesful program")
@@ -1072,7 +1072,11 @@ func TestMeeseekReload(t *testing.T) {
 				program.New("test3", "ls", program.Args("-la")),
 				program.New("test5", "echo", program.Args("bar")),
 			},
-			expectedPrograms:          []string{"test3 [ls -la]", "test4 [echo foo]", "test5 [echo bar]"},
+			expectedPrograms: []string{
+				"name: test3, command: ls, arguments: (-la)",
+				"name: test4, command: echo, arguments: (foo)",
+				"name: test5, command: echo, arguments: (bar)",
+			},
 			verifyStatisticsPreserved: true,
 			preservedProgramName:      "test3",
 		},
@@ -1080,7 +1084,7 @@ func TestMeeseekReload(t *testing.T) {
 			name:                      "reload to empty (early return)",
 			initialPrograms:           []program.Program{program.New("test1", "echo", program.Args("hello"))},
 			reloadPrograms:            []program.Program{},
-			expectedPrograms:          []string{"test1 [echo hello]"},
+			expectedPrograms:          []string{"name: test1, command: echo, arguments: (hello)"},
 			verifyStatisticsPreserved: true,
 			preservedProgramName:      "test1",
 		},
@@ -1090,7 +1094,7 @@ func TestMeeseekReload(t *testing.T) {
 			reloadPrograms: []program.Program{
 				program.New("test1", "echo", program.Args("hello")),
 			},
-			expectedPrograms:          []string{"test1 [echo hello]"},
+			expectedPrograms:          []string{"name: test1, command: echo, arguments: (hello)"},
 			verifyStatisticsPreserved: false,
 		},
 		{
@@ -1102,7 +1106,10 @@ func TestMeeseekReload(t *testing.T) {
 				program.New("interval1", "echo", program.Args("test1"), program.Interval(interval50ms)),
 				program.New("interval2", "echo", program.Args("test2"), program.Interval(interval100ms)),
 			},
-			expectedPrograms:          []string{"interval1 [echo test1]", "interval2 [echo test2]"},
+			expectedPrograms: []string{
+				"name: interval1, command: echo, arguments: (test1), interval: 50ms",
+				"name: interval2, command: echo, arguments: (test2), interval: 100ms",
+			},
 			verifyStatisticsPreserved: true,
 			preservedProgramName:      "interval1",
 		},
@@ -1114,7 +1121,7 @@ func TestMeeseekReload(t *testing.T) {
 			reloadPrograms: []program.Program{
 				program.New("prog1", "echo", program.Args("test"), program.Interval(interval100ms)),
 			},
-			expectedPrograms:          []string{"prog1 [echo test]"},
+			expectedPrograms:          []string{"name: prog1, command: echo, arguments: (test), interval: 100ms"},
 			verifyStatisticsPreserved: false,
 		},
 		{
@@ -1125,7 +1132,7 @@ func TestMeeseekReload(t *testing.T) {
 			reloadPrograms: []program.Program{
 				program.New("fast-program", "echo", program.Args("hello")),
 			},
-			expectedPrograms: []string{"fast-program [echo hello]"},
+			expectedPrograms: []string{"name: fast-program, command: echo, arguments: (hello)"},
 			shortTimeout:     true,
 		},
 	}
