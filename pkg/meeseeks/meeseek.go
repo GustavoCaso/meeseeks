@@ -168,7 +168,7 @@ func (m *meeseek) Reload(ctx context.Context, programs []program.Program, deadli
 		if !exists {
 			removeState = append(removeState, name)
 		} else {
-			if program.Equal(oldProgram, newProgram) {
+			if equal(oldProgram, newProgram) {
 				keepState = append(keepState, name)
 			} else {
 				removeState = append(removeState, name)
@@ -204,6 +204,10 @@ func (m *meeseek) Reload(ctx context.Context, programs []program.Program, deadli
 	m.mu.Unlock()
 
 	m.Start(ctx)
+}
+
+func equal(p1, p2 program.Program) bool {
+	return p1.String() == p2.String()
 }
 
 func (m *meeseek) Statistic(programName string) (Statistics, error) {
@@ -510,17 +514,6 @@ func (m *meeseek) trackProgramCompletion(programName string, success bool) {
 		execRecord.failed++
 	}
 	execRecord.lastRunAt = time.Now()
-}
-
-// Option defines a function type for configuring meeseeks instances.
-type Option func(*meeseek)
-
-// Logger sets the logger instance for the meeseeks manager.
-// The logger will be used for all internal logging operations.
-func Logger(logger logger.Logger) Option {
-	return func(m *meeseek) {
-		m.logger = logger
-	}
 }
 
 // New creates a new Meeseek instance with the provided options.

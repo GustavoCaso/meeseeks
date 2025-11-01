@@ -20,18 +20,6 @@ import (
 	"github.com/GustavoCaso/meeseeks/pkg/logger"
 )
 
-// Equal performs semantic comparison of two programs to determine if they have
-// identical configuration. This compares:
-// - Program string representation (name, command, arguments)
-// - Interval configuration.
-func Equal(program, other Program) bool {
-	if program.String() != other.String() {
-		return false
-	}
-
-	return program.Interval() == other.Interval()
-}
-
 // LogLine represent a log line sent to the subscription channel.
 type LogLine struct {
 	Message string `json:"message"`
@@ -64,7 +52,7 @@ type Program interface {
 	SubscribeLogs(ctx context.Context) <-chan LogLine
 	// State returns the current execution state of the program.
 	State() ProcessState
-	// String returns a human-readable representation of the program including name and command.
+	// String returns a human-readable representation of the program including name, command and options.
 	String() string
 	// Shutdown gracefully terminates the program with SIGTERM, falling back to SIGKILL after timeout.
 	// Returns an error if the shutdown process fails.
@@ -604,7 +592,15 @@ func (p *program) Shutdown(timeout time.Duration) error {
 }
 
 func (p *program) String() string {
-	return fmt.Sprintf("%s [%s %s]", p.name, p.command, strings.Join(p.arguments, " "))
+	s := fmt.Sprintf("name: %s, command: %s, arguments: (%s)", p.name,
+		p.command,
+		strings.Join(p.arguments, " "))
+
+	if p.interval > 0 {
+		s += fmt.Sprintf(", interval: %s", p.interval)
+	}
+
+	return s
 }
 
 func (p *program) forcekill() error {
