@@ -42,8 +42,6 @@ type LogLine struct {
 // It provides methods for execution, monitoring, I/O control, and lifecycle management
 // with support for both synchronous and asynchronous execution modes.
 type Program interface {
-	// Async returns true if the program runs asynchronously, false for synchronous execution.
-	Async() bool
 	// Name returns the human-readable name of this program.
 	Name() string
 	// Start begins program execution and returns a channel that closes when execution completes.
@@ -547,10 +545,6 @@ func (p *program) CloseStdin() error {
 	}
 
 	return p.pipes.inWriter.Close()
-}
-
-func (p *program) Async() bool {
-	return p.async
 }
 
 func (p *program) Interval() time.Duration {
