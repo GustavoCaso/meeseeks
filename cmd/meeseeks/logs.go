@@ -41,7 +41,7 @@ func logsCommand(args []string, _ *logger.Logger) error {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		client := server.NewClient(ctx, getSocketPath())
-		return nonFollowLogs(client, programName)
+		return nonFollowLogs(ctx, client, programName)
 	}
 
 	// Follow mode
@@ -90,8 +90,8 @@ func logsCommand(args []string, _ *logger.Logger) error {
 	return nil
 }
 
-func nonFollowLogs(client *server.Client, programName string) error {
-	resp, err := client.Logs(programName)
+func nonFollowLogs(ctx context.Context, client *server.Client, programName string) error {
+	resp, err := client.Logs(ctx, programName)
 	if err != nil {
 		return err
 	}

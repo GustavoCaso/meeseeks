@@ -39,19 +39,19 @@ func NewClient(ctx context.Context, sockPath string) *Client {
 	}
 }
 
-func (c *Client) Statistics(programName string) (*Response, error) {
+func (c *Client) Statistics(ctx context.Context, programName string) (*Response, error) {
 	params := make(map[string]string)
 	if programName != "" {
 		params["program"] = programName
 	}
-	return c.sendRequest("/statistics", params)
+	return c.sendRequest(ctx, "/statistics", params)
 }
 
-func (c *Client) Logs(programName string) (*Response, error) {
+func (c *Client) Logs(ctx context.Context, programName string) (*Response, error) {
 	params := map[string]string{
 		"program": programName,
 	}
-	return c.sendRequest("/logs", params)
+	return c.sendRequest(ctx, "/logs", params)
 }
 
 //nolint:gochecknoglobals // This gloabls is convinient
@@ -121,32 +121,32 @@ func (c *Client) FollowLogs(ctx context.Context, programName string, logLines ch
 	return nil
 }
 
-func (c *Client) Stop(programName, timeout string) (*Response, error) {
+func (c *Client) Stop(ctx context.Context, programName, timeout string) (*Response, error) {
 	params := map[string]string{
 		"program": programName,
 		"timeout": timeout,
 	}
 
-	return c.sendRequest("/stop", params)
+	return c.sendRequest(ctx, "/stop", params)
 }
 
-func (c *Client) Reload(timeout string) (*Response, error) {
+func (c *Client) Reload(ctx context.Context, timeout string) (*Response, error) {
 	params := map[string]string{
 		"timeout": timeout,
 	}
 
-	return c.sendRequest("/reload", params)
+	return c.sendRequest(ctx, "/reload", params)
 }
 
-func (c *Client) RunProgram(programName string) (*Response, error) {
+func (c *Client) RunProgram(ctx context.Context, programName string) (*Response, error) {
 	params := map[string]string{
 		"program": programName,
 	}
 
-	return c.sendRequest("/run-program", params)
+	return c.sendRequest(ctx, "/run-program", params)
 }
 
-func (c *Client) sendRequest(endpoint string, params map[string]string) (*Response, error) {
+func (c *Client) sendRequest(ctx context.Context, endpoint string, params map[string]string) (*Response, error) {
 	if _, err := os.Stat(c.sockPath); os.IsNotExist(err) {
 		return nil, errors.New("meeseeks server not running (socket not found)")
 	}
@@ -166,7 +166,7 @@ func (c *Client) sendRequest(endpoint string, params map[string]string) (*Respon
 		reqURL.RawQuery = q.Encode()
 	}
 
-	req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, reqURL.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

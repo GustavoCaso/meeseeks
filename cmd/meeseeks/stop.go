@@ -38,7 +38,7 @@ func stopCommand(args []string, _ *logger.Logger) error {
 	defer cancel()
 
 	client := server.NewClient(ctx, getSocketPath())
-	resp, err := client.Stop(programName, *timeout)
+	resp, err := client.Stop(ctx, programName, *timeout)
 	if err != nil {
 		return err
 	}
