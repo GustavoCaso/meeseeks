@@ -35,10 +35,15 @@ func createProgramFromConfig(pc config.ProgramConfig, logger *logger.Logger) (pr
 
 	interval, err := pc.GetInterval()
 	if err != nil {
-		return program.New(pc.Name, pc.Command), err
+		return nil, err
 	}
-
 	opts = append(opts, program.Interval(interval))
+
+	initialDelay, err := pc.GetInitialDelay()
+	if err != nil {
+		return nil, err
+	}
+	opts = append(opts, program.InitialDelay(initialDelay))
 
 	return program.New(pc.Name, pc.Command, opts...), nil
 }

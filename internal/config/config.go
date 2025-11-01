@@ -24,6 +24,7 @@ type ProgramConfig struct {
 	Args            []string `yaml:"args,omitempty"              json:"args,omitempty"`
 	Env             []string `yaml:"env,omitempty"               json:"env,omitempty"`
 	Interval        string   `yaml:"interval,omitempty"          json:"interval,omitempty"`
+	InitialDelay    string   `yaml:"initial_delay,omitempty"     json:"initial_delay,omitempty"`
 	KeepStdinOpen   bool     `yaml:"keep_stdin_open,omitempty"   json:"keep_stdin_open,omitempty"`
 	Stdout          string   `yaml:"stdout,omitempty"            json:"stdout,omitempty"`
 	Stderr          string   `yaml:"stderr,omitempty"            json:"stderr,omitempty"`
@@ -35,6 +36,13 @@ func (pc *ProgramConfig) GetInterval() (time.Duration, error) {
 		return 0, nil
 	}
 	return time.ParseDuration(pc.Interval)
+}
+
+func (pc *ProgramConfig) GetInitialDelay() (time.Duration, error) {
+	if pc.InitialDelay == "" {
+		return 0, nil
+	}
+	return time.ParseDuration(pc.InitialDelay)
 }
 
 var sizeRegex = regexp.MustCompile(`^(?P<amount>\d+)(?P<unit>B|KB|MB|GB|TB)$`)

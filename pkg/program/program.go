@@ -37,6 +37,8 @@ type Program interface {
 	Start(ctx context.Context) (<-chan struct{}, error)
 	// Interval return the interval information if configured using the Interval Option
 	Interval() time.Duration
+	// InitialDelay return the initial delay information if configured using the InitialDelay Option
+	InitialDelay() time.Duration
 	// Send writes data to the program's stdin. Requires KeepStdinOpen option.
 	// Returns an error if stdin is closed or the program is not running.
 	Send([]byte) error
@@ -88,13 +90,14 @@ var StateToString = map[ProcessState]string{
 }
 
 type program struct {
-	cmd       *exec.Cmd
-	name      string
-	command   string
-	arguments []string
-	async     bool
-	interval  time.Duration
-	done      chan struct{}
+	cmd          *exec.Cmd
+	name         string
+	command      string
+	arguments    []string
+	async        bool
+	interval     time.Duration
+	initialDelay time.Duration
+	done         chan struct{}
 
 	customStdout io.Writer
 	customStderr io.Writer
@@ -210,6 +213,10 @@ func (p *program) Interval() time.Duration {
 	return p.interval
 }
 
+func (p *program) InitialDelay() time.Duration {
+	return p.initialDelay
+}
+
 func (p *program) Send(data []byte) error {
 	p.dataLock.RLock()
 	canSend := p.state == StateRunning
@@ -319,10 +326,14 @@ func (p *program) State() ProcessState {
 func (p *program) String() string {
 	s := fmt.Sprintf("name: %s, command: %s, arguments: (%s)", p.name,
 		p.command,
-		strings.Join(p.arguments, " "))
+		strings.Join(p.arguments, ", "))
 
 	if p.interval > 0 {
 		s += fmt.Sprintf(", interval: %s", p.interval)
+	}
+
+	if p.initialDelay > 0 {
+		s += fmt.Sprintf(", initial delay: %s", p.initialDelay)
 	}
 
 	return s

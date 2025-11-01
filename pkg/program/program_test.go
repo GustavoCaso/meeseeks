@@ -1319,3 +1319,21 @@ func TestProgram_SubscribeLogs(t *testing.T) {
 		}
 	})
 }
+
+func TestProgram_String(t *testing.T) {
+	t.Parallel()
+
+	duration := 1 * time.Second
+
+	p := New("test", "bash",
+		Args("-c", "echo hello"),
+		Interval(duration),
+		InitialDelay(duration),
+	)
+
+	expected := "name: test, command: bash, arguments: (-c, echo hello), interval: 1s, initial delay: 1s"
+
+	if p.String() != expected {
+		t.Fatalf("String() did not returned expected output. expected: %q, got: %q", expected, p.String())
+	}
+}
