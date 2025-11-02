@@ -37,21 +37,24 @@ func logsCommand(args []string, _ *logger.Logger) error {
 
 	programName := fs.Arg(0)
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	client := server.NewClient(ctx, getSocketPath())
+
 	if !*follow {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		client := server.NewClient(ctx, getSocketPath())
 		return nonFollowLogs(ctx, client, programName)
 	}
 
-	// Follow mode
-	ctx, cancel := context.WithCancel(context.Background())
+	return followLogs(ctx, client, programName, true)
+}
+
+func followLogs(ctx context.Context, client *server.Client, programName string, subscribeToPreviousLogs bool) error {
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	client := server.NewClient(ctx, getSocketPath())
 	logsLine := make(chan []byte)
 
-	err := client.FollowLogs(ctx, programName, logsLine)
+	err := client.FollowLogs(ctx, programName, subscribeToPreviousLogs, logsLine)
 
 	if err != nil {
 		return err

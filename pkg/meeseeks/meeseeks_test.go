@@ -1357,7 +1357,7 @@ func TestMeeseek_SubscribeLogs(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 
-		_, err = m.SubscribeLogs(ctx, "test-logs")
+		_, err = m.SubscribeLogs(ctx, "test-logs", true)
 		if err != nil {
 			t.Fatalf("Failed to subscribe to logs: %v", err)
 		}
@@ -1368,7 +1368,7 @@ func TestMeeseek_SubscribeLogs(t *testing.T) {
 		m := New()
 
 		ctx := context.Background()
-		_, err := m.SubscribeLogs(ctx, "nonexistent")
+		_, err := m.SubscribeLogs(ctx, "nonexistent", true)
 		if err == nil {
 			t.Fatal("Expected error for nonexistent program, got none")
 		}

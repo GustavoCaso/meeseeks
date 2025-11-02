@@ -44,12 +44,15 @@ type Meeseek interface {
 	// Run executes a specific program immediately, regardless of its scheduling configuration.
 	// Returns an error if the program is not found or is already running.
 	Run(programName string) error
+	// RunAsync executes a specific program asyncrounisly, regardless of its scheduling configuration.
+	// Returns an error if the program is not found or is already running.
+	RunAsync(programName string) error
 	// Wait blocks until all programs have finished execution or the context is cancelled.
 	// Returns an error if the context is cancelled before completion.
 	Wait(ctx context.Context) error
 	// SubscribeLogs return a channel to consume logs in real-time.
 	// The caller is responsible for closing the context which ensure the channel is closed.
-	SubscribeLogs(ctx context.Context, programName string) (<-chan program.LogLine, error)
+	SubscribeLogs(ctx context.Context, programName string, subscribeToPreviousLogs bool) (<-chan program.LogLine, error)
 	// Statistic returns detailed execution statistics for a specific program.
 	// Returns an error if the program is not found.
 	Statistic(program string) (Statistics, error)
@@ -260,6 +263,25 @@ func (m *meeseek) Run(programName string) error {
 	return nil
 }
 
+func (m *meeseek) RunAsync(programName string) error {
+	m.mu.RLock()
+	prog, ok := m.programs[programName]
+	m.mu.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("program %s not present", programName)
+	}
+
+	state := prog.State()
+	if state == program.StateRunning {
+		return fmt.Errorf("program %s already running", programName)
+	}
+
+	go m.runOneTimeProgram(context.Background(), prog)
+
+	return nil
+}
+
 func (m *meeseek) Wait(ctx context.Context) error {
 	done := make(chan struct{})
 	go func() {
@@ -279,7 +301,11 @@ func (m *meeseek) Wait(ctx context.Context) error {
 	}
 }
 
-func (m *meeseek) SubscribeLogs(ctx context.Context, programName string) (<-chan program.LogLine, error) {
+func (m *meeseek) SubscribeLogs(
+	ctx context.Context,
+	programName string,
+	subscribeToPreviousLogs bool,
+) (<-chan program.LogLine, error) {
 	m.mu.RLock()
 	prog, ok := m.programs[programName]
 	m.mu.RUnlock()
@@ -288,7 +314,7 @@ func (m *meeseek) SubscribeLogs(ctx context.Context, programName string) (<-chan
 		return nil, fmt.Errorf("program %s not present", programName)
 	}
 
-	return prog.SubscribeLogs(ctx), nil
+	return prog.SubscribeLogs(ctx, subscribeToPreviousLogs), nil
 }
 
 func (m *meeseek) Statistic(programName string) (Statistics, error) {

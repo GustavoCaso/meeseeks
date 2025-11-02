@@ -51,7 +51,7 @@ type Program interface {
 	Stderr() string
 	// SubscribeLogs return a channel to consume logs in real-time.
 	// The caller is responsible for closing the context which ensure the channel is closed.
-	SubscribeLogs(ctx context.Context) <-chan LogLine
+	SubscribeLogs(ctx context.Context, subscribeToPreviousLogs bool) <-chan LogLine
 	// State returns the current execution state of the program.
 	State() ProcessState
 	// String returns a human-readable representation of the program including name, command and options.
@@ -266,7 +266,7 @@ func (p *program) Stderr() string {
 	return p.errorBuffer.String()
 }
 
-func (p *program) SubscribeLogs(ctx context.Context) <-chan LogLine {
+func (p *program) SubscribeLogs(ctx context.Context, subscribeToPreviousLogs bool) <-chan LogLine {
 	ch := make(chan LogLine, 1000)
 	id := p.subscriptionIDCounter.Add(1)
 
@@ -274,33 +274,35 @@ func (p *program) SubscribeLogs(ctx context.Context) <-chan LogLine {
 	p.logSubscriptionChannels[id] = ch
 	p.subsLock.Unlock()
 
-	p.dataLock.RLock()
-	existingOutput := p.outputBuffer.String()
-	existingError := p.errorBuffer.String()
-	p.dataLock.RUnlock()
+	if subscribeToPreviousLogs {
+		p.dataLock.RLock()
+		existingOutput := p.outputBuffer.String()
+		existingError := p.errorBuffer.String()
+		p.dataLock.RUnlock()
 
-	// Send existing log lines
-	if existingOutput != "" {
-		for _, line := range strings.Split(existingOutput, "\n") {
-			if line != "" {
-				select {
-				case ch <- LogLine{Message: line, IsError: false}:
-				case <-ctx.Done():
-				default:
-					// Channel full - drop the log line
+		// Send existing log lines
+		if existingOutput != "" {
+			for _, line := range strings.Split(existingOutput, "\n") {
+				if line != "" {
+					select {
+					case ch <- LogLine{Message: line, IsError: false}:
+					case <-ctx.Done():
+					default:
+						// Channel full - drop the log line
+					}
 				}
 			}
 		}
-	}
 
-	if existingError != "" {
-		for _, line := range strings.Split(existingError, "\n") {
-			if line != "" {
-				select {
-				case ch <- LogLine{Message: line, IsError: true}:
-				case <-ctx.Done():
-				default:
-					// Channel full - drop the log line
+		if existingError != "" {
+			for _, line := range strings.Split(existingError, "\n") {
+				if line != "" {
+					select {
+					case ch <- LogLine{Message: line, IsError: true}:
+					case <-ctx.Done():
+					default:
+						// Channel full - drop the log line
+					}
 				}
 			}
 		}
