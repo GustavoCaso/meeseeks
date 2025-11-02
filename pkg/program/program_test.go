@@ -1318,6 +1318,30 @@ func TestProgram_SubscribeLogs(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("subscribe to previous logs disabled", func(t *testing.T) {
+		t.Parallel()
+
+		p := New("no-previous-test", "echo", Args("historical output"))
+
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
+		}
+		<-done
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		logCh := p.SubscribeLogs(ctx, false)
+
+		timeout := time.After(500 * time.Millisecond)
+		select {
+		case <-logCh:
+			t.Fatal("Should not receive historical logs when subscribeToPreviousLogs is false")
+		case <-timeout:
+			// Expected - no logs received
+		}
+	})
 }
 
 func TestProgram_String(t *testing.T) {
