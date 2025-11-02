@@ -282,29 +282,11 @@ func (p *program) SubscribeLogs(ctx context.Context, subscribeToPreviousLogs boo
 
 		// Send existing log lines
 		if existingOutput != "" {
-			for _, line := range strings.Split(existingOutput, "\n") {
-				if line != "" {
-					select {
-					case ch <- LogLine{Message: line, IsError: false}:
-					case <-ctx.Done():
-					default:
-						// Channel full - drop the log line
-					}
-				}
-			}
+			sendLinesToChannel(ctx, existingOutput, ch)
 		}
 
 		if existingError != "" {
-			for _, line := range strings.Split(existingError, "\n") {
-				if line != "" {
-					select {
-					case ch <- LogLine{Message: line, IsError: true}:
-					case <-ctx.Done():
-					default:
-						// Channel full - drop the log line
-					}
-				}
-			}
+			sendLinesToChannel(ctx, existingError, ch)
 		}
 	}
 
@@ -658,4 +640,18 @@ func (p *program) forcekill() error {
 	}
 
 	return nil
+}
+
+func sendLinesToChannel(ctx context.Context, lines string, ch chan<- LogLine) {
+	for _, line := range strings.Split(lines, "\n") {
+		if line != "" {
+			select {
+			case ch <- LogLine{Message: line, IsError: false}:
+			case <-ctx.Done():
+				return
+			default:
+				// Channel full - drop the log line
+			}
+		}
+	}
 }
