@@ -76,7 +76,7 @@ func (c *Client) FollowLogs(
 
 	q := reqURL.Query()
 	q.Set("program", programName)
-	q.Set("subscribe_previous_logs", strconv.FormatBool(subscribeToPreviousLogs))
+	q.Set("subscribe_to_previous_logs", strconv.FormatBool(subscribeToPreviousLogs))
 	reqURL.RawQuery = q.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL.String(), nil)

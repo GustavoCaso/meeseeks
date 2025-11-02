@@ -42,9 +42,13 @@ func runCommand(args []string, logger *logger.Logger) error {
 	client := server.NewClient(ctx, getSocketPath())
 
 	if !*printLogs {
-		_, err := client.RunProgram(ctx, programName, false)
+		resp, err := client.RunProgram(ctx, programName, false)
 		if err != nil {
 			return err
+		}
+
+		if !resp.Success {
+			return fmt.Errorf("%s", resp.Error)
 		}
 
 		return statusCommand([]string{"-f", "table", programName}, logger)
