@@ -204,7 +204,7 @@ func TestServer_HTTPHandlers(t *testing.T) {
 		{
 			name: "run with empty program name",
 			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.RunProgram(t.Context(), "")
+				resp, err := client.RunProgram(t.Context(), "", false)
 				if err != nil {
 					t.Fatalf("RunProgram() unexpected error = %v", err)
 					return
@@ -220,7 +220,7 @@ func TestServer_HTTPHandlers(t *testing.T) {
 		{
 			name: "run with non existing program name",
 			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.RunProgram(t.Context(), "nonexistent-program")
+				resp, err := client.RunProgram(t.Context(), "nonexistent-program", false)
 				if err != nil {
 					t.Fatalf("RunProgram() unexpected error = %v", err)
 					return
@@ -236,7 +236,7 @@ func TestServer_HTTPHandlers(t *testing.T) {
 		{
 			name: "run program successfully",
 			testFn: func(t *testing.T, client *Client) {
-				resp, err := client.RunProgram(t.Context(), "test-program1")
+				resp, err := client.RunProgram(t.Context(), "test-program1", false)
 				if err != nil {
 					t.Fatalf("RunProgram() unexpected error = %v", err)
 					return
@@ -510,7 +510,7 @@ func TestFollowLogs(t *testing.T) {
 		client := NewClient(ctx, sockPath)
 
 		logLines := make(chan []byte, 10)
-		err = client.FollowLogs(ctx, "streaming-program", logLines)
+		err = client.FollowLogs(ctx, "streaming-program", true, logLines)
 		if err != nil {
 			t.Fatalf("FollowLogs() unexpected error = %v", err)
 		}
@@ -600,7 +600,7 @@ func TestFollowLogs(t *testing.T) {
 		client := NewClient(ctx, sockPath)
 		logLines := make(chan []byte, 10)
 
-		err = client.FollowLogs(ctx, "nonexistent", logLines)
+		err = client.FollowLogs(ctx, "nonexistent", true, logLines)
 		if err == nil {
 			t.Fatal("Expected error for nonexistent program, got none")
 		}
@@ -653,7 +653,7 @@ func TestFollowLogs(t *testing.T) {
 		client := NewClient(ctx, sockPath)
 		logLines := make(chan []byte, 10)
 
-		err = client.FollowLogs(ctx, "", logLines)
+		err = client.FollowLogs(ctx, "", true, logLines)
 		if err == nil {
 			t.Fatal("Expected error for empty program name, got none")
 		}
@@ -705,7 +705,7 @@ func TestFollowLogs(t *testing.T) {
 		client := NewClient(ctx, sockPath)
 		logLines := make(chan []byte, 10)
 
-		err = client.FollowLogs(ctx, "mixed-output", logLines)
+		err = client.FollowLogs(ctx, "mixed-output", true, logLines)
 		if err != nil {
 			t.Fatalf("FollowLogs() unexpected error = %v", err)
 		}
@@ -800,7 +800,7 @@ func TestFollowLogs(t *testing.T) {
 		client := NewClient(streamCtx, sockPath)
 		logLines := make(chan []byte, 10)
 
-		err = client.FollowLogs(streamCtx, "long-runner", logLines)
+		err = client.FollowLogs(streamCtx, "long-runner", true, logLines)
 		if err != nil {
 			t.Fatalf("FollowLogs() unexpected error = %v", err)
 		}

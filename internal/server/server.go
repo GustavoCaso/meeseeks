@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -182,13 +183,24 @@ func (s *Server) handleFollowLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := r.Context()
-	channel, err := s.meeseeks.SubscribeLogs(ctx, programName)
+	subscribeToPreviousLogsString := r.URL.Query().Get("subscribe_to_previous_logs")
+	subscribeToPreviousLogs, err := strconv.ParseBool(subscribeToPreviousLogsString)
 
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
 		resp := Response{Success: false, Error: err.Error()}
+		handleResponse(w, resp)
+		return
+	}
+
+	ctx := r.Context()
+	channel, subscribeError := s.meeseeks.SubscribeLogs(ctx, programName, subscribeToPreviousLogs)
+
+	if subscribeError != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		resp := Response{Success: false, Error: subscribeError.Error()}
 		handleResponse(w, resp)
 		return
 	}
@@ -338,12 +350,26 @@ func (s *Server) handleRunProgram(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := s.meeseeks.Run(programName)
+	runAsync := r.URL.Query().Get("async")
+	async, err := strconv.ParseBool(runAsync)
 
 	if err != nil {
+		resp := Response{Success: false, Error: err.Error()}
+		handleResponse(w, resp)
+		return
+	}
+
+	var runErr error
+	if async {
+		runErr = s.meeseeks.RunAsync(programName)
+	} else {
+		runErr = s.meeseeks.Run(programName)
+	}
+
+	if runErr != nil {
 		resp := Response{
 			Success: false,
-			Error:   fmt.Sprintf("error executing program '%s'. %s", programName, err.Error()),
+			Error:   fmt.Sprintf("error executing program '%s'. %s", programName, runErr.Error()),
 		}
 		handleResponse(w, resp)
 		return

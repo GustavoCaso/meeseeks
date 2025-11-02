@@ -155,6 +155,7 @@ program.New("name", "command",
     program.Stdin(reader),                  // Provide stdin input
     program.BufferSizeLimit(1024 * 1024),   // Limit output buffers (1MB)
     program.Interval(30*time.Second),       // Interval. Useful when used with meeseeks package
+    program.InitialDelay(5*time.Second),    // Wait before first execution
 )
 ```
 
@@ -208,6 +209,7 @@ meeseeks status -f json web-server # Status of a single program with json output
 
 ```bash
 meeseeks run health-check
+meeseeks run -f health-check # Run and print logs in real-time
 ```
 
 **View logs**:
@@ -257,6 +259,7 @@ programs:
     args: ["arg1", "arg2"]              # Optional: Command arguments
     env: ["VAR=value"]                  # Optional: Environment variables
     interval: "30s"                     # Optional: Run every interval (e.g., "1m", "30s")
+    initial_delay: "5s"                 # Optional: Wait before first execution (e.g., "1m", "30s")
     keep_stdin_open: true               # Optional: Keep stdin open for input (default: false)
     stdout: "/path/to/stdout.log"       # Optional: Redirect stdout to file
     stderr: "/path/to/stderr.log"       # Optional: Redirect stderr to file

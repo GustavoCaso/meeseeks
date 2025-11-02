@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 )
 
 type Client struct {
@@ -57,7 +58,12 @@ func (c *Client) Logs(ctx context.Context, programName string) (*Response, error
 //nolint:gochecknoglobals // This gloabls is convinient
 var headerData = []byte("data:")
 
-func (c *Client) FollowLogs(ctx context.Context, programName string, logLines chan []byte) error {
+func (c *Client) FollowLogs(
+	ctx context.Context,
+	programName string,
+	subscribeToPreviousLogs bool,
+	logLines chan []byte,
+) error {
 	if _, err := os.Stat(c.sockPath); os.IsNotExist(err) {
 		return errors.New("meeseeks server not running (socket not found)")
 	}
@@ -70,6 +76,7 @@ func (c *Client) FollowLogs(ctx context.Context, programName string, logLines ch
 
 	q := reqURL.Query()
 	q.Set("program", programName)
+	q.Set("subscribe_to_previous_logs", strconv.FormatBool(subscribeToPreviousLogs))
 	reqURL.RawQuery = q.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL.String(), nil)
@@ -138,9 +145,10 @@ func (c *Client) Reload(ctx context.Context, timeout string) (*Response, error) 
 	return c.sendRequest(ctx, "/reload", params)
 }
 
-func (c *Client) RunProgram(ctx context.Context, programName string) (*Response, error) {
+func (c *Client) RunProgram(ctx context.Context, programName string, async bool) (*Response, error) {
 	params := map[string]string{
 		"program": programName,
+		"async":   strconv.FormatBool(async),
 	}
 
 	return c.sendRequest(ctx, "/run-program", params)

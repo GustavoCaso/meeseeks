@@ -50,7 +50,8 @@ func TestRunCommand(t *testing.T) {
 
 func TestRunCommandHelp(t *testing.T) {
 	testCommandHelp(t, []string{"run"}, []string{
-		"Usage: meeseeks run <program_name>",
+		"Usage: meeseeks run [options] <program_name>",
 		"Run a single program one-time",
+		"-f",
 	})
 }

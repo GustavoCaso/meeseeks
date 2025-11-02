@@ -13,9 +13,16 @@ import (
 
 func runCommand(args []string, logger *logger.Logger) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
+	printLogs := fs.Bool(
+		"f",
+		false,
+		"print logs while the programs run. Otherwise there is no output until the program finish",
+	)
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: meeseeks run <program_name>\n\n")
-		fmt.Fprintf(os.Stderr, "Run a single program one-time\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: meeseeks run [options] <program_name>\n\n")
+		fmt.Fprintf(os.Stderr, "Run a single program one-time\n")
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		fs.PrintDefaults()
 	}
 
 	if err := fs.Parse(args); err != nil {
@@ -33,7 +40,21 @@ func runCommand(args []string, logger *logger.Logger) error {
 	defer cancel()
 
 	client := server.NewClient(ctx, getSocketPath())
-	resp, err := client.RunProgram(ctx, programName)
+
+	if !*printLogs {
+		resp, err := client.RunProgram(ctx, programName, false)
+		if err != nil {
+			return err
+		}
+
+		if !resp.Success {
+			return fmt.Errorf("%s", resp.Error)
+		}
+
+		return statusCommand([]string{"-f", "table", programName}, logger)
+	}
+
+	resp, err := client.RunProgram(ctx, programName, true)
 	if err != nil {
 		return err
 	}
@@ -42,5 +63,5 @@ func runCommand(args []string, logger *logger.Logger) error {
 		return fmt.Errorf("%s", resp.Error)
 	}
 
-	return statusCommand([]string{"-f", "table", programName}, logger)
+	return followLogs(ctx, client, programName, false)
 }
