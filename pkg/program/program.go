@@ -39,6 +39,10 @@ type Program interface {
 	Interval() time.Duration
 	// InitialDelay return the initial delay information if configured using the InitialDelay Option
 	InitialDelay() time.Duration
+	// RetryCount return the number of retries
+	RetryCount() int
+	// RetryDelay return the delay between retries
+	RetryDelay() time.Duration
 	// Send writes data to the program's stdin. Requires KeepStdinOpen option.
 	// Returns an error if stdin is closed or the program is not running.
 	Send([]byte) error
@@ -97,6 +101,8 @@ type program struct {
 	async        bool
 	interval     time.Duration
 	initialDelay time.Duration
+	retryCount   int
+	retryDelay   time.Duration
 	done         chan struct{}
 
 	customStdout io.Writer
@@ -215,6 +221,14 @@ func (p *program) Interval() time.Duration {
 
 func (p *program) InitialDelay() time.Duration {
 	return p.initialDelay
+}
+
+func (p *program) RetryCount() int {
+	return p.retryCount
+}
+
+func (p *program) RetryDelay() time.Duration {
+	return p.retryDelay
 }
 
 func (p *program) Send(data []byte) error {

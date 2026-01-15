@@ -45,5 +45,15 @@ func createProgramFromConfig(pc config.ProgramConfig, logger *logger.Logger) (pr
 	}
 	opts = append(opts, program.InitialDelay(initialDelay))
 
+	if pc.RetryCount > 0 {
+		opts = append(opts, program.RetryCount(pc.RetryCount))
+	}
+
+	retryDelay, err := pc.GetRetryDelay()
+	if err != nil {
+		return nil, err
+	}
+	opts = append(opts, program.RetryDelay(retryDelay))
+
 	return program.New(pc.Name, pc.Command, opts...), nil
 }

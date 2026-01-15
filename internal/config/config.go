@@ -25,6 +25,8 @@ type ProgramConfig struct {
 	Env             []string `yaml:"env,omitempty"               json:"env,omitempty"`
 	Interval        string   `yaml:"interval,omitempty"          json:"interval,omitempty"`
 	InitialDelay    string   `yaml:"initial_delay,omitempty"     json:"initial_delay,omitempty"`
+	RetryCount      int      `yaml:"retry_count,omitempty"       json:"retry_count,omitempty"`
+	RetryDelay      string   `yaml:"retry_delay,omitempty"       json:"retry_delay,omitempty"`
 	KeepStdinOpen   bool     `yaml:"keep_stdin_open,omitempty"   json:"keep_stdin_open,omitempty"`
 	Stdout          string   `yaml:"stdout,omitempty"            json:"stdout,omitempty"`
 	Stderr          string   `yaml:"stderr,omitempty"            json:"stderr,omitempty"`
@@ -36,6 +38,13 @@ func (pc *ProgramConfig) GetInterval() (time.Duration, error) {
 		return 0, nil
 	}
 	return time.ParseDuration(pc.Interval)
+}
+
+func (pc *ProgramConfig) GetRetryDelay() (time.Duration, error) {
+	if pc.RetryDelay == "" {
+		return 0, nil
+	}
+	return time.ParseDuration(pc.RetryDelay)
 }
 
 func (pc *ProgramConfig) GetInitialDelay() (time.Duration, error) {
@@ -129,13 +138,34 @@ func (c *Config) Validate() error {
 		if programNames[program.Name] {
 			return fmt.Errorf("duplicate program name: %s", program.Name)
 		}
-		programNames[program.Name] = true
 
 		if program.Interval != "" {
 			if _, err := time.ParseDuration(program.Interval); err != nil {
 				return fmt.Errorf("invalid interval for program %s: %w", program.Name, err)
 			}
 		}
+
+		if program.InitialDelay != "" {
+			if _, err := time.ParseDuration(program.InitialDelay); err != nil {
+				return fmt.Errorf("invalid initial_delay for program %s: %w", program.Name, err)
+			}
+		}
+
+		if program.RetryCount < 0 {
+			return fmt.Errorf(
+				"invalid retry count for program %s: retry_count if set must be bigger than zerp",
+				program.Name,
+			)
+		}
+
+		if program.RetryDelay != "" {
+			if _, err := time.ParseDuration(program.RetryDelay); err != nil {
+				return fmt.Errorf("invalid retry_delay for program %s: %w", program.Name, err)
+			}
+		}
+
+		programNames[program.Name] = true
+
 	}
 
 	return nil
