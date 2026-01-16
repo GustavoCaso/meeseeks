@@ -399,7 +399,7 @@ func (m *meeseek) runOneTimeProgram(ctx context.Context, prog program.Program) {
 	success, retryAttempts := m.runWithRetry(ctx, prog)
 
 	if m.logger != nil {
-		m.logger.Error("finish executing program", "program", prog.Name(), "state", program.StateToString[prog.State()])
+		m.logger.Info("finish executing program", "program", prog.Name(), "state", program.StateToString[prog.State()])
 	}
 
 	m.trackProgramCompletion(prog.Name(), success, retryAttempts)
@@ -532,39 +532,24 @@ func (m *meeseek) executeScheduledProgram(ctx context.Context, prog program.Prog
 		return
 	}
 
-	done, err := prog.Start(ctx)
-	if err != nil {
-		if m.logger != nil {
-			m.logger.Error("scheduled program failed to start",
-				"program", prog.Name(),
-				"execution_type", executionType,
-				"error", err.Error())
-		}
-		m.trackProgramCompletion(programName, false, 0)
-		// Continue running for interval programs even if one execution fails
-		return
-	}
+	innerCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
-	select {
-	case <-done:
-		// Program execution completed normally
-		success := prog.State() == program.StateFinished
-		if m.logger != nil {
-			m.logger.Info(
-				"scheduled program executed",
-				"program", prog.Name(),
-				"execution_type", executionType,
-				"state", program.StateToString[prog.State()],
-			)
+	go func() {
+		select {
+		case <-ctx.Done():
+			// Context cancelled while program was running
+			cancel()
+		case <-stop:
+			// Program was stop while running
+			cancel()
+		case <-innerCtx.Done():
+			// Program finished
+			return
 		}
-		m.trackProgramCompletion(programName, success, 0)
-	case <-ctx.Done():
-		// Context cancelled while program was running
-		return
-	case <-stop:
-		// Program was stop while running
-		return
-	}
+	}()
+
+	m.runOneTimeProgram(innerCtx, prog)
 }
 
 func (m *meeseek) collectProgramStatistics(prog program.Program, execRecord *executionTrack) Statistics {
