@@ -70,6 +70,7 @@ type Statistics struct {
 	State       string `json:"state"`
 	Successful  int    `json:"successful_runs"`
 	Failed      int    `json:"failed_runs"`
+	Retries     int    `json:"retries"`
 	Stdout      string `json:"stdout"`
 	Stderr      string `json:"stderr"`
 	Interval    string `json:"interval,omitempty"`
@@ -80,6 +81,7 @@ type Statistics struct {
 type executionTrack struct {
 	successful int
 	failed     int
+	retries    int
 	lastRunAt  time.Time
 }
 
@@ -394,26 +396,76 @@ func (m *meeseek) runProgram(ctx context.Context, prog program.Program) {
 }
 
 func (m *meeseek) runOneTimeProgram(ctx context.Context, prog program.Program) {
-	done, err := prog.Start(ctx)
-	if err != nil {
-		if m.logger != nil {
-			m.logger.Error("program failed", "program", prog.Name(), "error", err.Error())
-		}
-		m.trackProgramCompletion(prog.Name(), false)
-		return
+	success, retryAttempts := m.runWithRetry(ctx, prog)
+
+	if m.logger != nil {
+		m.logger.Error("finish executing program", "program", prog.Name(), "state", program.StateToString[prog.State()])
 	}
-	<-done
+
+	m.trackProgramCompletion(prog.Name(), success, retryAttempts)
+}
+
+func (m *meeseek) runWithRetry(ctx context.Context, prog program.Program) (bool, int) {
+	if m.run(ctx, prog) {
+		return true, 0
+	}
+
+	return m.retry(ctx, prog)
+}
+
+func (m *meeseek) run(ctx context.Context, prog program.Program) bool {
 	if m.logger != nil {
 		m.logger.Info(
-			"program executed",
+			"executing program",
 			"program",
 			prog.Name(),
-			"state",
-			program.StateToString[prog.State()],
 		)
 	}
-	// Track completion success based on final state
-	m.trackProgramCompletion(prog.Name(), prog.State() == program.StateFinished)
+
+	done, err := prog.Start(ctx)
+	if err != nil {
+		return false
+	}
+
+	<-done
+
+	if prog.State() == program.StateFinished {
+		return true
+	}
+
+	return false
+}
+
+func (m *meeseek) retry(ctx context.Context, prog program.Program) (bool, int) {
+	if prog.RetryCount() == 0 {
+		return false, 0
+	}
+
+	attempts := 1
+	for attempts <= prog.RetryCount() {
+		if m.logger != nil {
+			m.logger.Info(
+				"retrying program",
+				"program",
+				prog.Name(),
+			)
+		}
+
+		done, err := prog.Start(ctx)
+		if err != nil {
+			attempts++
+			continue
+		}
+		<-done
+
+		if prog.State() == program.StateFinished {
+			return true, attempts
+		}
+
+		attempts++
+	}
+
+	return false, attempts
 }
 
 func (m *meeseek) runScheduledProgram(ctx context.Context, prog program.Program) {
@@ -488,7 +540,7 @@ func (m *meeseek) executeScheduledProgram(ctx context.Context, prog program.Prog
 				"execution_type", executionType,
 				"error", err.Error())
 		}
-		m.trackProgramCompletion(programName, false)
+		m.trackProgramCompletion(programName, false, 0)
 		// Continue running for interval programs even if one execution fails
 		return
 	}
@@ -505,7 +557,7 @@ func (m *meeseek) executeScheduledProgram(ctx context.Context, prog program.Prog
 				"state", program.StateToString[prog.State()],
 			)
 		}
-		m.trackProgramCompletion(programName, success)
+		m.trackProgramCompletion(programName, success, 0)
 	case <-ctx.Done():
 		// Context cancelled while program was running
 		return
@@ -524,6 +576,7 @@ func (m *meeseek) collectProgramStatistics(prog program.Program, execRecord *exe
 		State:       program.StateToString[progState],
 		Successful:  execRecord.successful,
 		Failed:      execRecord.failed,
+		Retries:     execRecord.retries,
 		LastRunAt:   execRecord.lastRunAt.Format(time.DateTime),
 	}
 
@@ -541,7 +594,7 @@ func (m *meeseek) collectProgramStatistics(prog program.Program, execRecord *exe
 }
 
 // trackProgramCompletion updates execution statistics when a program completes.
-func (m *meeseek) trackProgramCompletion(programName string, success bool) {
+func (m *meeseek) trackProgramCompletion(programName string, success bool, retryAttempts int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -556,6 +609,7 @@ func (m *meeseek) trackProgramCompletion(programName string, success bool) {
 	} else {
 		execRecord.failed++
 	}
+	execRecord.retries += retryAttempts
 	execRecord.lastRunAt = time.Now()
 }
 
