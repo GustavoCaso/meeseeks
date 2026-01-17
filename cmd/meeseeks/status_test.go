@@ -24,19 +24,19 @@ func TestStatusCommand(t *testing.T) {
 			name:          "status format table headers",
 			args:          []string{"status"},
 			expectedExit:  0,
-			shouldContain: `NAME                SUCCESS  FAILED  RETRIES   INTERVAL  STATUS       LAST RUN AT  NEXT RUN`,
+			shouldContain: `NAME                STATUS    SUCCESS  FAILED  RETRIES  INTERVAL  LAST RUN AT          NEXT RUN`,
 		},
 		{
 			name:          "status format table single program",
 			args:          []string{"status", "test-echo-detached"},
 			expectedExit:  0,
-			shouldContain: `test-echo-detached  0        0       0         no        running`,
+			shouldContain: `test-echo-detached  running  0        0       0        no`,
 		},
 		{
 			name:          "status format table interval program",
 			args:          []string{"status", "interval echo"},
 			expectedExit:  0,
-			shouldContain: `interval echo  1        0       0         12h0m0s   finished`,
+			shouldContain: `interval echo  finished  1        0       0        12h0m0s`,
 		},
 		{
 			name:          "status format json",
