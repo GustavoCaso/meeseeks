@@ -399,6 +399,13 @@ func (m *meeseek) runOneTimeProgram(ctx context.Context, prog program.Program) {
 	progState := prog.State()
 
 	if progState == program.StateRunning {
+		if m.logger != nil {
+			m.logger.Warn(
+				"skipping already running program",
+				"program",
+				prog.Name(),
+			)
+		}
 		return
 	}
 
@@ -413,10 +420,6 @@ func (m *meeseek) runWithRetry(ctx context.Context, prog program.Program) (bool,
 	}
 
 	success, retryAttempts := m.retry(ctx, prog)
-
-	if m.logger != nil {
-		m.logger.Info("finish executing program", "program", prog.Name(), "state", program.StateToString[prog.State()])
-	}
 
 	return success, retryAttempts
 }
@@ -436,6 +439,16 @@ func (m *meeseek) run(ctx context.Context, prog program.Program) bool {
 	}
 
 	<-done
+
+	if m.logger != nil {
+		m.logger.Info(
+			"program executed",
+			"program",
+			prog.Name(),
+			"state",
+			program.StateToString[prog.State()],
+		)
+	}
 
 	if prog.State() == program.StateFinished {
 		return true
@@ -462,6 +475,8 @@ func (m *meeseek) retry(ctx context.Context, prog program.Program) (bool, int) {
 				"retrying program",
 				"program",
 				prog.Name(),
+				"attempt",
+				retryAttempts,
 			)
 		}
 
