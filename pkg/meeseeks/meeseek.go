@@ -70,6 +70,7 @@ type Statistics struct {
 	State       string `json:"state"`
 	Successful  int    `json:"successful_runs"`
 	Failed      int    `json:"failed_runs"`
+	Retries     int    `json:"retries"`
 	Stdout      string `json:"stdout"`
 	Stderr      string `json:"stderr"`
 	Interval    string `json:"interval,omitempty"`
@@ -80,6 +81,7 @@ type Statistics struct {
 type executionTrack struct {
 	successful int
 	failed     int
+	retries    int
 	lastRunAt  time.Time
 }
 
@@ -394,15 +396,50 @@ func (m *meeseek) runProgram(ctx context.Context, prog program.Program) {
 }
 
 func (m *meeseek) runOneTimeProgram(ctx context.Context, prog program.Program) {
-	done, err := prog.Start(ctx)
-	if err != nil {
+	progState := prog.State()
+
+	if progState == program.StateRunning {
 		if m.logger != nil {
-			m.logger.Error("program failed", "program", prog.Name(), "error", err.Error())
+			m.logger.Warn(
+				"skipping already running program",
+				"program",
+				prog.Name(),
+			)
 		}
-		m.trackProgramCompletion(prog.Name(), false)
 		return
 	}
+
+	success, retryAttempts := m.runWithRetry(ctx, prog)
+
+	m.trackProgramCompletion(prog.Name(), success, retryAttempts)
+}
+
+func (m *meeseek) runWithRetry(ctx context.Context, prog program.Program) (bool, int) {
+	if m.run(ctx, prog) {
+		return true, 0
+	}
+
+	success, retryAttempts := m.retry(ctx, prog)
+
+	return success, retryAttempts
+}
+
+func (m *meeseek) run(ctx context.Context, prog program.Program) bool {
+	if m.logger != nil {
+		m.logger.Info(
+			"executing program",
+			"program",
+			prog.Name(),
+		)
+	}
+
+	done, err := prog.Start(ctx)
+	if err != nil {
+		return false
+	}
+
 	<-done
+
 	if m.logger != nil {
 		m.logger.Info(
 			"program executed",
@@ -412,8 +449,67 @@ func (m *meeseek) runOneTimeProgram(ctx context.Context, prog program.Program) {
 			program.StateToString[prog.State()],
 		)
 	}
-	// Track completion success based on final state
-	m.trackProgramCompletion(prog.Name(), prog.State() == program.StateFinished)
+
+	if prog.State() == program.StateFinished {
+		return true
+	}
+
+	return false
+}
+
+//nolint:gocognit //The complexity is acceptable
+func (m *meeseek) retry(ctx context.Context, prog program.Program) (bool, int) {
+	if prog.RetryCount() == 0 {
+		return false, 0
+	}
+
+	retryAttempts := 0
+	for retryAttempts < prog.RetryCount() {
+		select {
+		case <-ctx.Done():
+			return false, retryAttempts
+		default:
+		}
+
+		if m.logger != nil {
+			m.logger.Info(
+				"retrying program",
+				"program",
+				prog.Name(),
+				"attempt",
+				retryAttempts,
+			)
+		}
+
+		done, err := prog.Start(ctx)
+		if err != nil {
+			retryAttempts++
+			if retryAttempts <= prog.RetryCount() && prog.RetryDelay() > 0 {
+				select {
+				case <-ctx.Done():
+					return false, retryAttempts
+				case <-time.After(prog.RetryDelay()):
+				}
+			}
+			continue
+		}
+		<-done
+		retryAttempts++
+
+		if prog.State() == program.StateFinished {
+			return true, retryAttempts
+		}
+
+		if retryAttempts <= prog.RetryCount() && prog.RetryDelay() > 0 {
+			select {
+			case <-ctx.Done():
+				return false, retryAttempts
+			case <-time.After(prog.RetryDelay()):
+			}
+		}
+	}
+
+	return false, retryAttempts
 }
 
 func (m *meeseek) runScheduledProgram(ctx context.Context, prog program.Program) {
@@ -437,7 +533,7 @@ func (m *meeseek) runScheduledProgram(ctx context.Context, prog program.Program)
 	}()
 
 	// Execute the program immediately first
-	m.executeScheduledProgram(ctx, prog, "initial")
+	m.executeScheduledProgram(ctx, prog)
 
 	// Main interval loop
 	for {
@@ -460,14 +556,14 @@ func (m *meeseek) runScheduledProgram(ctx context.Context, prog program.Program)
 			execute := timeSinceLastRun >= interval
 
 			if execute {
-				m.executeScheduledProgram(ctx, prog, "interval")
+				m.executeScheduledProgram(ctx, prog)
 			}
 		}
 	}
 }
 
 // executeScheduledProgram handles execution of a scheduled program with consistent error handling.
-func (m *meeseek) executeScheduledProgram(ctx context.Context, prog program.Program, executionType string) {
+func (m *meeseek) executeScheduledProgram(ctx context.Context, prog program.Program) {
 	programName := prog.Name()
 
 	// Check if we should stop before starting execution
@@ -480,39 +576,24 @@ func (m *meeseek) executeScheduledProgram(ctx context.Context, prog program.Prog
 		return
 	}
 
-	done, err := prog.Start(ctx)
-	if err != nil {
-		if m.logger != nil {
-			m.logger.Error("scheduled program failed to start",
-				"program", prog.Name(),
-				"execution_type", executionType,
-				"error", err.Error())
-		}
-		m.trackProgramCompletion(programName, false)
-		// Continue running for interval programs even if one execution fails
-		return
-	}
+	innerCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
-	select {
-	case <-done:
-		// Program execution completed normally
-		success := prog.State() == program.StateFinished
-		if m.logger != nil {
-			m.logger.Info(
-				"scheduled program executed",
-				"program", prog.Name(),
-				"execution_type", executionType,
-				"state", program.StateToString[prog.State()],
-			)
+	go func() {
+		select {
+		case <-ctx.Done():
+			// Context cancelled while program was running
+			cancel()
+		case <-stop:
+			// Program was stop while running
+			cancel()
+		case <-innerCtx.Done():
+			// Program finished
+			return
 		}
-		m.trackProgramCompletion(programName, success)
-	case <-ctx.Done():
-		// Context cancelled while program was running
-		return
-	case <-stop:
-		// Program was stop while running
-		return
-	}
+	}()
+
+	m.runOneTimeProgram(innerCtx, prog)
 }
 
 func (m *meeseek) collectProgramStatistics(prog program.Program, execRecord *executionTrack) Statistics {
@@ -524,6 +605,7 @@ func (m *meeseek) collectProgramStatistics(prog program.Program, execRecord *exe
 		State:       program.StateToString[progState],
 		Successful:  execRecord.successful,
 		Failed:      execRecord.failed,
+		Retries:     execRecord.retries,
 		LastRunAt:   execRecord.lastRunAt.Format(time.DateTime),
 	}
 
@@ -541,7 +623,7 @@ func (m *meeseek) collectProgramStatistics(prog program.Program, execRecord *exe
 }
 
 // trackProgramCompletion updates execution statistics when a program completes.
-func (m *meeseek) trackProgramCompletion(programName string, success bool) {
+func (m *meeseek) trackProgramCompletion(programName string, success bool, retryAttempts int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -556,6 +638,7 @@ func (m *meeseek) trackProgramCompletion(programName string, success bool) {
 	} else {
 		execRecord.failed++
 	}
+	execRecord.retries += retryAttempts
 	execRecord.lastRunAt = time.Now()
 }
 

@@ -39,6 +39,10 @@ type Program interface {
 	Interval() time.Duration
 	// InitialDelay return the initial delay information if configured using the InitialDelay Option
 	InitialDelay() time.Duration
+	// RetryCount return the number of retries
+	RetryCount() int
+	// RetryDelay return the delay between retries
+	RetryDelay() time.Duration
 	// Send writes data to the program's stdin. Requires KeepStdinOpen option.
 	// Returns an error if stdin is closed or the program is not running.
 	Send([]byte) error
@@ -97,6 +101,8 @@ type program struct {
 	async        bool
 	interval     time.Duration
 	initialDelay time.Duration
+	retryCount   int
+	retryDelay   time.Duration
 	done         chan struct{}
 
 	customStdout io.Writer
@@ -192,9 +198,22 @@ func (p *program) Name() string {
 }
 
 func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
+	p.dataLock.Lock()
+	if p.state == StateRunning {
+		p.dataLock.Unlock()
+		done := make(chan struct{}, 1)
+		close(done)
+		return done, errors.New("program already running")
+	}
+	p.state = StateRunning
+	p.dataLock.Unlock()
 	cmd, err := p.setupCmd(ctx)
 
 	if err != nil {
+		// Failed setup, revert state
+		p.dataLock.Lock()
+		p.state = StateError
+		p.dataLock.Unlock()
 		done := make(chan struct{}, 1)
 		close(done)
 		return done, err
@@ -215,6 +234,14 @@ func (p *program) Interval() time.Duration {
 
 func (p *program) InitialDelay() time.Duration {
 	return p.initialDelay
+}
+
+func (p *program) RetryCount() int {
+	return p.retryCount
+}
+
+func (p *program) RetryDelay() time.Duration {
+	return p.retryDelay
 }
 
 func (p *program) Send(data []byte) error {
@@ -318,6 +345,14 @@ func (p *program) String() string {
 
 	if p.initialDelay > 0 {
 		s += fmt.Sprintf(", initial delay: %s", p.initialDelay)
+	}
+
+	if p.retryCount > 0 {
+		s += fmt.Sprintf(", retry count: %d", p.retryCount)
+	}
+
+	if p.retryDelay > 0 {
+		s += fmt.Sprintf(", retry count: %s", p.retryDelay)
 	}
 
 	return s
@@ -462,10 +497,6 @@ func (p *program) run() error {
 		p.finalize()
 		return err
 	}
-
-	p.dataLock.Lock()
-	p.state = StateRunning
-	p.dataLock.Unlock()
 
 	if p.async {
 		go p.monitorProcess()

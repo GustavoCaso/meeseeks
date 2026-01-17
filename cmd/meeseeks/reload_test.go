@@ -30,7 +30,7 @@ func TestReload(t *testing.T) {
 			name:          "get status of current programs",
 			args:          []string{"status"},
 			expectedExit:  0,
-			shouldContain: "test-stop-program1  0        0       no        running",
+			shouldContain: "test-stop-program1  0        0       0         no        running",
 		},
 	}
 

@@ -18,6 +18,7 @@ A simple and lightweight process manager for Go applications. Meeseeks can be us
 - **Auto-Start at Login**: Cross-platform service management for macOS, Linux (TODO), and Windows (TODO)
 - **Configuration Files**: YAML and JSON support
 - **Scheduled Execution**: Run processes at intervals
+- **Automatic Retries**: Configurable retry count and delay for failed processes
 - **Real-time Monitoring**: Process status, logs, and statistics
 - **Output Redirection**: Capture or redirect stdout/stderr
 - **Graceful Shutdown**: Context-based cancellation and signal handling
@@ -156,6 +157,8 @@ program.New("name", "command",
     program.BufferSizeLimit(1024 * 1024),   // Limit output buffers (1MB)
     program.Interval(30*time.Second),       // Interval. Useful when used with meeseeks package
     program.InitialDelay(5*time.Second),    // Wait before first execution
+    program.RetryCount(3),                  // Retry up to 3 times on failure
+    program.RetryDelay(5*time.Second),      // Wait 5 seconds between retries
 )
 ```
 
@@ -260,6 +263,8 @@ programs:
     env: ["VAR=value"]                  # Optional: Environment variables
     interval: "30s"                     # Optional: Run every interval (e.g., "1m", "30s")
     initial_delay: "5s"                 # Optional: Wait before first execution (e.g., "1m", "30s")
+    retry_count: 3                      # Optional: Number of times to retry on failure (default: 0)
+    retry_delay: "5s"                   # Optional: Delay between retries (e.g., "5s", "1m")
     keep_stdin_open: true               # Optional: Keep stdin open for input (default: false)
     stdout: "/path/to/stdout.log"       # Optional: Redirect stdout to file
     stderr: "/path/to/stderr.log"       # Optional: Redirect stderr to file

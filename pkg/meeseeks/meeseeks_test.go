@@ -3,6 +3,8 @@ package meeseeks
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -1483,5 +1485,241 @@ func TestMeeseek_Run(t *testing.T) {
 				t.Fatalf("Program %s should have been executed but shows no runs", tt.runProgram)
 			}
 		})
+	}
+}
+
+func TestMeeseekRetry(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name            string
+		program         program.Program
+		expectedSuccess int
+		expectedFailed  int
+		expectedRetries int
+		expectedState   string
+	}{
+		{
+			name: "program succeeds on first attempt - no retries",
+			program: program.New("success-first",
+				"echo",
+				program.Args("hello"),
+				program.RetryCount(3),
+			),
+			expectedSuccess: 1,
+			expectedFailed:  0,
+			expectedRetries: 0,
+			expectedState:   "finished",
+		},
+		{
+			name: "program with zero retries succeeds",
+			program: program.New("no-retry-success",
+				"echo",
+				program.Args("hello"),
+			),
+			expectedSuccess: 1,
+			expectedFailed:  0,
+			expectedRetries: 0,
+			expectedState:   "finished",
+		},
+		{
+			name: "program fails all attempts including retries",
+			program: program.New("fail-all",
+				"sh",
+				program.Args("-c", "exit 1"),
+				program.RetryCount(3),
+			),
+			expectedSuccess: 0,
+			expectedFailed:  1,
+			expectedRetries: 3,
+			expectedState:   "error",
+		},
+		{
+			name: "program with zero retries fails",
+			program: program.New("no-retry-fail",
+				"sh",
+				program.Args("-c", "exit 1"),
+			),
+			expectedSuccess: 0,
+			expectedFailed:  1,
+			expectedRetries: 0,
+			expectedState:   "error",
+		},
+		{
+			name: "nonexistent command fails all retries",
+			program: program.New("nonexistent-cmd",
+				"nonexistent-command-12345",
+				program.Args(),
+				program.RetryCount(2),
+			),
+			expectedSuccess: 0,
+			expectedFailed:  1,
+			expectedRetries: 2,
+			expectedState:   "error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			m := New()
+			err := m.AddProgram(tt.program)
+			if err != nil {
+				t.Fatalf("Failed to add program: %v", err)
+			}
+
+			ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
+			defer cancel()
+
+			m.Start(ctx)
+			err = m.Wait(ctx)
+			if err != nil {
+				t.Fatalf("Wait() unexpected error = %v", err)
+			}
+
+			stats, err := m.Statistic(tt.program.Name())
+			if err != nil {
+				t.Fatalf("Statistic() unexpected error = %v", err)
+			}
+
+			if stats.Successful != tt.expectedSuccess {
+				t.Errorf("Successful = %d, want %d", stats.Successful, tt.expectedSuccess)
+			}
+			if stats.Failed != tt.expectedFailed {
+				t.Errorf("Failed = %d, want %d", stats.Failed, tt.expectedFailed)
+			}
+			if stats.Retries != tt.expectedRetries {
+				t.Errorf("Retries = %d, want %d", stats.Retries, tt.expectedRetries)
+			}
+			if stats.State != tt.expectedState {
+				t.Errorf("State = %q, want %q", stats.State, tt.expectedState)
+			}
+		})
+	}
+}
+
+func TestMeeseek_RetryEventualSuccess(t *testing.T) {
+	t.Parallel()
+
+	// Create a file that gets deleted after first read to simulate eventual success
+	tempDir := t.TempDir()
+	markerFile := filepath.Join(tempDir, "fail-once")
+	err := os.WriteFile(markerFile, []byte("fail"), 0600)
+	if err != nil {
+		t.Fatalf("Failed to create marker file: %v", err)
+	}
+
+	prog := program.New("eventual-success",
+		"sh",
+		program.Args("-c", fmt.Sprintf("if [ -f %s ]; then rm %s; exit 1; else exit 0; fi", markerFile, markerFile)),
+		program.RetryCount(3),
+		program.RetryDelay(10*time.Millisecond),
+	)
+
+	m := New()
+	err = m.AddProgram(prog)
+	if err != nil {
+		t.Fatalf("Failed to add program: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
+	defer cancel()
+
+	m.Start(ctx)
+	err = m.Wait(ctx)
+	if err != nil {
+		t.Fatalf("Wait() unexpected error = %v", err)
+	}
+
+	stats, err := m.Statistic("eventual-success")
+	if err != nil {
+		t.Fatalf("Statistic() unexpected error = %v", err)
+	}
+
+	if stats.Successful != 1 {
+		t.Errorf("Successful = %d, want 1 (should succeed after retries)", stats.Successful)
+	}
+	if stats.Failed != 0 {
+		t.Errorf("Failed = %d, want 0", stats.Failed)
+	}
+	if stats.Retries < 1 {
+		t.Errorf("Retries = %d, want >= 1 (should have retried at least once)", stats.Retries)
+	}
+	if stats.State != "finished" {
+		t.Errorf("State = %q, want %q", stats.State, "finished")
+	}
+}
+
+func TestMeeseek_RetryDelay(t *testing.T) {
+	t.Parallel()
+
+	retryDelay := 100 * time.Millisecond
+	prog := program.New("retry-with-delay",
+		"sh",
+		program.Args("-c", "exit 1"),
+		program.RetryCount(2),
+		program.RetryDelay(retryDelay),
+	)
+
+	m := New()
+	err := m.AddProgram(prog)
+	if err != nil {
+		t.Fatalf("Failed to add program: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	m.Start(ctx)
+	_ = m.Wait(ctx)
+	elapsed := time.Since(start)
+
+	// Should take at least retryCount * retryDelay
+	expectedMinDuration := time.Duration(prog.RetryCount()) * retryDelay
+	if elapsed < expectedMinDuration {
+		t.Errorf("Elapsed time = %v, want >= %v (should respect retry delay)", elapsed, expectedMinDuration)
+	}
+
+	stats, err := m.Statistic("retry-with-delay")
+	if err != nil {
+		t.Fatalf("Statistic() unexpected error = %v", err)
+	}
+
+	if stats.Retries != prog.RetryCount() {
+		t.Errorf("Retries = %d, want %d", stats.Retries, prog.RetryCount())
+	}
+}
+
+func TestMeeseek_RetryContextCancellation(t *testing.T) {
+	t.Parallel()
+
+	prog := program.New("retry-cancel",
+		"sh",
+		program.Args("-c", "exit 1"),
+		program.RetryCount(10),
+		program.RetryDelay(200*time.Millisecond),
+	)
+
+	m := New()
+	err := m.AddProgram(prog)
+	if err != nil {
+		t.Fatalf("Failed to add program: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+
+	m.Start(ctx)
+	_ = m.Wait(ctx)
+
+	stats, err := m.Statistic("retry-cancel")
+	if err != nil {
+		t.Fatalf("Statistic() unexpected error = %v", err)
+	}
+
+	// Should not complete all 10 retries due to context cancellation
+	if stats.Retries >= 10 {
+		t.Errorf("Retries = %d, should be < 10 due to context cancellation", stats.Retries)
 	}
 }

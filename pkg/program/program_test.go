@@ -253,6 +253,27 @@ func TestAsync(t *testing.T) {
 	})
 }
 
+func TestProgram_RetryConfiguration(t *testing.T) {
+	t.Parallel()
+
+	retryCount := 5
+	retryDelay := 250 * time.Millisecond
+
+	p := New("config-test",
+		"echo",
+		Args("test"),
+		RetryCount(retryCount),
+		RetryDelay(retryDelay),
+	)
+
+	if p.RetryCount() != retryCount {
+		t.Errorf("RetryCount() = %d, want %d", p.RetryCount(), retryCount)
+	}
+	if p.RetryDelay() != retryDelay {
+		t.Errorf("RetryDelay() = %v, want %v", p.RetryDelay(), retryDelay)
+	}
+}
+
 func TestEdgeCases(t *testing.T) {
 	t.Parallel()
 	t.Run("command not found", func(t *testing.T) {
@@ -515,6 +536,135 @@ func TestProgramState(t *testing.T) {
 			t.Fatalf("Expected final state to be StateError, got %v", p.State())
 		}
 	})
+
+	t.Run("cancelled execution state transitions", func(t *testing.T) {
+		t.Parallel()
+
+		p := New("state-cancel", "sleep", Args("10"))
+
+		ctx, cancel := context.WithCancel(context.Background())
+		done, err := p.Start(ctx)
+		if err != nil {
+			t.Fatalf("Start() failed: %v", err)
+		}
+
+		// Let it start running
+		time.Sleep(100 * time.Millisecond)
+
+		// Verify it's running
+		if p.State() != StateRunning {
+			t.Logf("Warning: State = %v, expected StateRunning before cancellation", p.State())
+		}
+
+		// Cancel context
+		cancel()
+
+		// Wait with timeout
+		select {
+		case <-done:
+			// Good - process terminated
+		case <-time.After(5 * time.Second):
+			t.Fatal("Program did not terminate after context cancellation")
+		}
+
+		state := p.State()
+		// After cancellation, state should be Cancelled, Error, or Finished
+		if state == StateRunning || state == StateNotStarted {
+			t.Errorf("Final State = %v, should not be Running or NotStarted after cancellation", state)
+		}
+	})
+}
+
+func TestProgramStartError(t *testing.T) {
+	t.Parallel()
+
+	// Create a program with invalid stdout file path
+	invalidPath := filepath.Join(string([]byte{0}), "invalid", "path")
+	p := New("setup-error", "echo", Args("test"), StdoutFile(invalidPath))
+
+	ctx := context.Background()
+	_, err := p.Start(ctx)
+	if err == nil {
+		t.Fatal("Start() expected error for invalid file path, got none")
+	}
+
+	// State should be StateError after setup failure
+	if p.State() != StateError {
+		t.Errorf("State = %v, want StateError after setup failure", p.State())
+	}
+}
+
+func TestProgramStartContextCancelled(t *testing.T) {
+	t.Parallel()
+
+	p := New("ctx-cancel-start", "sleep", Args("5"))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	done, err := p.Start(ctx)
+	if err == nil {
+		t.Errorf("Start() with cancelled context should return error")
+	}
+
+	<-done
+
+	state := p.State()
+	if state != StateError {
+		t.Errorf(
+			"State != StateError, should be in error state. Current state: %s",
+			StateToString[state],
+		)
+	}
+}
+
+func TestProgramMultipleStartsWithSetupFailure(t *testing.T) {
+	t.Parallel()
+
+	// Create marker file for conditional failure
+	tempDir := t.TempDir()
+	markerFile := filepath.Join(tempDir, "marker")
+	err := os.WriteFile(markerFile, []byte(""), 0600)
+	if err != nil {
+		t.Fatalf("Failed to create marker file: %v", err)
+	}
+
+	// Program that fails on first attempt (nonexistent command)
+	// then succeeds after marker is removed
+	p := New("multi-start-setup",
+		"sh",
+		Args("-c", fmt.Sprintf("if [ -f %s ]; then exit 1; else echo success; fi", markerFile)),
+	)
+
+	ctx := context.Background()
+
+	// First attempt - should fail
+	done1, err := p.Start(ctx)
+	if err != nil {
+		t.Fatalf("First Start() failed: %v", err)
+	}
+	<-done1
+
+	if p.State() != StateError {
+		t.Errorf("After first run: State = %v, want StateError", p.State())
+	}
+
+	// Remove marker to make next attempt succeed
+	err = os.Remove(markerFile)
+	if err != nil {
+		t.Fatalf("Failed to remove marker: %v", err)
+	}
+
+	// Second attempt - should succeed
+	done2, err := p.Start(ctx)
+	if err != nil {
+		t.Fatalf("Second Start() failed: %v (should allow retry after error)", err)
+	}
+	<-done2
+
+	if p.State() != StateFinished {
+		t.Errorf("After second run: State = %v, want StateFinished", p.State())
+	}
 }
 
 func TestShutdown(t *testing.T) {
@@ -1353,11 +1503,81 @@ func TestProgram_String(t *testing.T) {
 		Args("-c", "echo hello"),
 		Interval(duration),
 		InitialDelay(duration),
+		RetryCount(3),
+		RetryDelay(duration),
 	)
 
-	expected := "name: test, command: bash, arguments: (-c, echo hello), interval: 1s, initial delay: 1s"
+	expected := "name: test, command: bash, arguments: (-c, echo hello), interval: 1s, initial delay: 1s, retry count: 3, retry count: 1s"
 
 	if p.String() != expected {
 		t.Fatalf("String() did not returned expected output. expected: %q, got: %q", expected, p.String())
+	}
+}
+
+func TestProgramStartConcurrentCalls(t *testing.T) {
+	t.Parallel()
+
+	// Use a long-running command to ensure state stays Running
+	// while all goroutines attempt to start
+	p := New("concurrent-start-race", "sleep", Args("1"))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	numGoroutines := 10
+
+	// Synchronize all goroutines to start at the same time
+	startBarrier := make(chan struct{})
+
+	var wg sync.WaitGroup
+	errors := make(chan error, numGoroutines)
+	successes := make(chan struct{}, numGoroutines)
+
+	// Launch all goroutines
+	for range numGoroutines {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			// Wait for signal to start simultaneously
+			<-startBarrier
+
+			done, err := p.Start(ctx)
+			if err != nil {
+				errors <- err
+				return
+			}
+			<-done
+			successes <- struct{}{}
+		}()
+	}
+
+	// Give goroutines time to reach the barrier
+	time.Sleep(50 * time.Millisecond)
+
+	// Release all goroutines simultaneously
+	close(startBarrier)
+
+	// Wait for all to complete
+	wg.Wait()
+	close(errors)
+	close(successes)
+
+	// Count results
+	successCount := 0
+	errorCount := 0
+	for range successes {
+		successCount++
+	}
+	for range errors {
+		errorCount++
+	}
+
+	// Exactly one should succeed, rest should get "already running" error
+	if successCount != 1 {
+		t.Errorf("Success count = %d, want 1 (only one Start() should succeed)", successCount)
+	}
+	if errorCount != numGoroutines-1 {
+		t.Errorf("Error count = %d, want %d", errorCount, numGoroutines-1)
 	}
 }
