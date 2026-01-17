@@ -52,7 +52,11 @@ type Meeseek interface {
 	Wait(ctx context.Context) error
 	// SubscribeLogs return a channel to consume logs in real-time.
 	// The caller is responsible for closing the context which ensure the channel is closed.
-	SubscribeLogs(ctx context.Context, programName string, subscribeToPreviousLogs bool) (<-chan program.LogLine, error)
+	SubscribeLogs(
+		ctx context.Context,
+		programName string,
+		subscribeToPreviousLogs bool,
+	) (<-chan program.LogLine, error)
 	// Statistic returns detailed execution statistics for a specific program.
 	// Returns an error if the program is not found.
 	Statistic(program string) (Statistics, error)
@@ -596,7 +600,10 @@ func (m *meeseek) executeScheduledProgram(ctx context.Context, prog program.Prog
 	m.runOneTimeProgram(innerCtx, prog)
 }
 
-func (m *meeseek) collectProgramStatistics(prog program.Program, execRecord *executionTrack) Statistics {
+func (m *meeseek) collectProgramStatistics(
+	prog program.Program,
+	execRecord *executionTrack,
+) Statistics {
 	programName := prog.Name()
 	progState := prog.State()
 

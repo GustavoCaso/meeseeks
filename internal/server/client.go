@@ -145,7 +145,11 @@ func (c *Client) Reload(ctx context.Context, timeout string) (*Response, error) 
 	return c.sendRequest(ctx, "/reload", params)
 }
 
-func (c *Client) RunProgram(ctx context.Context, programName string, async bool) (*Response, error) {
+func (c *Client) RunProgram(
+	ctx context.Context,
+	programName string,
+	async bool,
+) (*Response, error) {
 	params := map[string]string{
 		"program": programName,
 		"async":   strconv.FormatBool(async),
@@ -154,7 +158,11 @@ func (c *Client) RunProgram(ctx context.Context, programName string, async bool)
 	return c.sendRequest(ctx, "/run-program", params)
 }
 
-func (c *Client) sendRequest(ctx context.Context, endpoint string, params map[string]string) (*Response, error) {
+func (c *Client) sendRequest(
+	ctx context.Context,
+	endpoint string,
+	params map[string]string,
+) (*Response, error) {
 	if _, err := os.Stat(c.sockPath); os.IsNotExist(err) {
 		return nil, errors.New("meeseeks server not running (socket not found)")
 	}

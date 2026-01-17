@@ -196,7 +196,11 @@ func TestLoadConfig(t *testing.T) {
 					return
 				}
 				if tt.errContains != "" && !containsString(err.Error(), tt.errContains) {
-					t.Fatalf("LoadConfig() error = %q, want error containing %q", err.Error(), tt.errContains)
+					t.Fatalf(
+						"LoadConfig() error = %q, want error containing %q",
+						err.Error(),
+						tt.errContains,
+					)
 				}
 				return
 			}
@@ -272,7 +276,11 @@ func TestProgramConfig_GetInterval(t *testing.T) {
 					t.Fatalf("GetInterval() expected error but got none")
 				}
 				if tt.errContains != "" && !containsString(err.Error(), tt.errContains) {
-					t.Fatalf("GetInterval() error = %q, want error containing %q", err.Error(), tt.errContains)
+					t.Fatalf(
+						"GetInterval() error = %q, want error containing %q",
+						err.Error(),
+						tt.errContains,
+					)
 				}
 				return
 			}
@@ -347,7 +355,11 @@ func TestProgramConfig_GetInitialDelay(t *testing.T) {
 					t.Fatalf("GetInitialDelay() expected error but got none")
 				}
 				if tt.errContains != "" && !containsString(err.Error(), tt.errContains) {
-					t.Fatalf("GetInitialDelay() error = %q, want error containing %q", err.Error(), tt.errContains)
+					t.Fatalf(
+						"GetInitialDelay() error = %q, want error containing %q",
+						err.Error(),
+						tt.errContains,
+					)
 				}
 				return
 			}
@@ -447,7 +459,11 @@ func TestConfig_Validate(t *testing.T) {
 					t.Fatalf("Validate() expected error but got none")
 				}
 				if tt.errContains != "" && !containsString(err.Error(), tt.errContains) {
-					t.Fatalf("Validate() error = %q, want error containing %q", err.Error(), tt.errContains)
+					t.Fatalf(
+						"Validate() error = %q, want error containing %q",
+						err.Error(),
+						tt.errContains,
+					)
 				}
 				return
 			}

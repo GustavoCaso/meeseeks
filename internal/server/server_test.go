@@ -213,7 +213,11 @@ func TestServer_HTTPHandlers(t *testing.T) {
 					t.Fatalf("RunProgram() expected success=false, got %v", resp.Success)
 				}
 				if !strings.Contains(resp.Error, "program name required") {
-					t.Fatalf("Expected error message %q, got %q", "program name required", resp.Error)
+					t.Fatalf(
+						"Expected error message %q, got %q",
+						"program name required",
+						resp.Error,
+					)
 				}
 			},
 		},
@@ -229,7 +233,11 @@ func TestServer_HTTPHandlers(t *testing.T) {
 					t.Fatalf("RunProgram() expected success=false, got %v", resp.Success)
 				}
 				if !strings.Contains(resp.Error, "program nonexistent-program not present") {
-					t.Fatalf("Expected error message %q, got %q", "program nonexistent-program not present", resp.Error)
+					t.Fatalf(
+						"Expected error message %q, got %q",
+						"program nonexistent-program not present",
+						resp.Error,
+					)
 				}
 			},
 		},
@@ -261,7 +269,11 @@ func TestServer_HTTPHandlers(t *testing.T) {
 					t.Fatalf("Reload() expected success=false, got %v", resp.Success)
 				}
 				if !strings.Contains(resp.Error, "error parsing timeout") {
-					t.Fatalf("Expected error message %q, got %q", "error parsing timeout", resp.Error)
+					t.Fatalf(
+						"Expected error message %q, got %q",
+						"error parsing timeout",
+						resp.Error,
+					)
 				}
 			},
 		},
@@ -312,7 +324,10 @@ func TestServer_FailLoadConfigInvalidInterval(t *testing.T) {
 	}
 
 	if !strings.Contains(err.Error(), "invalid interval for program") {
-		t.Fatalf("Expected error message to include 'invalid interval for program', got: %s", err.Error())
+		t.Fatalf(
+			"Expected error message to include 'invalid interval for program', got: %s",
+			err.Error(),
+		)
 	}
 }
 
@@ -605,7 +620,10 @@ func TestFollowLogs(t *testing.T) {
 			t.Fatal("Expected error for nonexistent program, got none")
 		}
 		if !strings.Contains(err.Error(), "program nonexistent not present") {
-			t.Fatalf("Expected error to contain 'program nonexistent not present', got %q", err.Error())
+			t.Fatalf(
+				"Expected error to contain 'program nonexistent not present', got %q",
+				err.Error(),
+			)
 		}
 	})
 

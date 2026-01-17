@@ -6,7 +6,10 @@ import (
 	"github.com/GustavoCaso/meeseeks/pkg/program"
 )
 
-func createProgramFromConfig(pc config.ProgramConfig, logger *logger.Logger) (program.Program, error) {
+func createProgramFromConfig(
+	pc config.ProgramConfig,
+	logger *logger.Logger,
+) (program.Program, error) {
 	var opts []program.Option
 
 	if len(pc.Args) > 0 {

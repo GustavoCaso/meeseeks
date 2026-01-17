@@ -48,7 +48,12 @@ func TestMainCommands(t *testing.T) {
 			name: "unknown command",
 			test: func(t *testing.T) {
 				var stdoutBuf, stderrBuf bytes.Buffer
-				exitCode := runCLICommand([]string{"unknown"}, &stdoutBuf, &stderrBuf, 5*time.Second)
+				exitCode := runCLICommand(
+					[]string{"unknown"},
+					&stdoutBuf,
+					&stderrBuf,
+					5*time.Second,
+				)
 				output := stdoutBuf.String() + stderrBuf.String()
 
 				if exitCode != 1 {
@@ -64,7 +69,12 @@ func TestMainCommands(t *testing.T) {
 			name: "version command",
 			test: func(t *testing.T) {
 				var stdoutBuf, stderrBuf bytes.Buffer
-				exitCode := runCLICommand([]string{"version"}, &stdoutBuf, &stderrBuf, 5*time.Second)
+				exitCode := runCLICommand(
+					[]string{"version"},
+					&stdoutBuf,
+					&stderrBuf,
+					5*time.Second,
+				)
 				output := stdoutBuf.String() + stderrBuf.String()
 
 				if exitCode != 0 {
@@ -72,7 +82,11 @@ func TestMainCommands(t *testing.T) {
 				}
 
 				if !strings.Contains(output, "meeseeks version development") {
-					t.Fatalf("Expected output to contain %q, got %q", "meeseeks version development", output)
+					t.Fatalf(
+						"Expected output to contain %q, got %q",
+						"meeseeks version development",
+						output,
+					)
 				}
 			},
 		},

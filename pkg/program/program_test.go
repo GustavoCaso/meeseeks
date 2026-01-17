@@ -166,7 +166,12 @@ func TestAsync(t *testing.T) {
 	t.Parallel()
 	t.Run("background process", func(t *testing.T) {
 		t.Parallel()
-		p := New("long-test", "bash", Args("-c", "for i in {1..3}; do echo \"iteration $i\"; sleep 0.1; done"), Async())
+		p := New(
+			"long-test",
+			"bash",
+			Args("-c", "for i in {1..3}; do echo \"iteration $i\"; sleep 0.1; done"),
+			Async(),
+		)
 
 		done, err := p.Start(t.Context())
 		if err != nil {
@@ -191,7 +196,12 @@ func TestAsync(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 
-		p := New("cancel-test", "bash", Args("-c", "for i in {1..10}; do echo \"loop $i\"; sleep 0.5; done"), Async())
+		p := New(
+			"cancel-test",
+			"bash",
+			Args("-c", "for i in {1..10}; do echo \"loop $i\"; sleep 0.5; done"),
+			Async(),
+		)
 
 		done, err := p.Start(ctx)
 		if err != nil {
@@ -216,7 +226,10 @@ func TestAsync(t *testing.T) {
 		errorMessage := p.Stderr()
 		// Context cancellation can result in either error or finished status depending on timing
 		if !strings.Contains(errorMessage, "signal: killed") {
-			t.Fatalf("Expected errorMessage to indicate error or finished after cancellation, got: %q", errorMessage)
+			t.Fatalf(
+				"Expected errorMessage to indicate error or finished after cancellation, got: %q",
+				errorMessage,
+			)
 		}
 	})
 
@@ -224,11 +237,17 @@ func TestAsync(t *testing.T) {
 		t.Parallel()
 		var stdoutBuf, stderrBuf bytes.Buffer
 
-		p := New("io-test", "bash",
-			Args("-c", "echo 'stdout message'; echo 'stderr message' >&2; sleep 0.1; echo 'delayed message'"),
+		p := New(
+			"io-test",
+			"bash",
+			Args(
+				"-c",
+				"echo 'stdout message'; echo 'stderr message' >&2; sleep 0.1; echo 'delayed message'",
+			),
 			Stdout(&stdoutBuf),
 			Stderr(&stderrBuf),
-			Async())
+			Async(),
+		)
 
 		done, err := p.Start(t.Context())
 		if err != nil {
@@ -304,7 +323,11 @@ func TestEdgeCases(t *testing.T) {
 	t.Run("large output handling", func(t *testing.T) {
 		t.Parallel()
 		// Generate ~100KB of output
-		p := New("large-output", "bash", Args("-c", "for i in {1..5000}; do echo \"line $i of large output\"; done"))
+		p := New(
+			"large-output",
+			"bash",
+			Args("-c", "for i in {1..5000}; do echo \"line $i of large output\"; done"),
+		)
 
 		done, err := p.Start(t.Context())
 		if err != nil {
@@ -495,7 +518,12 @@ func TestMultiplePrograms(t *testing.T) {
 			output := p.Stdout()
 			expected := fmt.Sprintf("output from program %d", i)
 			if !strings.Contains(output, expected) {
-				t.Fatalf("Program %s: expected output to contain %q, got: %q", p.Name(), expected, output)
+				t.Fatalf(
+					"Program %s: expected output to contain %q, got: %q",
+					p.Name(),
+					expected,
+					output,
+				)
 			}
 		}
 	})
@@ -570,7 +598,10 @@ func TestProgramState(t *testing.T) {
 		state := p.State()
 		// After cancellation, state should be Cancelled, Error, or Finished
 		if state == StateRunning || state == StateNotStarted {
-			t.Errorf("Final State = %v, should not be Running or NotStarted after cancellation", state)
+			t.Errorf(
+				"Final State = %v, should not be Running or NotStarted after cancellation",
+				state,
+			)
 		}
 	})
 }
@@ -779,7 +810,10 @@ func TestFileOutput(t *testing.T) {
 		}
 
 		if !strings.Contains(string(content), "hello stdout file") {
-			t.Fatalf("Expected stdout file to contain 'hello stdout file', got: %q", string(content))
+			t.Fatalf(
+				"Expected stdout file to contain 'hello stdout file', got: %q",
+				string(content),
+			)
 		}
 
 		// Verify program's internal Output() still works
@@ -794,7 +828,12 @@ func TestFileOutput(t *testing.T) {
 		tmpDir := t.TempDir()
 		stderrFile := filepath.Join(tmpDir, "stderr.log")
 
-		p := New("stderr-file-test", "bash", Args("-c", "echo 'error message' >&2; exit 0"), StderrFile(stderrFile))
+		p := New(
+			"stderr-file-test",
+			"bash",
+			Args("-c", "echo 'error message' >&2; exit 0"),
+			StderrFile(stderrFile),
+		)
 
 		done, err := p.Start(t.Context())
 		if err != nil {
@@ -842,7 +881,10 @@ func TestFileOutput(t *testing.T) {
 			t.Fatalf("Failed to read stdout file: %v", err)
 		}
 		if !strings.Contains(string(stdoutContent), "stdout message") {
-			t.Fatalf("Expected stdout file to contain 'stdout message', got: %q", string(stdoutContent))
+			t.Fatalf(
+				"Expected stdout file to contain 'stdout message', got: %q",
+				string(stdoutContent),
+			)
 		}
 
 		// Verify stderr file
@@ -851,7 +893,10 @@ func TestFileOutput(t *testing.T) {
 			t.Fatalf("Failed to read stderr file: %v", err)
 		}
 		if !strings.Contains(string(stderrContent), "stderr message") {
-			t.Fatalf("Expected stderr file to contain 'stderr message', got: %q", string(stderrContent))
+			t.Fatalf(
+				"Expected stderr file to contain 'stderr message', got: %q",
+				string(stderrContent),
+			)
 		}
 	})
 
@@ -882,7 +927,10 @@ func TestFileOutput(t *testing.T) {
 
 		// Verify custom writer output
 		if !strings.Contains(customBuf.String(), "mixed output test") {
-			t.Fatalf("Expected custom buffer to contain 'mixed output test', got: %q", customBuf.String())
+			t.Fatalf(
+				"Expected custom buffer to contain 'mixed output test', got: %q",
+				customBuf.String(),
+			)
 		}
 
 		// Verify program's internal output
@@ -912,7 +960,10 @@ func TestFileOutput(t *testing.T) {
 		}
 
 		if !strings.Contains(string(content), "directory creation test") {
-			t.Fatalf("Expected stdout file to contain 'directory creation test', got: %q", string(content))
+			t.Fatalf(
+				"Expected stdout file to contain 'directory creation test', got: %q",
+				string(content),
+			)
 		}
 	})
 
@@ -1105,9 +1156,15 @@ func TestBufferSizeLimit(t *testing.T) {
 	t.Run("buffer limit triggers truncation", func(t *testing.T) {
 		t.Parallel()
 		bufferLimit := 1000
-		p := New("limit-test", "bash",
-			Args("-c", "for i in {1..200}; do echo \"line $i with some padding text to make it longer\"; done"),
-			BufferSizeLimit(bufferLimit))
+		p := New(
+			"limit-test",
+			"bash",
+			Args(
+				"-c",
+				"for i in {1..200}; do echo \"line $i with some padding text to make it longer\"; done",
+			),
+			BufferSizeLimit(bufferLimit),
+		)
 
 		done, err := p.Start(t.Context())
 		if err != nil {
@@ -1136,9 +1193,15 @@ func TestBufferSizeLimit(t *testing.T) {
 	t.Run("buffer limit applies to error output", func(t *testing.T) {
 		t.Parallel()
 		bufferLimit := 500
-		p := New("error-limit-test", "bash",
-			Args("-c", "for i in {1..100}; do echo \"error line $i with padding text\" >&2; done; exit 1"),
-			BufferSizeLimit(bufferLimit))
+		p := New(
+			"error-limit-test",
+			"bash",
+			Args(
+				"-c",
+				"for i in {1..100}; do echo \"error line $i with padding text\" >&2; done; exit 1",
+			),
+			BufferSizeLimit(bufferLimit),
+		)
 
 		done, err := p.Start(t.Context())
 		if err != nil {
@@ -1510,7 +1573,11 @@ func TestProgram_String(t *testing.T) {
 	expected := "name: test, command: bash, arguments: (-c, echo hello), interval: 1s, initial delay: 1s, retry count: 3, retry count: 1s"
 
 	if p.String() != expected {
-		t.Fatalf("String() did not returned expected output. expected: %q, got: %q", expected, p.String())
+		t.Fatalf(
+			"String() did not returned expected output. expected: %q, got: %q",
+			expected,
+			p.String(),
+		)
 	}
 }
 

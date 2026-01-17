@@ -83,7 +83,13 @@ func newTestServer(t *testing.T, configPath, configContent string) {
 
 	t.Setenv("MEESEEKS_CONFIG_DIR", tempFolder)
 
-	server, err := startServer(t.Context(), configPath, logger.New(), socketPath, 30*time.Millisecond)
+	server, err := startServer(
+		t.Context(),
+		configPath,
+		logger.New(),
+		socketPath,
+		30*time.Millisecond,
+	)
 	if err != nil {
 		t.Fatalf("failed to start test server: %v", err)
 	}
@@ -115,7 +121,12 @@ func runCommandTests(t *testing.T, tests []commandTestCase) {
 			output := stdoutBuf.String() + stderrBuf.String()
 
 			if exitCode != tt.expectedExit {
-				t.Fatalf("Expected exit code %d, got %d. Output: %s", tt.expectedExit, exitCode, output)
+				t.Fatalf(
+					"Expected exit code %d, got %d. Output: %s",
+					tt.expectedExit,
+					exitCode,
+					output,
+				)
 			}
 
 			if tt.shouldContain != "" {
@@ -126,7 +137,11 @@ func runCommandTests(t *testing.T, tests []commandTestCase) {
 
 			if tt.shouldNotContain != "" {
 				if strings.Contains(output, tt.shouldNotContain) {
-					t.Fatalf("Expected output to not contain %q, got %q", tt.shouldNotContain, output)
+					t.Fatalf(
+						"Expected output to not contain %q, got %q",
+						tt.shouldNotContain,
+						output,
+					)
 				}
 			}
 		})

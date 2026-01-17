@@ -36,7 +36,12 @@ type Response struct {
 	Error   string      `json:"error,omitempty"`
 }
 
-func New(sockPath string, configPath string, logger *logger.Logger, timeout time.Duration) (*Server, error) {
+func New(
+	sockPath string,
+	configPath string,
+	logger *logger.Logger,
+	timeout time.Duration,
+) (*Server, error) {
 	s := &Server{
 		meeseeks:   meeseeks.New(meeseeks.Logger(logger)),
 		sockPath:   sockPath,
@@ -281,7 +286,10 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 
 	duration, err := time.ParseDuration(timeoutString)
 	if err != nil {
-		resp := Response{Success: false, Error: fmt.Sprintf("error parsing timeout %s. %s", timeoutString, err.Error())}
+		resp := Response{
+			Success: false,
+			Error:   fmt.Sprintf("error parsing timeout %s. %s", timeoutString, err.Error()),
+		}
 		handleResponse(w, resp)
 		return
 	}
@@ -303,14 +311,20 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 
 	duration, err := time.ParseDuration(timeoutString)
 	if err != nil {
-		resp := Response{Success: false, Error: fmt.Sprintf("error parsing timeout %s. %s", timeoutString, err.Error())}
+		resp := Response{
+			Success: false,
+			Error:   fmt.Sprintf("error parsing timeout %s. %s", timeoutString, err.Error()),
+		}
 		handleResponse(w, resp)
 		return
 	}
 
 	cfg, err := config.LoadConfig(s.configPath)
 	if err != nil {
-		resp := Response{Success: false, Error: fmt.Sprintf("failed to load config: %s", err.Error())}
+		resp := Response{
+			Success: false,
+			Error:   fmt.Sprintf("failed to load config: %s", err.Error()),
+		}
 		handleResponse(w, resp)
 		return
 	}

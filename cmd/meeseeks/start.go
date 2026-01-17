@@ -41,7 +41,11 @@ func (c *cmd) startDetached() error {
 	cmd.Stdin = nil
 	stdoutFile, stdoutErr := getInternalStdoutFile()
 	if stdoutErr != nil {
-		c.logger.Warn("Failed to create log file for meeseeks, using /dev/null", "error", stdoutErr.Error())
+		c.logger.Warn(
+			"Failed to create log file for meeseeks, using /dev/null",
+			"error",
+			stdoutErr.Error(),
+		)
 		cmd.Stdout = nil
 		cmd.Stderr = nil
 	}

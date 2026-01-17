@@ -112,7 +112,10 @@ func LoadConfig(filename string) (*Config, error) {
 			return nil, fmt.Errorf("failed to parse JSON config: %w", err)
 		}
 	default:
-		return nil, fmt.Errorf("unsupported config file format: %s (supported: .yaml, .yml, .json)", ext)
+		return nil, fmt.Errorf(
+			"unsupported config file format: %s (supported: .yaml, .yml, .json)",
+			ext,
+		)
 	}
 
 	if err = config.Validate(); err != nil {

@@ -254,7 +254,9 @@ func (p *program) Send(data []byte) error {
 	}
 
 	if !p.keepStdinOpen {
-		return errors.New("to send data to a running please use the KeepStdinOpen option when initialazing the program")
+		return errors.New(
+			"to send data to a running please use the KeepStdinOpen option when initialazing the program",
+		)
 	}
 
 	_, err := p.pipes.inWriter.Write(data)
@@ -622,7 +624,12 @@ func (p *program) writeOutput(buffer *strings.Builder, s string, isError bool) {
 
 	if currentSize+spaceNeeded > threshold {
 		buffer.Reset()
-		fmt.Fprintf(buffer, "[%s] truncated due to buffer limit: %d bytes\n", time.Now(), p.bufferLimit)
+		fmt.Fprintf(
+			buffer,
+			"[%s] truncated due to buffer limit: %d bytes\n",
+			time.Now(),
+			p.bufferLimit,
+		)
 		if p.logger != nil {
 			p.logger.Info("buffer truncated", "program", p.name)
 		}
