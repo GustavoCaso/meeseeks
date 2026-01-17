@@ -122,6 +122,7 @@ func LoadConfig(filename string) (*Config, error) {
 	return &config, nil
 }
 
+//nolint:gocognit //The complexity is acceptable
 func (c *Config) Validate() error {
 	if len(c.Programs) == 0 {
 		return errors.New("no programs defined in config")
@@ -165,7 +166,6 @@ func (c *Config) Validate() error {
 		}
 
 		programNames[program.Name] = true
-
 	}
 
 	return nil

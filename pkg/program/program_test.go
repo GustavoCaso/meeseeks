@@ -1532,9 +1532,9 @@ func TestProgramStartConcurrentCalls(t *testing.T) {
 	successes := make(chan struct{}, numGoroutines)
 
 	// Launch all goroutines
-	for i := range numGoroutines {
+	for range numGoroutines {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
 
 			// Wait for signal to start simultaneously
@@ -1547,7 +1547,7 @@ func TestProgramStartConcurrentCalls(t *testing.T) {
 			}
 			<-done
 			successes <- struct{}{}
-		}(i)
+		}()
 	}
 
 	// Give goroutines time to reach the barrier

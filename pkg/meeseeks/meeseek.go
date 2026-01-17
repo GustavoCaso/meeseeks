@@ -457,6 +457,7 @@ func (m *meeseek) run(ctx context.Context, prog program.Program) bool {
 	return false
 }
 
+//nolint:gocognit //The complexity is acceptable
 func (m *meeseek) retry(ctx context.Context, prog program.Program) (bool, int) {
 	if prog.RetryCount() == 0 {
 		return false, 0
