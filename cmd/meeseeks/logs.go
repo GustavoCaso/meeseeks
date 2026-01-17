@@ -48,7 +48,12 @@ func logsCommand(args []string, _ *logger.Logger) error {
 	return followLogs(ctx, client, programName, true)
 }
 
-func followLogs(ctx context.Context, client *server.Client, programName string, subscribeToPreviousLogs bool) error {
+func followLogs(
+	ctx context.Context,
+	client *server.Client,
+	programName string,
+	subscribeToPreviousLogs bool,
+) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -125,13 +130,19 @@ func nonFollowLogs(ctx context.Context, client *server.Client, programName strin
 	}
 
 	if output != "" {
-		fmt.Fprintln(os.Stdout, "---------------------------- Stdout ------------------------------------")
+		fmt.Fprintln(
+			os.Stdout,
+			"---------------------------- Stdout ------------------------------------",
+		)
 		fmt.Fprintln(os.Stdout, output)
 	}
 
 	if errOutput != "" {
 		fmt.Fprintln(os.Stdout)
-		fmt.Fprintln(os.Stdout, "---------------------------- Stderr ------------------------------------")
+		fmt.Fprintln(
+			os.Stdout,
+			"---------------------------- Stderr ------------------------------------",
+		)
 		fmt.Fprintln(os.Stdout, errOutput)
 	}
 

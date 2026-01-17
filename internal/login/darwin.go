@@ -109,7 +109,11 @@ func (d *darwinService) Create(ctx context.Context, config ServiceConfig) (Defin
 	okStatus := fmt.Sprintf("%s: OK\n", plistPath)
 
 	if string(output) != okStatus {
-		return "", fmt.Errorf("invalid plist service defintion: %s, output: %s", plistPath, string(output))
+		return "", fmt.Errorf(
+			"invalid plist service defintion: %s, output: %s",
+			plistPath,
+			string(output),
+		)
 	}
 
 	return Defintion(plistPath), nil
@@ -121,7 +125,11 @@ func (d *darwinService) Enable(ctx context.Context, service Defintion) error {
 	//nolint:gosec // the arguments are provided by the user
 	cmd := exec.CommandContext(ctx, "launchctl", "load", string(service))
 	if output, cmdErr := cmd.CombinedOutput(); cmdErr != nil {
-		return fmt.Errorf("failed to load service with launchctl: %s, output: %s", cmdErr.Error(), string(output))
+		return fmt.Errorf(
+			"failed to load service with launchctl: %s, output: %s",
+			cmdErr.Error(),
+			string(output),
+		)
 	}
 
 	return nil
@@ -148,7 +156,13 @@ func (d *darwinService) Disable(ctx context.Context) error {
 	output, err := cmd.CombinedOutput()
 
 	if err != nil {
-		d.logger.Warn("Error unloading the service", "error", err.Error(), "message", string(output))
+		d.logger.Warn(
+			"Error unloading the service",
+			"error",
+			err.Error(),
+			"message",
+			string(output),
+		)
 	}
 
 	// Remove the plist file

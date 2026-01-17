@@ -69,7 +69,11 @@ func TestMeeseek_AddProgram(t *testing.T) {
 					return
 				}
 				if !strings.Contains(err.Error(), tt.errMsg) {
-					t.Fatalf("AddProgram() error = %q, want error containing %q", err.Error(), tt.errMsg)
+					t.Fatalf(
+						"AddProgram() error = %q, want error containing %q",
+						err.Error(),
+						tt.errMsg,
+					)
 				}
 				return
 			}
@@ -240,7 +244,11 @@ func TestMeeseek_Statistic(t *testing.T) {
 					return
 				}
 				if !strings.Contains(err.Error(), tt.errMsg) {
-					t.Fatalf("Statistic() error = %q, want error containing %q", err.Error(), tt.errMsg)
+					t.Fatalf(
+						"Statistic() error = %q, want error containing %q",
+						err.Error(),
+						tt.errMsg,
+					)
 				}
 				return
 			}
@@ -251,7 +259,11 @@ func TestMeeseek_Statistic(t *testing.T) {
 			}
 
 			if statistic.ProgramName != tt.programName {
-				t.Errorf("Statistic().ProgramName = %q, want %q", statistic.ProgramName, tt.programName)
+				t.Errorf(
+					"Statistic().ProgramName = %q, want %q",
+					statistic.ProgramName,
+					tt.programName,
+				)
 			}
 
 			if statistic.State != tt.expectedState {
@@ -331,7 +343,11 @@ func TestMeeseek_Statistics(t *testing.T) {
 			stats := m.Statistics()
 
 			if len(stats) != tt.expectedCount {
-				t.Fatalf("Statistics() returned %d statistics, want %d", len(stats), tt.expectedCount)
+				t.Fatalf(
+					"Statistics() returned %d statistics, want %d",
+					len(stats),
+					tt.expectedCount,
+				)
 			}
 
 			programNames := make(map[string]bool)
@@ -349,7 +365,11 @@ func TestMeeseek_Statistics(t *testing.T) {
 				}
 
 				if stat.Successful < 0 {
-					t.Errorf("Statistics()[%s].Successful = %d, should be >= 0", name, stat.Successful)
+					t.Errorf(
+						"Statistics()[%s].Successful = %d, should be >= 0",
+						name,
+						stat.Successful,
+					)
 				}
 
 				if stat.Failed < 0 {
@@ -358,13 +378,23 @@ func TestMeeseek_Statistics(t *testing.T) {
 
 				if tt.runPrograms {
 					if stat.Successful == 0 {
-						t.Errorf("Statistics()[%s].Successful = 0, should be > 0 after running", name)
+						t.Errorf(
+							"Statistics()[%s].Successful = 0, should be > 0 after running",
+							name,
+						)
 					}
 					if stat.State == "finished" && stat.Successful == 0 {
-						t.Errorf("Statistics()[%s]: finished program should have Successful > 0", name)
+						t.Errorf(
+							"Statistics()[%s]: finished program should have Successful > 0",
+							name,
+						)
 					}
 					if stat.Stdout == "" {
-						t.Errorf("Statistics()[%s].Stdout = %s, should not be empty", name, stat.Stdout)
+						t.Errorf(
+							"Statistics()[%s].Stdout = %s, should not be empty",
+							name,
+							stat.Stdout,
+						)
 					}
 				}
 			}
@@ -407,7 +437,11 @@ func TestMeeseek_LongRunningStatistics(t *testing.T) {
 	}
 
 	if individualStat.State != stat.State {
-		t.Errorf("Individual statistic State mismatch: got %q, want %q", individualStat.State, stat.State)
+		t.Errorf(
+			"Individual statistic State mismatch: got %q, want %q",
+			individualStat.State,
+			stat.State,
+		)
 	}
 }
 
@@ -655,7 +689,12 @@ func TestMeeseek_Stop(t *testing.T) {
 		{
 			name: "stop with interval",
 			programs: []program.Program{
-				program.New("test-stop-1", "sleep", program.Args("1"), program.Interval(20*time.Second)),
+				program.New(
+					"test-stop-1",
+					"sleep",
+					program.Args("1"),
+					program.Interval(20*time.Second),
+				),
 			},
 			stopProgram: "test-stop-1",
 			timeout:     2 * time.Second,
@@ -733,7 +772,12 @@ func TestMeeseek_Stop(t *testing.T) {
 func TestMeeseek_Stop_Same_Program_Multiple_Times(t *testing.T) {
 	t.Parallel()
 	m := New()
-	prog := program.New("interval1", "echo", program.Args("test"), program.Interval(50*time.Millisecond))
+	prog := program.New(
+		"interval1",
+		"echo",
+		program.Args("test"),
+		program.Interval(50*time.Millisecond),
+	)
 	err := m.AddProgram(prog)
 	if err != nil {
 		t.Fatalf("Failed to add program: %v", err)
@@ -765,7 +809,12 @@ func TestMeeseek_WaitWithIntervalPrograms_ContextCancellation(t *testing.T) {
 		{
 			name: "single interval program context cancellation",
 			programs: []program.Program{
-				program.New("interval1", "echo", program.Args("test1"), program.Interval(50*time.Millisecond)),
+				program.New(
+					"interval1",
+					"echo",
+					program.Args("test1"),
+					program.Interval(50*time.Millisecond),
+				),
 			},
 			waitTimeout: 2 * time.Second,
 			cancelAfter: 200 * time.Millisecond,
@@ -773,9 +822,24 @@ func TestMeeseek_WaitWithIntervalPrograms_ContextCancellation(t *testing.T) {
 		{
 			name: "multiple interval programs context cancellation",
 			programs: []program.Program{
-				program.New("interval1", "echo", program.Args("test1"), program.Interval(30*time.Millisecond)),
-				program.New("interval2", "echo", program.Args("test2"), program.Interval(45*time.Millisecond)),
-				program.New("interval3", "echo", program.Args("test3"), program.Interval(60*time.Millisecond)),
+				program.New(
+					"interval1",
+					"echo",
+					program.Args("test1"),
+					program.Interval(30*time.Millisecond),
+				),
+				program.New(
+					"interval2",
+					"echo",
+					program.Args("test2"),
+					program.Interval(45*time.Millisecond),
+				),
+				program.New(
+					"interval3",
+					"echo",
+					program.Args("test3"),
+					program.Interval(60*time.Millisecond),
+				),
 			},
 			waitTimeout: 2 * time.Second,
 			cancelAfter: 150 * time.Millisecond,
@@ -784,7 +848,12 @@ func TestMeeseek_WaitWithIntervalPrograms_ContextCancellation(t *testing.T) {
 			name: "mixed regular and interval programs context cancellation",
 			programs: []program.Program{
 				program.New("regular1", "echo", program.Args("regular")),
-				program.New("interval1", "echo", program.Args("interval"), program.Interval(50*time.Millisecond)),
+				program.New(
+					"interval1",
+					"echo",
+					program.Args("interval"),
+					program.Interval(50*time.Millisecond),
+				),
 				program.New("regular2", "sleep", program.Args("0.1")),
 			},
 			waitTimeout: 2 * time.Second,
@@ -825,17 +894,29 @@ func TestMeeseek_WaitWithIntervalPrograms_ContextCancellation(t *testing.T) {
 				t.Fatal("Wait() expected error but got none")
 			}
 			if !strings.Contains(err.Error(), expectedErrorMessage) {
-				t.Fatalf("Wait() error = %q, want error containing %q", err.Error(), expectedErrorMessage)
+				t.Fatalf(
+					"Wait() error = %q, want error containing %q",
+					err.Error(),
+					expectedErrorMessage,
+				)
 			}
 
 			expectedMax := tt.cancelAfter + (200 * time.Millisecond)
 			if duration > expectedMax {
-				t.Errorf("Wait() took %v, expected to return within %v after cancellation", duration, expectedMax)
+				t.Errorf(
+					"Wait() took %v, expected to return within %v after cancellation",
+					duration,
+					expectedMax,
+				)
 			}
 
 			stats := m.Statistics()
 			if len(stats) != len(tt.programs) {
-				t.Errorf("Expected %d statistics after cancellation, got %d", len(tt.programs), len(stats))
+				t.Errorf(
+					"Expected %d statistics after cancellation, got %d",
+					len(tt.programs),
+					len(stats),
+				)
 			}
 		})
 	}
@@ -855,7 +936,12 @@ func TestMeeseek_WaitWithIntervalPrograms_Stop(t *testing.T) {
 		{
 			name: "stop all program should exit",
 			programs: []program.Program{
-				program.New("interval1", "echo", program.Args("test1"), program.Interval(50*time.Millisecond)),
+				program.New(
+					"interval1",
+					"echo",
+					program.Args("test1"),
+					program.Interval(50*time.Millisecond),
+				),
 			},
 			stopProgram:        "interval1",
 			stopAfter:          100 * time.Millisecond,
@@ -866,8 +952,18 @@ func TestMeeseek_WaitWithIntervalPrograms_Stop(t *testing.T) {
 		{
 			name: "stop all programs should not exit wait",
 			programs: []program.Program{
-				program.New("interval1", "echo", program.Args("test1"), program.Interval(50*time.Millisecond)),
-				program.New("interval2", "echo", program.Args("test2"), program.Interval(50*time.Millisecond)),
+				program.New(
+					"interval1",
+					"echo",
+					program.Args("test1"),
+					program.Interval(50*time.Millisecond),
+				),
+				program.New(
+					"interval2",
+					"echo",
+					program.Args("test2"),
+					program.Interval(50*time.Millisecond),
+				),
 			},
 			stopProgram:        "interval1",
 			stopAfter:          100 * time.Millisecond,
@@ -940,7 +1036,12 @@ func TestMeeseek_WaitWithIntervalPrograms_Shutdown(t *testing.T) {
 		{
 			name: "shutdown with single interval program",
 			programs: []program.Program{
-				program.New("interval1", "echo", program.Args("test"), program.Interval(50*time.Millisecond)),
+				program.New(
+					"interval1",
+					"echo",
+					program.Args("test"),
+					program.Interval(50*time.Millisecond),
+				),
 			},
 			shutdownAfter:     150 * time.Millisecond,
 			shutdownTimeout:   2 * time.Second,
@@ -949,9 +1050,24 @@ func TestMeeseek_WaitWithIntervalPrograms_Shutdown(t *testing.T) {
 		{
 			name: "shutdown with multiple interval programs",
 			programs: []program.Program{
-				program.New("interval1", "echo", program.Args("test1"), program.Interval(30*time.Millisecond)),
-				program.New("interval2", "echo", program.Args("test2"), program.Interval(45*time.Millisecond)),
-				program.New("interval3", "echo", program.Args("test3"), program.Interval(60*time.Millisecond)),
+				program.New(
+					"interval1",
+					"echo",
+					program.Args("test1"),
+					program.Interval(30*time.Millisecond),
+				),
+				program.New(
+					"interval2",
+					"echo",
+					program.Args("test2"),
+					program.Interval(45*time.Millisecond),
+				),
+				program.New(
+					"interval3",
+					"echo",
+					program.Args("test3"),
+					program.Interval(60*time.Millisecond),
+				),
 			},
 			shutdownAfter:     200 * time.Millisecond,
 			shutdownTimeout:   2 * time.Second,
@@ -961,7 +1077,12 @@ func TestMeeseek_WaitWithIntervalPrograms_Shutdown(t *testing.T) {
 			name: "shutdown with mixed regular and interval programs",
 			programs: []program.Program{
 				program.New("regular1", "sleep", program.Args("2")),
-				program.New("interval1", "echo", program.Args("interval"), program.Interval(40*time.Millisecond)),
+				program.New(
+					"interval1",
+					"echo",
+					program.Args("interval"),
+					program.Interval(40*time.Millisecond),
+				),
 				program.New("regular2", "sleep", program.Args("2")),
 			},
 			shutdownAfter:     150 * time.Millisecond,
@@ -1005,7 +1126,11 @@ func TestMeeseek_WaitWithIntervalPrograms_Shutdown(t *testing.T) {
 
 			expectedMax := tt.shutdownAfter + tt.shutdownTimeout + tt.waitAfterShutdown
 			if duration > expectedMax {
-				t.Errorf("Wait() took %v, expected to return within %v after shutdown", duration, expectedMax)
+				t.Errorf(
+					"Wait() took %v, expected to return within %v after shutdown",
+					duration,
+					expectedMax,
+				)
 			}
 		})
 	}
@@ -1020,7 +1145,12 @@ func TestMeeseek_IntervalPrograms_ConcurrentOperations(t *testing.T) {
 		progName := fmt.Sprintf("interval-%d", i)
 		duration := 30 + i*10
 		interval := time.Duration(duration) * time.Millisecond
-		prog := program.New(progName, "echo", program.Args("concurrent-test"), program.Interval(interval))
+		prog := program.New(
+			progName,
+			"echo",
+			program.Args("concurrent-test"),
+			program.Interval(interval),
+		)
 		err := m.AddProgram(prog)
 		if err != nil {
 			t.Fatalf("Failed to add interval program %s: %v", progName, err)
@@ -1111,8 +1241,10 @@ func TestMeeseekReload(t *testing.T) {
 			preservedProgramName:      "test3",
 		},
 		{
-			name:                      "reload to empty (early return)",
-			initialPrograms:           []program.Program{program.New("test1", "echo", program.Args("hello"))},
+			name: "reload to empty (early return)",
+			initialPrograms: []program.Program{
+				program.New("test1", "echo", program.Args("hello")),
+			},
 			reloadPrograms:            []program.Program{},
 			expectedPrograms:          []string{"name: test1, command: echo, arguments: (hello)"},
 			verifyStatisticsPreserved: true,
@@ -1130,11 +1262,26 @@ func TestMeeseekReload(t *testing.T) {
 		{
 			name: "interval program statistics preservation",
 			initialPrograms: []program.Program{
-				program.New("interval1", "echo", program.Args("test1"), program.Interval(interval50ms)),
+				program.New(
+					"interval1",
+					"echo",
+					program.Args("test1"),
+					program.Interval(interval50ms),
+				),
 			},
 			reloadPrograms: []program.Program{
-				program.New("interval1", "echo", program.Args("test1"), program.Interval(interval50ms)),
-				program.New("interval2", "echo", program.Args("test2"), program.Interval(interval100ms)),
+				program.New(
+					"interval1",
+					"echo",
+					program.Args("test1"),
+					program.Interval(interval50ms),
+				),
+				program.New(
+					"interval2",
+					"echo",
+					program.Args("test2"),
+					program.Interval(interval100ms),
+				),
 			},
 			expectedPrograms: []string{
 				"name: interval1, command: echo, arguments: (test1), interval: 50ms",
@@ -1151,7 +1298,9 @@ func TestMeeseekReload(t *testing.T) {
 			reloadPrograms: []program.Program{
 				program.New("prog1", "echo", program.Args("test"), program.Interval(interval100ms)),
 			},
-			expectedPrograms:          []string{"name: prog1, command: echo, arguments: (test), interval: 100ms"},
+			expectedPrograms: []string{
+				"name: prog1, command: echo, arguments: (test), interval: 100ms",
+			},
 			verifyStatisticsPreserved: false,
 		},
 		{
@@ -1195,7 +1344,10 @@ func TestMeeseekReload(t *testing.T) {
 					t.Fatalf("Program %s not found in initial statistics", tt.preservedProgramName)
 				}
 				if preservedOldStats.Successful == 0 {
-					t.Fatalf("Program %s should have successful executions before reload", tt.preservedProgramName)
+					t.Fatalf(
+						"Program %s should have successful executions before reload",
+						tt.preservedProgramName,
+					)
 				}
 			}
 
@@ -1208,7 +1360,11 @@ func TestMeeseekReload(t *testing.T) {
 			// Verify program list
 			currentPrograms := m.Programs()
 			if !reflect.DeepEqual(tt.expectedPrograms, currentPrograms) {
-				t.Fatalf("Programs after reload: expected %+v, got %+v", tt.expectedPrograms, currentPrograms)
+				t.Fatalf(
+					"Programs after reload: expected %+v, got %+v",
+					tt.expectedPrograms,
+					currentPrograms,
+				)
 			}
 
 			if tt.verifyStatisticsPreserved {
@@ -1218,8 +1374,12 @@ func TestMeeseekReload(t *testing.T) {
 					t.Fatalf("Program %s not found in new statistics", tt.preservedProgramName)
 				}
 				if preservedNewStats.Successful < preservedOldStats.Successful {
-					t.Fatalf("Statistics not preserved for %s: old successful=%d, new successful=%d",
-						tt.preservedProgramName, preservedOldStats.Successful, preservedNewStats.Successful)
+					t.Fatalf(
+						"Statistics not preserved for %s: old successful=%d, new successful=%d",
+						tt.preservedProgramName,
+						preservedOldStats.Successful,
+						preservedNewStats.Successful,
+					)
 				}
 			}
 
@@ -1375,7 +1535,10 @@ func TestMeeseek_SubscribeLogs(t *testing.T) {
 			t.Fatal("Expected error for nonexistent program, got none")
 		}
 		if !strings.Contains(err.Error(), "program nonexistent not present") {
-			t.Fatalf("Expected error to contain 'program nonexistent not present', got %q", err.Error())
+			t.Fatalf(
+				"Expected error to contain 'program nonexistent not present', got %q",
+				err.Error(),
+			)
 		}
 	})
 }
@@ -1609,9 +1772,17 @@ func TestMeeseek_RetryEventualSuccess(t *testing.T) {
 		t.Fatalf("Failed to create marker file: %v", err)
 	}
 
-	prog := program.New("eventual-success",
+	prog := program.New(
+		"eventual-success",
 		"sh",
-		program.Args("-c", fmt.Sprintf("if [ -f %s ]; then rm %s; exit 1; else exit 0; fi", markerFile, markerFile)),
+		program.Args(
+			"-c",
+			fmt.Sprintf(
+				"if [ -f %s ]; then rm %s; exit 1; else exit 0; fi",
+				markerFile,
+				markerFile,
+			),
+		),
 		program.RetryCount(3),
 		program.RetryDelay(10*time.Millisecond),
 	)
@@ -1678,7 +1849,11 @@ func TestMeeseek_RetryDelay(t *testing.T) {
 	// Should take at least retryCount * retryDelay
 	expectedMinDuration := time.Duration(prog.RetryCount()) * retryDelay
 	if elapsed < expectedMinDuration {
-		t.Errorf("Elapsed time = %v, want >= %v (should respect retry delay)", elapsed, expectedMinDuration)
+		t.Errorf(
+			"Elapsed time = %v, want >= %v (should respect retry delay)",
+			elapsed,
+			expectedMinDuration,
+		)
 	}
 
 	stats, err := m.Statistic("retry-with-delay")

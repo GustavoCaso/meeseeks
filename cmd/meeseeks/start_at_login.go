@@ -169,5 +169,8 @@ func printRunAtLoginUsage() {
 	fmt.Fprintf(os.Stderr, "  enable   Configure meeseeks to start automatically at login\n")
 	fmt.Fprintf(os.Stderr, "  disable  Remove automatic startup configuration\n")
 	fmt.Fprintf(os.Stderr, "  status   Show current login service status\n\n")
-	fmt.Fprintf(os.Stderr, "Use 'meeseeks start-at-login <subcommand> -h' for more information about a subcommand.\n")
+	fmt.Fprintf(
+		os.Stderr,
+		"Use 'meeseeks start-at-login <subcommand> -h' for more information about a subcommand.\n",
+	)
 }

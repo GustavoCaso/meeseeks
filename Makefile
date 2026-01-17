@@ -1,4 +1,4 @@
-.PHONY: build test test-race lint generate-test-coverage clean help
+.PHONY: build test test-race lint generate-test-coverage clean install help
 
 .DEFAULT_GOAL := help
 
@@ -16,6 +16,9 @@ lint:
 	
 format:
 	golangci-lint fmt .
+	
+install:
+	go install ./cmd/meeseeks/.
 
 generate-test-coverage:
 	@echo "Generating coverage report"
