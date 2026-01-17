@@ -453,6 +453,9 @@ func (m *meeseek) retry(ctx context.Context, prog program.Program) (bool, int) {
 
 		done, err := prog.Start(ctx)
 		if err != nil {
+			if prog.RetryDelay() > 0 {
+				time.Sleep(prog.RetryDelay())
+			}
 			attempts++
 			continue
 		}
@@ -462,6 +465,9 @@ func (m *meeseek) retry(ctx context.Context, prog program.Program) (bool, int) {
 			return true, attempts
 		}
 
+		if prog.RetryDelay() > 0 {
+			time.Sleep(prog.RetryDelay())
+		}
 		attempts++
 	}
 
@@ -489,7 +495,7 @@ func (m *meeseek) runScheduledProgram(ctx context.Context, prog program.Program)
 	}()
 
 	// Execute the program immediately first
-	m.executeScheduledProgram(ctx, prog, "initial")
+	m.executeScheduledProgram(ctx, prog)
 
 	// Main interval loop
 	for {
@@ -512,14 +518,14 @@ func (m *meeseek) runScheduledProgram(ctx context.Context, prog program.Program)
 			execute := timeSinceLastRun >= interval
 
 			if execute {
-				m.executeScheduledProgram(ctx, prog, "interval")
+				m.executeScheduledProgram(ctx, prog)
 			}
 		}
 	}
 }
 
 // executeScheduledProgram handles execution of a scheduled program with consistent error handling.
-func (m *meeseek) executeScheduledProgram(ctx context.Context, prog program.Program, executionType string) {
+func (m *meeseek) executeScheduledProgram(ctx context.Context, prog program.Program) {
 	programName := prog.Name()
 
 	// Check if we should stop before starting execution
