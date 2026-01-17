@@ -396,11 +396,13 @@ func (m *meeseek) runProgram(ctx context.Context, prog program.Program) {
 }
 
 func (m *meeseek) runOneTimeProgram(ctx context.Context, prog program.Program) {
-	success, retryAttempts := m.runWithRetry(ctx, prog)
+	progState := prog.State()
 
-	if m.logger != nil {
-		m.logger.Info("finish executing program", "program", prog.Name(), "state", program.StateToString[prog.State()])
+	if progState == program.StateRunning {
+		return
 	}
+
+	success, retryAttempts := m.runWithRetry(ctx, prog)
 
 	m.trackProgramCompletion(prog.Name(), success, retryAttempts)
 }
@@ -410,7 +412,13 @@ func (m *meeseek) runWithRetry(ctx context.Context, prog program.Program) (bool,
 		return true, 0
 	}
 
-	return m.retry(ctx, prog)
+	success, retryAttempts := m.retry(ctx, prog)
+
+	if m.logger != nil {
+		m.logger.Info("finish executing program", "program", prog.Name(), "state", program.StateToString[prog.State()])
+	}
+
+	return success, retryAttempts
 }
 
 func (m *meeseek) run(ctx context.Context, prog program.Program) bool {
@@ -441,8 +449,14 @@ func (m *meeseek) retry(ctx context.Context, prog program.Program) (bool, int) {
 		return false, 0
 	}
 
-	attempts := 1
-	for attempts <= prog.RetryCount() {
+	retryAttempts := 0
+	for retryAttempts < prog.RetryCount() {
+		select {
+		case <-ctx.Done():
+			return false, retryAttempts
+		default:
+		}
+
 		if m.logger != nil {
 			m.logger.Info(
 				"retrying program",
@@ -453,25 +467,33 @@ func (m *meeseek) retry(ctx context.Context, prog program.Program) (bool, int) {
 
 		done, err := prog.Start(ctx)
 		if err != nil {
-			if prog.RetryDelay() > 0 {
-				time.Sleep(prog.RetryDelay())
+			retryAttempts++
+			if retryAttempts <= prog.RetryCount() && prog.RetryDelay() > 0 {
+				select {
+				case <-ctx.Done():
+					return false, retryAttempts
+				case <-time.After(prog.RetryDelay()):
+				}
 			}
-			attempts++
 			continue
 		}
 		<-done
+		retryAttempts++
 
 		if prog.State() == program.StateFinished {
-			return true, attempts
+			return true, retryAttempts
 		}
 
-		if prog.RetryDelay() > 0 {
-			time.Sleep(prog.RetryDelay())
+		if retryAttempts <= prog.RetryCount() && prog.RetryDelay() > 0 {
+			select {
+			case <-ctx.Done():
+				return false, retryAttempts
+			case <-time.After(prog.RetryDelay()):
+			}
 		}
-		attempts++
 	}
 
-	return false, attempts
+	return false, retryAttempts
 }
 
 func (m *meeseek) runScheduledProgram(ctx context.Context, prog program.Program) {

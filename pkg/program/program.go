@@ -198,9 +198,22 @@ func (p *program) Name() string {
 }
 
 func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
+	p.dataLock.Lock()
+	if p.state == StateRunning {
+		p.dataLock.Unlock()
+		done := make(chan struct{}, 1)
+		close(done)
+		return done, errors.New("program already running")
+	}
+	p.state = StateRunning
+	p.dataLock.Unlock()
 	cmd, err := p.setupCmd(ctx)
 
 	if err != nil {
+		// Failed setup, revert state
+		p.dataLock.Lock()
+		p.state = StateError
+		p.dataLock.Unlock()
 		done := make(chan struct{}, 1)
 		close(done)
 		return done, err
@@ -476,10 +489,6 @@ func (p *program) run() error {
 		p.finalize()
 		return err
 	}
-
-	p.dataLock.Lock()
-	p.state = StateRunning
-	p.dataLock.Unlock()
 
 	if p.async {
 		go p.monitorProcess()
