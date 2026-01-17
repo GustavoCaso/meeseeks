@@ -29,7 +29,7 @@ func TestRunCommand(t *testing.T) {
 			name:          "run existing",
 			args:          []string{"run", "test-echo"},
 			expectedExit:  0,
-			shouldContain: "test-echo  2",
+			shouldContain: "test-echo  finished",
 		},
 		{
 			name:          "run running program",
