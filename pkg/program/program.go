@@ -347,6 +347,14 @@ func (p *program) String() string {
 		s += fmt.Sprintf(", initial delay: %s", p.initialDelay)
 	}
 
+	if p.retryCount > 0 {
+		s += fmt.Sprintf(", retry count: %d", p.retryCount)
+	}
+
+	if p.retryDelay > 0 {
+		s += fmt.Sprintf(", retry count: %s", p.retryDelay)
+	}
+
 	return s
 }
 
