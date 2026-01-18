@@ -681,7 +681,7 @@ func (p *program) forcekill() error {
 }
 
 func sendLinesToChannel(ctx context.Context, lines string, ch chan<- LogLine) {
-	for _, line := range strings.Split(lines, "\n") {
+	for line := range strings.SplitSeq(lines, "\n") {
 		if line != "" {
 			select {
 			case ch <- LogLine{Message: line, IsError: false}:
