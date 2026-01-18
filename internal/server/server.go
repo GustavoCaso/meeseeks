@@ -31,9 +31,9 @@ type Server struct {
 }
 
 type Response struct {
-	Success bool        `json:"success"`
-	Data    interface{} `json:"data,omitempty"`
-	Error   string      `json:"error,omitempty"`
+	Success bool   `json:"success"`
+	Data    any    `json:"data,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 func New(
@@ -229,7 +229,7 @@ func (s *Server) handleFollowLogs(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if len(msg.Message) > 0 {
-				data, dataErr := json.Marshal(map[string]interface{}{
+				data, dataErr := json.Marshal(map[string]any{
 					"message":  msg.Message,
 					"is_error": msg.IsError,
 				})
@@ -266,7 +266,7 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := Response{Success: true, Data: map[string]interface{}{
+	resp := Response{Success: true, Data: map[string]any{
 		"stdout": stats.Stdout,
 		"stderr": stats.Stderr,
 	}}

@@ -3,7 +3,6 @@
 package login
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,8 +61,7 @@ func TestDarwinService_Validate_ServiceAlreadyExists(t *testing.T) {
 		os.RemoveAll(configDir)
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	config := ServiceConfig{
 		ExecutablePath: execPath,

@@ -12,7 +12,7 @@ test-race:
 	go test ./... -race
 
 lint:
-	golangci-lint run
+	golangci-lint run --fix
 	
 format:
 	golangci-lint fmt .

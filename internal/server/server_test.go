@@ -348,8 +348,7 @@ func TestServer_FailLoadConfigNotPresent(t *testing.T) {
 
 func TestClient_ConnectToNonExistentDaemon(t *testing.T) {
 	t.Parallel()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	client := NewClient(ctx, "/nonexistent/path.sock")
 
 	_, err := client.Statistics(t.Context(), "")
@@ -474,8 +473,7 @@ func BenchmarkServer_HandleRequest(b *testing.B) {
 
 	client := NewClient(ctx, sockPath)
 
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_, _ = client.Statistics(b.Context(), "")
 	}
 }

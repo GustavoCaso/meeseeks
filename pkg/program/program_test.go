@@ -361,15 +361,13 @@ func TestEdgeCases(t *testing.T) {
 
 		var wg sync.WaitGroup
 		for range 10 {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				for range 5 {
 					_ = p.Stdout()
 					_ = p.Stderr()
 					time.Sleep(30 * time.Millisecond)
 				}
-			}()
+			})
 		}
 
 		wg.Wait()
@@ -1588,8 +1586,7 @@ func TestProgramStartConcurrentCalls(t *testing.T) {
 	// while all goroutines attempt to start
 	p := New("concurrent-start-race", "sleep", Args("1"))
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	numGoroutines := 10
 
@@ -1602,10 +1599,7 @@ func TestProgramStartConcurrentCalls(t *testing.T) {
 
 	// Launch all goroutines
 	for range numGoroutines {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			// Wait for signal to start simultaneously
 			<-startBarrier
 
@@ -1616,7 +1610,7 @@ func TestProgramStartConcurrentCalls(t *testing.T) {
 			}
 			<-done
 			successes <- struct{}{}
-		}()
+		})
 	}
 
 	// Give goroutines time to reach the barrier
