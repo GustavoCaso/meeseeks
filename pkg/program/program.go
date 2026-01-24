@@ -43,6 +43,8 @@ type Program interface {
 	RetryCount() int
 	// RetryDelay return the delay between retries
 	RetryDelay() time.Duration
+	// Deadline return program's deadline
+	Deadline() time.Duration
 	// Send writes data to the program's stdin. Requires KeepStdinOpen option.
 	// Returns an error if stdin is closed or the program is not running.
 	Send([]byte) error
@@ -103,6 +105,7 @@ type program struct {
 	initialDelay time.Duration
 	retryCount   int
 	retryDelay   time.Duration
+	deadline     time.Duration
 	done         chan struct{}
 
 	customStdout io.Writer
@@ -205,6 +208,7 @@ func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
 		close(done)
 		return done, errors.New("program already running")
 	}
+
 	p.state = StateRunning
 	p.dataLock.Unlock()
 	cmd, err := p.setupCmd(ctx)
@@ -242,6 +246,10 @@ func (p *program) RetryCount() int {
 
 func (p *program) RetryDelay() time.Duration {
 	return p.retryDelay
+}
+
+func (p *program) Deadline() time.Duration {
+	return p.deadline
 }
 
 func (p *program) Send(data []byte) error {
@@ -403,6 +411,17 @@ func (p *program) finalize() {
 }
 
 func (p *program) setupCmd(ctx context.Context) (*exec.Cmd, error) {
+	var cancel context.CancelFunc
+
+	if p.deadline > 0 {
+		ctx, cancel = context.WithTimeout(ctx, p.deadline)
+
+		p.finalizers = append(p.finalizers, func() error {
+			cancel()
+			return nil
+		})
+	}
+
 	//nolint:gosec // We accept the arguments the users have manually defined
 	cmd := exec.CommandContext(
 		ctx,

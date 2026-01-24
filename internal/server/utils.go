@@ -58,5 +58,11 @@ func createProgramFromConfig(
 	}
 	opts = append(opts, program.RetryDelay(retryDelay))
 
+	deadline, err := pc.GetDeadline()
+	if err != nil {
+		return nil, err
+	}
+	opts = append(opts, program.Deadline(deadline))
+
 	return program.New(pc.Name, pc.Command, opts...), nil
 }
