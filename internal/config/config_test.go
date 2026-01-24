@@ -447,6 +447,24 @@ func TestConfig_Validate(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "invalid deadline",
+			config: &Config{
+				Programs: []ProgramConfig{
+					{Name: "test", Command: "echo", Deadline: "invalid"},
+				},
+			},
+			wantErr:     true,
+			errContains: "invalid deadline",
+		},
+		{
+			name: "valid deadline",
+			config: &Config{
+				Programs: []ProgramConfig{
+					{Name: "test", Command: "echo", Deadline: "5m"},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -557,6 +575,55 @@ func TestProgramConfig_GetBufferSizeLimit(t *testing.T) {
 			result := pc.GetBufferSizeLimit()
 			if result != tt.expected {
 				t.Fatalf("GetBufferSizeLimit() = %d, want %d", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestProgramConfig_GetDeadline(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		deadline    string
+		expected    time.Duration
+		wantErr     bool
+		errContains string
+	}{
+		{"empty deadline", "", 0, false, ""},
+		{"valid seconds", "30s", 30 * time.Second, false, ""},
+		{"valid minutes", "5m", 5 * time.Minute, false, ""},
+		{"valid hours", "2h", 2 * time.Hour, false, ""},
+		{"complex duration", "1h30m45s", 1*time.Hour + 30*time.Minute + 45*time.Second, false, ""},
+		{"invalid deadline", "invalid", 0, true, "time: invalid duration"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			pc := &ProgramConfig{Deadline: tt.deadline}
+
+			duration, err := pc.GetDeadline()
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("GetDeadline() expected error but got none")
+				}
+				if tt.errContains != "" && !containsString(err.Error(), tt.errContains) {
+					t.Fatalf(
+						"GetDeadline() error = %q, want error containing %q",
+						err.Error(),
+						tt.errContains,
+					)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("GetDeadline() unexpected error = %v", err)
+			}
+
+			if duration != tt.expected {
+				t.Fatalf("GetDeadline() = %v, want %v", duration, tt.expected)
 			}
 		})
 	}

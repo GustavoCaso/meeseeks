@@ -19,6 +19,7 @@ A simple and lightweight process manager for Go applications. Meeseeks can be us
 - **Configuration Files**: YAML and JSON support
 - **Scheduled Execution**: Run processes at intervals
 - **Automatic Retries**: Configurable retry count and delay for failed processes
+- **Execution Deadlines**: Kill programs that exceed a configured duration
 - **Real-time Monitoring**: Process status, logs, and statistics
 - **Output Redirection**: Capture or redirect stdout/stderr
 - **Graceful Shutdown**: Context-based cancellation and signal handling
@@ -159,6 +160,7 @@ program.New("name", "command",
     program.InitialDelay(5*time.Second),    // Wait before first execution
     program.RetryCount(3),                  // Retry up to 3 times on failure
     program.RetryDelay(5*time.Second),      // Wait 5 seconds between retries
+    program.Deadline(5*time.Minute),        // Kill program if it runs longer than deadline
 )
 ```
 
@@ -265,6 +267,7 @@ programs:
     initial_delay: "5s"                 # Optional: Wait before first execution (e.g., "1m", "30s")
     retry_count: 3                      # Optional: Number of times to retry on failure (default: 0)
     retry_delay: "5s"                   # Optional: Delay between retries (e.g., "5s", "1m")
+    deadline: "5m"                      # Optional: Kill program if it exceeds this duration (e.g., "5m", "1h")
     keep_stdin_open: true               # Optional: Keep stdin open for input (default: false)
     stdout: "/path/to/stdout.log"       # Optional: Redirect stdout to file
     stderr: "/path/to/stderr.log"       # Optional: Redirect stderr to file

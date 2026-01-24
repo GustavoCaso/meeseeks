@@ -293,6 +293,68 @@ func TestProgram_RetryConfiguration(t *testing.T) {
 	}
 }
 
+func TestProgram_DeadlineConfiguration(t *testing.T) {
+	t.Parallel()
+
+	deadline := 5 * time.Second
+
+	p := New("deadline-config-test",
+		"echo",
+		Args("test"),
+		Deadline(deadline),
+	)
+
+	if p.Deadline() != deadline {
+		t.Errorf("Deadline() = %v, want %v", p.Deadline(), deadline)
+	}
+}
+
+func TestProgram_DeadlineExceeded(t *testing.T) {
+	t.Parallel()
+
+	t.Run("program killed when deadline exceeded", func(t *testing.T) {
+		t.Parallel()
+		p := New("deadline-test",
+			"sleep",
+			Args("10"),
+			Deadline(200*time.Millisecond),
+			Async(),
+		)
+
+		start := time.Now()
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
+		}
+
+		select {
+		case <-done:
+		case <-time.After(1 * time.Second):
+			t.Fatal("Process was not killed by deadline")
+		}
+
+		duration := time.Since(start)
+
+		if duration > 1*time.Second {
+			t.Fatalf("Expected program to be killed by deadline (~200ms), took %v", duration)
+		}
+
+		state := p.State()
+		if state != StateError && state != StateCancelled {
+			t.Errorf(
+				"Expected state to be Error or Cancelled after deadline, got: %s",
+				StateToString[state],
+			)
+		}
+
+		errorOutput := p.Stderr()
+		if !strings.Contains(errorOutput, "signal: killed") &&
+			!strings.Contains(errorOutput, "context deadline exceeded") {
+			t.Logf("Error output: %q", errorOutput)
+		}
+	})
+}
+
 func TestEdgeCases(t *testing.T) {
 	t.Parallel()
 	t.Run("command not found", func(t *testing.T) {

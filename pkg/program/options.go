@@ -122,6 +122,13 @@ func RetryDelay(duration time.Duration) Option {
 	}
 }
 
+// Deadline sets the program deadline.
+func Deadline(duration time.Duration) Option {
+	return func(p *program) {
+		p.deadline = duration
+	}
+}
+
 // BufferSizeLimit sets the maximum size in bytes for stdout/stderr buffers.
 // When the limit is reached, buffers are truncated to prevent memory issues.
 // A limit of 0 means no limit (buffers can grow indefinitely).

@@ -27,6 +27,7 @@ type ProgramConfig struct {
 	InitialDelay    string   `yaml:"initial_delay,omitempty"     json:"initial_delay,omitempty"`
 	RetryCount      int      `yaml:"retry_count,omitempty"       json:"retry_count,omitempty"`
 	RetryDelay      string   `yaml:"retry_delay,omitempty"       json:"retry_delay,omitempty"`
+	Deadline        string   `yaml:"deadline,omitempty"          json:"deadline,omitempty"`
 	KeepStdinOpen   bool     `yaml:"keep_stdin_open,omitempty"   json:"keep_stdin_open,omitempty"`
 	Stdout          string   `yaml:"stdout,omitempty"            json:"stdout,omitempty"`
 	Stderr          string   `yaml:"stderr,omitempty"            json:"stderr,omitempty"`
@@ -45,6 +46,13 @@ func (pc *ProgramConfig) GetRetryDelay() (time.Duration, error) {
 		return 0, nil
 	}
 	return time.ParseDuration(pc.RetryDelay)
+}
+
+func (pc *ProgramConfig) GetDeadline() (time.Duration, error) {
+	if pc.Deadline == "" {
+		return 0, nil
+	}
+	return time.ParseDuration(pc.Deadline)
 }
 
 func (pc *ProgramConfig) GetInitialDelay() (time.Duration, error) {
@@ -165,6 +173,12 @@ func (c *Config) Validate() error {
 		if program.RetryDelay != "" {
 			if _, err := time.ParseDuration(program.RetryDelay); err != nil {
 				return fmt.Errorf("invalid retry_delay for program %s: %w", program.Name, err)
+			}
+		}
+
+		if program.Deadline != "" {
+			if _, err := time.ParseDuration(program.Deadline); err != nil {
+				return fmt.Errorf("invalid deadline for program %s: %w", program.Name, err)
 			}
 		}
 
