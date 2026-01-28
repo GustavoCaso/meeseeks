@@ -22,8 +22,9 @@ import (
 
 // LogLine represent a log line sent to the subscription channel.
 type LogLine struct {
-	Message string `json:"message"`
-	IsError bool   `json:"is_error"`
+	Message string    `json:"message"`
+	IsError bool      `json:"is_error"`
+	Time    time.Time `json:"time"`
 }
 
 // Program defines the interface for managing individual external processes.
@@ -119,9 +120,9 @@ type program struct {
 
 	state                   ProcessState
 	exitCode                int
-	outputBuffer            strings.Builder
-	errorBuffer             strings.Builder
-	bufferLimit             int
+	buffer                  []LogLine
+	bufferSize              int // current byte size of buffer contents
+	bufferLimit             int // max bytes allowed in buffer (0 = unlimited)
 	subscriptionIDCounter   atomic.Uint32
 	logSubscriptionChannels map[uint32]chan LogLine
 	subsLock                sync.RWMutex
@@ -188,10 +189,7 @@ func New(name, command string, opts ...Option) Program {
 		opt(p)
 	}
 
-	if p.bufferLimit > 0 {
-		p.outputBuffer.Grow(p.bufferLimit)
-		p.errorBuffer.Grow(p.bufferLimit)
-	}
+	p.buffer = []LogLine{}
 
 	return p
 }
@@ -293,38 +291,49 @@ func (p *program) Stdout() string {
 	p.dataLock.RLock()
 	defer p.dataLock.RUnlock()
 
-	return p.outputBuffer.String()
+	var lines []string
+	for _, entry := range p.buffer {
+		if !entry.IsError {
+			lines = append(lines, entry.Message)
+		}
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 func (p *program) Stderr() string {
 	p.dataLock.RLock()
 	defer p.dataLock.RUnlock()
 
-	return p.errorBuffer.String()
+	var lines []string
+	for _, entry := range p.buffer {
+		if entry.IsError {
+			lines = append(lines, entry.Message)
+		}
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 func (p *program) SubscribeLogs(ctx context.Context, subscribeToPreviousLogs bool) <-chan LogLine {
 	ch := make(chan LogLine, 1000)
 	id := p.subscriptionIDCounter.Add(1)
 
+	var bufferCopy []LogLine
+
+	p.dataLock.RLock()
+	if subscribeToPreviousLogs && len(p.buffer) > 0 {
+		bufferCopy = make([]LogLine, len(p.buffer))
+		copy(bufferCopy, p.buffer)
+	}
+	p.dataLock.RUnlock()
+
 	p.subsLock.Lock()
 	p.logSubscriptionChannels[id] = ch
 	p.subsLock.Unlock()
 
-	if subscribeToPreviousLogs {
-		p.dataLock.RLock()
-		existingOutput := p.outputBuffer.String()
-		existingError := p.errorBuffer.String()
-		p.dataLock.RUnlock()
-
-		// Send existing log lines
-		if existingOutput != "" {
-			sendLinesToChannel(ctx, existingOutput, ch)
-		}
-
-		if existingError != "" {
-			sendLinesToChannel(ctx, existingError, ch)
-		}
+	if len(bufferCopy) > 0 && subscribeToPreviousLogs {
+		sendLinesToChannel(ctx, bufferCopy, ch)
 	}
 
 	go func() {
@@ -511,7 +520,7 @@ func (p *program) run() error {
 
 	if err != nil {
 		p.dataLock.Lock()
-		p.writeOutput(&p.errorBuffer, err.Error(), true)
+		p.writeOutput(err.Error(), true)
 
 		p.state = StateError
 		p.dataLock.Unlock()
@@ -592,7 +601,7 @@ func (p *program) monitorProcess() {
 				p.state = StateCancelled
 			}
 		}
-		p.writeOutput(&p.errorBuffer, err.Error(), true)
+		p.writeOutput(err.Error(), true)
 	} else {
 		p.state = StateFinished
 	}
@@ -608,9 +617,9 @@ func (p *program) readOutput(reader io.Reader, isError bool) {
 		line := scanner.Text()
 		p.dataLock.Lock()
 		if isError {
-			p.writeOutput(&p.errorBuffer, line, true)
+			p.writeOutput(line, true)
 		} else {
-			p.writeOutput(&p.outputBuffer, line, false)
+			p.writeOutput(line, false)
 		}
 		p.dataLock.Unlock()
 	}
@@ -618,53 +627,64 @@ func (p *program) readOutput(reader io.Reader, isError bool) {
 	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
 		if isError {
 			p.dataLock.Lock()
-			p.writeOutput(&p.errorBuffer, "Scanner error: "+err.Error(), true)
+			p.writeOutput("Scanner error: "+err.Error(), true)
 			p.dataLock.Unlock()
 		}
 	}
 }
 
-// writeOutput handles buffer management with proper truncation and thread safety.
-func (p *program) writeOutput(buffer *strings.Builder, s string, isError bool) {
-	newContent := s + "\n"
+// writeOutput handles buffer management with byte-based limits and periodic compaction.
+func (p *program) writeOutput(s string, isError bool) {
+	logLine := LogLine{
+		Message: s,
+		IsError: isError,
+		Time:    time.Now(),
+	}
+	entrySize := len(s)
 
 	if p.bufferLimit <= 0 {
-		buffer.WriteString(newContent)
-		// We use `s` because since we are broadcasting each line we do not need the new line from `newContent`
-		p.broadcastLogSubscriptions(s, isError)
+		p.buffer = append(p.buffer, logLine)
+		p.bufferSize += entrySize
+		p.broadcastLogSubscriptions(logLine)
 		return
 	}
 
-	spaceNeeded := len(newContent)
-	currentSize := buffer.Len()
+	// Count how many entries to evict to make room for the new entry
+	evicted := 0
+	for p.bufferSize+entrySize > p.bufferLimit && evicted < len(p.buffer) {
+		p.bufferSize -= len(p.buffer[evicted].Message)
+		evicted++
+	}
 
-	// Check if we need to truncate
-	threshold := int(float64(p.bufferLimit) * 0.95)
+	// Shift remaining entries left and shrink slice (reuses backing array, no memory leak)
+	if evicted > 0 {
+		// copy() shifts elements left but doesn't change slice length, leaving stale
+		// duplicates at the end. The reslice removes them by adjusting the length.
+		// Example: [A,B,C,D,E] evict 2 -> copy gives [C,D,E,D,E] -> reslice gives [C,D,E]
+		copy(p.buffer, p.buffer[evicted:])
+		p.buffer = p.buffer[:len(p.buffer)-evicted]
 
-	if currentSize+spaceNeeded > threshold {
-		buffer.Reset()
-		fmt.Fprintf(
-			buffer,
-			"[%s] truncated due to buffer limit: %d bytes\n",
-			time.Now(),
-			p.bufferLimit,
-		)
+		truncationMsg := LogLine{
+			Message: fmt.Sprintf(
+				"[buffer truncated: evicted %d entries to stay under %d bytes]",
+				evicted,
+				p.bufferLimit,
+			),
+			IsError: false,
+			Time:    time.Now(),
+		}
+		p.broadcastLogSubscriptions(truncationMsg)
 		if p.logger != nil {
-			p.logger.Info("buffer truncated", "program", p.name)
+			p.logger.Info("buffer truncated", "program", p.name, "evicted_entries", evicted)
 		}
 	}
 
-	buffer.WriteString(newContent)
-	// We use `s` because since we are broadcasting each line we do not need the new line from `newContent`
-	p.broadcastLogSubscriptions(s, isError)
+	p.buffer = append(p.buffer, logLine)
+	p.bufferSize += entrySize
+	p.broadcastLogSubscriptions(logLine)
 }
 
-func (p *program) broadcastLogSubscriptions(content string, isError bool) {
-	logLine := LogLine{
-		Message: content,
-		IsError: isError,
-	}
-
+func (p *program) broadcastLogSubscriptions(logLine LogLine) {
 	p.subsLock.RLock()
 	defer p.subsLock.RUnlock()
 	for _, ch := range p.logSubscriptionChannels {
@@ -699,16 +719,14 @@ func (p *program) forcekill() error {
 	return nil
 }
 
-func sendLinesToChannel(ctx context.Context, lines string, ch chan<- LogLine) {
-	for line := range strings.SplitSeq(lines, "\n") {
-		if line != "" {
-			select {
-			case ch <- LogLine{Message: line, IsError: false}:
-			case <-ctx.Done():
-				return
-			default:
-				// Channel full - drop the log line
-			}
+func sendLinesToChannel(ctx context.Context, buffer []LogLine, ch chan<- LogLine) {
+	for _, logLine := range buffer {
+		select {
+		case ch <- logLine:
+		case <-ctx.Done():
+			return
+		default:
+			// Channel full - drop the log line
 		}
 	}
 }
