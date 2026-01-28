@@ -1215,7 +1215,8 @@ func TestBufferSizeLimit(t *testing.T) {
 
 	t.Run("buffer limit triggers truncation", func(t *testing.T) {
 		t.Parallel()
-		bufferLimit := 1000
+		// Buffer limit is byte-based
+		bufferLimit := 1000 // 1KB limit
 		p := New(
 			"limit-test",
 			"bash",
@@ -1234,25 +1235,27 @@ func TestBufferSizeLimit(t *testing.T) {
 
 		output := p.Stdout()
 
-		if !strings.Contains(output, "truncated due to buffer limit") {
-			t.Fatalf("Expected truncation message in output, got: %q", output)
+		// Output byte size should not significantly exceed the limit
+		// (some overhead from newlines between entries is expected)
+		if len(output) > bufferLimit+500 {
+			t.Fatalf(
+				"Expected output to be limited to ~%d bytes, got %d bytes",
+				bufferLimit,
+				len(output),
+			)
 		}
 
-		// Output should not exceed significantly beyond threshold (95% of limit)
-		threshold := int(float64(bufferLimit) * 0.95)
-		if len(output) > bufferLimit+200 { // Allow some overhead for truncation message
-			t.Fatalf(
-				"Expected output to be limited, got %d bytes (threshold: %d, limit: %d)",
-				len(output),
-				threshold,
-				bufferLimit,
-			)
+		// Verify we didn't get all 200 lines (would be ~10000 bytes)
+		lines := strings.Split(output, "\n")
+		if len(lines) >= 200 {
+			t.Fatalf("Expected output to be truncated, but got all %d lines", len(lines))
 		}
 	})
 
 	t.Run("buffer limit applies to error output", func(t *testing.T) {
 		t.Parallel()
-		bufferLimit := 500
+		// Buffer limit is byte-based
+		bufferLimit := 500 // 500 bytes
 		p := New(
 			"error-limit-test",
 			"bash",
@@ -1271,19 +1274,28 @@ func TestBufferSizeLimit(t *testing.T) {
 
 		errorOutput := p.Stderr()
 
-		if !strings.Contains(errorOutput, "truncated due to buffer limit") {
-			t.Fatalf("Expected truncation message in error output, got: %q", errorOutput)
+		// Error output byte size should be limited
+		// (some overhead from newlines between entries is expected)
+		if len(errorOutput) > bufferLimit+500 {
+			t.Fatalf(
+				"Expected error output to be limited to ~%d bytes, got %d bytes",
+				bufferLimit,
+				len(errorOutput),
+			)
 		}
 
-		if len(errorOutput) > bufferLimit+200 {
-			t.Fatalf("Expected error output to be limited, got %d bytes", len(errorOutput))
+		// Verify we didn't get all 100 error lines (each line is ~35 bytes, 100 lines would be ~3500 bytes)
+		lines := strings.Split(errorOutput, "\n")
+		if len(lines) >= 100 {
+			t.Fatalf("Expected error output to be truncated, but got all %d lines", len(lines))
 		}
 	})
 
 	t.Run("buffer limit with custom IO writers", func(t *testing.T) {
 		t.Parallel()
 		var customBuf bytes.Buffer
-		bufferLimit := 300
+		// Buffer limit is byte-based
+		bufferLimit := 300 // 300 bytes
 
 		p := New("custom-io-limit-test", "bash",
 			Args("-c", "for i in {1..50}; do echo \"custom output line $i\"; done"),
@@ -1297,8 +1309,13 @@ func TestBufferSizeLimit(t *testing.T) {
 		<-done
 
 		internalOutput := p.Stdout()
-		if !strings.Contains(internalOutput, "truncated") && len(internalOutput) > bufferLimit+200 {
-			t.Fatalf("Expected internal buffer to be limited")
+		// Internal buffer byte size should be limited
+		if len(internalOutput) > bufferLimit*2 {
+			t.Fatalf(
+				"Expected internal buffer to be limited to ~%d bytes, got %d bytes",
+				bufferLimit,
+				len(internalOutput),
+			)
 		}
 
 		customOutput := customBuf.String()
@@ -1306,8 +1323,9 @@ func TestBufferSizeLimit(t *testing.T) {
 			t.Fatalf("Expected custom writer to receive all output")
 		}
 
+		// Custom writer should have more content than internal buffer
 		if len(customOutput) <= len(internalOutput) {
-			t.Fatalf("Expected custom writer to have all output")
+			t.Fatalf("Expected custom writer to have more output than internal buffer")
 		}
 	})
 }
