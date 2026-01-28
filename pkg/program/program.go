@@ -96,12 +96,6 @@ var StateToString = map[ProcessState]string{
 	StateCancelled:  "cancelled",
 }
 
-type bufferEntry struct {
-	content string
-	time    time.Time
-	isError bool
-}
-
 type program struct {
 	cmd          *exec.Cmd
 	name         string
@@ -126,7 +120,7 @@ type program struct {
 
 	state                   ProcessState
 	exitCode                int
-	buffer                  []bufferEntry
+	buffer                  []LogLine
 	bufferSize              int // current byte size of buffer contents
 	bufferLimit             int // max bytes allowed in buffer (0 = unlimited)
 	subscriptionIDCounter   atomic.Uint32
@@ -195,7 +189,7 @@ func New(name, command string, opts ...Option) Program {
 		opt(p)
 	}
 
-	p.buffer = []bufferEntry{}
+	p.buffer = []LogLine{}
 
 	return p
 }
@@ -299,8 +293,8 @@ func (p *program) Stdout() string {
 
 	var lines []string
 	for _, entry := range p.buffer {
-		if !entry.isError {
-			lines = append(lines, entry.content)
+		if !entry.IsError {
+			lines = append(lines, entry.Message)
 		}
 	}
 
@@ -313,8 +307,8 @@ func (p *program) Stderr() string {
 
 	var lines []string
 	for _, entry := range p.buffer {
-		if entry.isError {
-			lines = append(lines, entry.content)
+		if entry.IsError {
+			lines = append(lines, entry.Message)
 		}
 	}
 
@@ -325,14 +319,11 @@ func (p *program) SubscribeLogs(ctx context.Context, subscribeToPreviousLogs boo
 	ch := make(chan LogLine, 1000)
 	id := p.subscriptionIDCounter.Add(1)
 
-	var bufferCopy []bufferEntry
+	var bufferCopy []LogLine
 
-	// Acquire dataLock first, then subsLock to maintain consistent lock ordering
-	// (writeOutput -> broadcastLogSubscriptions also acquires dataLock then subsLock)
 	p.dataLock.RLock()
 	if subscribeToPreviousLogs && len(p.buffer) > 0 {
-		// Copy the buffer data to avoid race conditions during iteration
-		bufferCopy = make([]bufferEntry, len(p.buffer))
+		bufferCopy = make([]LogLine, len(p.buffer))
 		copy(bufferCopy, p.buffer)
 	}
 	p.dataLock.RUnlock()
@@ -644,24 +635,24 @@ func (p *program) readOutput(reader io.Reader, isError bool) {
 
 // writeOutput handles buffer management with byte-based limits and periodic compaction.
 func (p *program) writeOutput(s string, isError bool) {
-	entry := bufferEntry{
-		content: s,
-		isError: isError,
-		time:    time.Now(),
+	logLine := LogLine{
+		Message: s,
+		IsError: isError,
+		Time:    time.Now(),
 	}
 	entrySize := len(s)
 
 	if p.bufferLimit <= 0 {
-		p.buffer = append(p.buffer, entry)
+		p.buffer = append(p.buffer, logLine)
 		p.bufferSize += entrySize
-		p.broadcastLogSubscriptions(entry)
+		p.broadcastLogSubscriptions(logLine)
 		return
 	}
 
 	// Count how many entries to evict to make room for the new entry
 	evicted := 0
 	for p.bufferSize+entrySize > p.bufferLimit && evicted < len(p.buffer) {
-		p.bufferSize -= len(p.buffer[evicted].content)
+		p.bufferSize -= len(p.buffer[evicted].Message)
 		evicted++
 	}
 
@@ -673,14 +664,14 @@ func (p *program) writeOutput(s string, isError bool) {
 		copy(p.buffer, p.buffer[evicted:])
 		p.buffer = p.buffer[:len(p.buffer)-evicted]
 
-		truncationMsg := bufferEntry{
-			content: fmt.Sprintf(
+		truncationMsg := LogLine{
+			Message: fmt.Sprintf(
 				"[buffer truncated: evicted %d entries to stay under %d bytes]",
 				evicted,
 				p.bufferLimit,
 			),
-			isError: false,
-			time:    time.Now(),
+			IsError: false,
+			Time:    time.Now(),
 		}
 		p.broadcastLogSubscriptions(truncationMsg)
 		if p.logger != nil {
@@ -688,18 +679,12 @@ func (p *program) writeOutput(s string, isError bool) {
 		}
 	}
 
-	p.buffer = append(p.buffer, entry)
+	p.buffer = append(p.buffer, logLine)
 	p.bufferSize += entrySize
-	p.broadcastLogSubscriptions(entry)
+	p.broadcastLogSubscriptions(logLine)
 }
 
-func (p *program) broadcastLogSubscriptions(bufferEntry bufferEntry) {
-	logLine := LogLine{
-		Message: bufferEntry.content,
-		IsError: bufferEntry.isError,
-		Time:    bufferEntry.time,
-	}
-
+func (p *program) broadcastLogSubscriptions(logLine LogLine) {
 	p.subsLock.RLock()
 	defer p.subsLock.RUnlock()
 	for _, ch := range p.logSubscriptionChannels {
@@ -734,10 +719,10 @@ func (p *program) forcekill() error {
 	return nil
 }
 
-func sendLinesToChannel(ctx context.Context, buffer []bufferEntry, ch chan<- LogLine) {
-	for _, entry := range buffer {
+func sendLinesToChannel(ctx context.Context, buffer []LogLine, ch chan<- LogLine) {
+	for _, logLine := range buffer {
 		select {
-		case ch <- LogLine{Message: entry.content, IsError: entry.isError, Time: entry.time}:
+		case ch <- logLine:
 		case <-ctx.Done():
 			return
 		default:
