@@ -237,6 +237,21 @@ meeseeks stop             # Stop all programs
 meeseeks exit # Stop meeseeks process
 ```
 
+**Launch interactive TUI**:
+
+```bash
+meeseeks tui
+```
+
+The TUI provides four tabs:
+- **Programs** - Detailed view with start/stop/restart controls and access to logs
+- **Config** - YAML editor with save and reload options
+
+Key bindings:
+- `Tab` / `Shift+Tab` - Switch tabs
+- `↑/↓`               - Navigate
+- `q`                 - Quit
+
 **Reload configuration changes**
 
 ```bash

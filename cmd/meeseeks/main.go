@@ -13,6 +13,7 @@ Commands:
 	logs           Show logs for a specific program
 	stop           Stop a specific program
 	reload         Reload configuration
+	tui            Launch interactive terminal UI
 	exit           Stop meeseeks process
 	version        Show version information
 
@@ -58,6 +59,8 @@ func main() {
 		cmdErr = exitCommand(args, logger)
 	case "reload":
 		cmdErr = reloadCommand(args, logger)
+	case "tui":
+		cmdErr = tuiCommand(args, logger)
 	case "version":
 		fmt.Fprintf(os.Stdout, "meeseeks version %s\n", version)
 	case "-h", "--help":
@@ -84,6 +87,7 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "  logs           Show logs for a specific program\n")
 	fmt.Fprintf(os.Stderr, "  stop           Stop a specific program\n")
 	fmt.Fprintf(os.Stderr, "  reload         Reload configuration\n")
+	fmt.Fprintf(os.Stderr, "  tui            Launch interactive terminal UI\n")
 	fmt.Fprintf(os.Stderr, "  exit           Stop meeseeks process\n")
 	fmt.Fprintf(os.Stderr, "  version        Show version information\n")
 	fmt.Fprintf(os.Stderr, "\nUse 'meeseeks <command> -h' for more information about a command.\n")

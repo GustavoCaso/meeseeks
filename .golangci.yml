@@ -432,3 +432,11 @@ linters:
           - gocognit
           - gocyclo
           - cyclop
+      # TUI styles are idiomatic as global variables with lipgloss
+      - path: internal/tui/styles\.go
+        linters:
+          - gochecknoglobals
+      # TUI component styles are idiomatic as global variables with lipgloss
+      - path: internal/tui/components/.*\.go
+        linters:
+          - gochecknoglobals
