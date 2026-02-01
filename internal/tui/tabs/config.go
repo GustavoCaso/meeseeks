@@ -20,6 +20,19 @@ import (
 	"github.com/GustavoCaso/meeseeks/internal/tui"
 )
 
+// configLoadedMsg is sent when config file is loaded.
+type configLoadedMsg struct {
+	Content string
+	Path    string
+	Err     error
+}
+
+// configSavedMsg is sent when config is saved.
+type configSavedMsg struct {
+	Success bool
+	Error   string
+}
+
 type configKeyMap struct {
 	Edit       key.Binding
 	Save       key.Binding
@@ -52,7 +65,7 @@ func newConfigKeyMap() configKeyMap {
 		),
 		Escape: key.NewBinding(
 			key.WithKeys("esc"),
-			key.WithHelp("esc", "cancel"),
+			key.WithHelp("esc", "exit edit mode"),
 		),
 		ScrollUp: key.NewBinding(
 			key.WithKeys("k"),
@@ -117,7 +130,7 @@ func (c *Config) Update(msg tea.Msg) (tui.Tab, tea.Cmd) {
 	case tui.ClearStatusBarMsg:
 		c.message = ""
 		return c, nil
-	case tui.ConfigLoadedMsg:
+	case configLoadedMsg:
 		if msg.Err != nil {
 			c.err = msg.Err
 			return c, nil
@@ -142,7 +155,7 @@ func (c *Config) Update(msg tea.Msg) (tui.Tab, tea.Cmd) {
 		c.modified = false
 		return c, nil
 
-	case tui.ConfigSavedMsg:
+	case configSavedMsg:
 		if msg.Success {
 			c.message = "Config saved and reloaded"
 			c.originalText = c.textarea.Value()
@@ -169,7 +182,7 @@ func (c *Config) Update(msg tea.Msg) (tui.Tab, tea.Cmd) {
 			return c, c.saveConfig()
 
 		case key.Matches(msg, c.configKeys.Refresh):
-			c.message = ""
+			c.message = fmt.Sprintf("Config loaded from %s", c.configPath)
 			return c, c.loadConfig()
 
 		case key.Matches(msg, c.configKeys.Undo):
@@ -305,9 +318,9 @@ func (c *Config) loadConfig() tea.Cmd {
 	return func() tea.Msg {
 		content, err := os.ReadFile(c.configPath)
 		if err != nil {
-			return tui.ConfigLoadedMsg{Err: err}
+			return configLoadedMsg{Err: err}
 		}
-		return tui.ConfigLoadedMsg{
+		return configLoadedMsg{
 			Content: string(content),
 			Path:    c.configPath,
 		}
@@ -321,7 +334,7 @@ func (c *Config) saveConfig() tea.Cmd {
 		// Validate YAML syntax
 		var parsed any
 		if err := yaml.Unmarshal([]byte(content), &parsed); err != nil {
-			return tui.ConfigSavedMsg{
+			return configSavedMsg{
 				Success: false,
 				Error:   fmt.Sprintf("invalid YAML: %v", err),
 			}
@@ -329,7 +342,7 @@ func (c *Config) saveConfig() tea.Cmd {
 
 		// Write to file
 		if err := os.WriteFile(c.configPath, []byte(content), 0600); err != nil {
-			return tui.ConfigSavedMsg{
+			return configSavedMsg{
 				Success: false,
 				Error:   fmt.Sprintf("write failed: %v", err),
 			}
@@ -339,13 +352,13 @@ func (c *Config) saveConfig() tea.Cmd {
 		ctx := context.Background()
 		_, err := c.client.Reload(ctx, "5s")
 		if err != nil {
-			return tui.ConfigSavedMsg{
+			return configSavedMsg{
 				Success: false,
 				Error:   fmt.Sprintf("reload failed: %v", err),
 			}
 		}
 
-		return tui.ConfigSavedMsg{Success: true}
+		return configSavedMsg{Success: true}
 	}
 }
 

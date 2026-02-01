@@ -19,34 +19,6 @@ type InitialConfigLoadMsg struct {
 	Content string
 }
 
-// LogLineMsg is sent when a new log line is received.
-type LogLineMsg struct {
-	Program string
-	Line    string
-	IsError bool
-}
-
-// ActionResultMsg is sent when a program action completes.
-type ActionResultMsg struct {
-	Action  string // "start", "stop", "restart"
-	Program string
-	Success bool
-	Error   string
-}
-
-// ConfigLoadedMsg is sent when config file is loaded.
-type ConfigLoadedMsg struct {
-	Content string
-	Path    string
-	Err     error
-}
-
-// ConfigSavedMsg is sent when config is saved.
-type ConfigSavedMsg struct {
-	Success bool
-	Error   string
-}
-
 // SwitchTabMsg requests switching to a specific tab.
 type SwitchTabMsg struct {
 	TabIndex int
@@ -62,12 +34,4 @@ type ClearStatusBarTickMsg struct{}
 // ErrorMsg represents an error that should be displayed.
 type ErrorMsg struct {
 	Error error
-}
-
-// LogStreamMsg is an internal message for log stream continuation.
-type LogStreamMsg struct {
-	Program     string
-	Line        string
-	IsError     bool
-	StreamEnded bool
 }

@@ -24,6 +24,126 @@ type logEntry struct {
 	isError bool
 }
 
+// logStreamMsg is an internal message for log stream continuation.
+type logStreamMsg struct {
+	Program     string
+	Line        string
+	IsError     bool
+	StreamEnded bool
+}
+
+// logLineMsg is sent when a new log line is received.
+type logLineMsg struct {
+	Program string
+	Line    string
+	IsError bool
+}
+
+// actionResultMsg is sent when a program action completes.
+type actionResultMsg struct {
+	Action  string // "start", "stop", "restart"
+	Program string
+	Success bool
+	Error   string
+}
+
+// navigationKeyMap defines keys for list navigation.
+type navigationKeyMap struct {
+	Up   key.Binding
+	Down key.Binding
+}
+
+func newNavigationKeyMap() navigationKeyMap {
+	return navigationKeyMap{
+		Up: key.NewBinding(
+			key.WithKeys("up"),
+			key.WithHelp("↑", "up"),
+		),
+		Down: key.NewBinding(
+			key.WithKeys("down"),
+			key.WithHelp("↓", "down"),
+		),
+	}
+}
+
+// programKeyMap defines keys for program management.
+type programKeyMap struct {
+	Start   key.Binding
+	Stop    key.Binding
+	Restart key.Binding
+	Logs    key.Binding
+}
+
+// newProgramKeyMap returns the default program management key bindings.
+func newProgramKeyMap() programKeyMap {
+	return programKeyMap{
+		Start: key.NewBinding(
+			key.WithKeys("s"),
+			key.WithHelp("s", "start"),
+		),
+		Stop: key.NewBinding(
+			key.WithKeys("x"),
+			key.WithHelp("x", "stop"),
+		),
+		Restart: key.NewBinding(
+			key.WithKeys("r"),
+			key.WithHelp("r", "restart"),
+		),
+		Logs: key.NewBinding(
+			key.WithKeys("l"),
+			key.WithHelp("l", "logs"),
+		),
+	}
+}
+
+type logsKeyMap struct {
+	ScrollUp   key.Binding
+	ScrollDown key.Binding
+	Top        key.Binding
+	Bottom     key.Binding
+	Follow     key.Binding
+	Search     key.Binding
+	Clear      key.Binding
+	Escape     key.Binding
+}
+
+func newLogsKeyMap() logsKeyMap {
+	return logsKeyMap{
+		ScrollUp: key.NewBinding(
+			key.WithKeys("k", "pgup"),
+			key.WithHelp("k", "scroll up"),
+		),
+		ScrollDown: key.NewBinding(
+			key.WithKeys("j", "pgdown"),
+			key.WithHelp("j", "scroll down"),
+		),
+		Top: key.NewBinding(
+			key.WithKeys("g"),
+			key.WithHelp("g", "top"),
+		),
+		Bottom: key.NewBinding(
+			key.WithKeys("G"),
+			key.WithHelp("G", "bottom"),
+		),
+		Follow: key.NewBinding(
+			key.WithKeys("f"),
+			key.WithHelp("f", "follow"),
+		),
+		Search: key.NewBinding(
+			key.WithKeys("/"),
+			key.WithHelp("/", "search"),
+		),
+		Clear: key.NewBinding(
+			key.WithKeys("c"),
+			key.WithHelp("c", "clear"),
+		),
+		Escape: key.NewBinding(
+			key.WithKeys("esc"),
+			key.WithHelp("esc", "back"),
+		),
+	}
+}
+
 // Programs displays detailed program info with management controls.
 type Programs struct {
 	client     *server.Client
@@ -33,8 +153,8 @@ type Programs struct {
 
 	width    int
 	height   int
-	navKeys  tui.NavigationKeyMap
-	progKeys tui.ProgramKeyMap
+	navKeys  navigationKeyMap
+	progKeys programKeyMap
 	message  string // Status message after actions
 	err      error
 
@@ -43,7 +163,7 @@ type Programs struct {
 	cancelFunc   context.CancelFunc // To cancel log streaming
 	logCh        chan []byte        // Channel for receiving log lines
 	logs         []logEntry
-	logsKeys     tui.LogsKeyMap
+	logsKeys     logsKeyMap
 	logsViewport viewport.Model
 	searchMode   bool
 	searchQuery  string
@@ -55,9 +175,9 @@ func NewPrograms(client *server.Client) *Programs {
 		client:     client,
 		statistics: make(map[string]meeseeks.Statistics),
 		programs:   []string{},
-		navKeys:    tui.DefaultNavigationKeyMap(),
-		progKeys:   tui.DefaultProgramKeyMap(),
-		logsKeys:   tui.NewLogsKeyMap(),
+		navKeys:    newNavigationKeyMap(),
+		progKeys:   newProgramKeyMap(),
+		logsKeys:   newLogsKeyMap(),
 	}
 }
 
@@ -101,7 +221,7 @@ func (p *Programs) Update(msg tea.Msg) (tui.Tab, tea.Cmd) {
 		}
 		return p, nil
 
-	case tui.ActionResultMsg:
+	case actionResultMsg:
 		if msg.Success {
 			p.message = fmt.Sprintf("%s %s: success", msg.Action, msg.Program)
 		} else {
@@ -109,9 +229,9 @@ func (p *Programs) Update(msg tea.Msg) (tui.Tab, tea.Cmd) {
 		}
 		return p, nil
 
-	case tui.LogStreamMsg:
-		return p.handleLogStreamMsg(msg)
-	case tui.LogLineMsg:
+	case logStreamMsg:
+		return p.handlelogStreamMsg(msg)
+	case logLineMsg:
 		return p.handleLogLine(msg)
 	case tea.KeyMsg:
 		return p.handleKeyMsg(msg)
@@ -182,6 +302,9 @@ func (p *Programs) handleSearchInput(msg tea.KeyMsg) (tui.Tab, tea.Cmd) {
 
 func (p *Programs) handleLogInput(msg tea.KeyMsg) (tui.Tab, tea.Cmd) {
 	switch {
+	case key.Matches(msg, p.logsKeys.Escape):
+		p.showLogs = false
+		return p, nil
 	case key.Matches(msg, p.navKeys.Up):
 		if p.selected > 0 {
 			p.selected--
@@ -368,14 +491,14 @@ func (p *Programs) startProgram(name string) tea.Cmd {
 		ctx := context.Background()
 		_, err := p.client.RunProgram(ctx, name, true)
 		if err != nil {
-			return tui.ActionResultMsg{
+			return actionResultMsg{
 				Action:  "start",
 				Program: name,
 				Success: false,
 				Error:   err.Error(),
 			}
 		}
-		return tui.ActionResultMsg{
+		return actionResultMsg{
 			Action:  "start",
 			Program: name,
 			Success: true,
@@ -388,14 +511,14 @@ func (p *Programs) stopProgram(name string) tea.Cmd {
 		ctx := context.Background()
 		_, err := p.client.Stop(ctx, name, "5s")
 		if err != nil {
-			return tui.ActionResultMsg{
+			return actionResultMsg{
 				Action:  "stop",
 				Program: name,
 				Success: false,
 				Error:   err.Error(),
 			}
 		}
-		return tui.ActionResultMsg{
+		return actionResultMsg{
 			Action:  "stop",
 			Program: name,
 			Success: true,
@@ -409,7 +532,7 @@ func (p *Programs) restartProgram(name string) tea.Cmd {
 		// Stop first
 		_, err := p.client.Stop(ctx, name, "5s")
 		if err != nil {
-			return tui.ActionResultMsg{
+			return actionResultMsg{
 				Action:  "restart",
 				Program: name,
 				Success: false,
@@ -423,14 +546,14 @@ func (p *Programs) restartProgram(name string) tea.Cmd {
 		// Then start
 		_, err = p.client.RunProgram(ctx, name, true)
 		if err != nil {
-			return tui.ActionResultMsg{
+			return actionResultMsg{
 				Action:  "restart",
 				Program: name,
 				Success: false,
 				Error:   fmt.Sprintf("start failed: %s", err.Error()),
 			}
 		}
-		return tui.ActionResultMsg{
+		return actionResultMsg{
 			Action:  "restart",
 			Program: name,
 			Success: true,
@@ -464,21 +587,21 @@ func (p *Programs) startLogStream() tea.Cmd {
 		// Read the first log line (blocking)
 		line, ok := <-p.logCh
 		if !ok {
-			return tui.LogStreamMsg{Program: programName, StreamEnded: true}
+			return logStreamMsg{Program: programName, StreamEnded: true}
 		}
 
 		// Parse the JSON log line
 		var logLine program.LogLine
 		if unmarshalErr := json.Unmarshal(line, &logLine); unmarshalErr != nil {
 			// If parsing fails, use raw line
-			return tui.LogStreamMsg{
+			return logStreamMsg{
 				Program: programName,
 				Line:    string(line),
 				IsError: false,
 			}
 		}
 
-		return tui.LogStreamMsg{
+		return logStreamMsg{
 			Program: programName,
 			Line:    logLine.Message,
 			IsError: logLine.IsError,
@@ -486,7 +609,7 @@ func (p *Programs) startLogStream() tea.Cmd {
 	}
 }
 
-func (p *Programs) handleLogStreamMsg(msg tui.LogStreamMsg) (tui.Tab, tea.Cmd) {
+func (p *Programs) handlelogStreamMsg(msg logStreamMsg) (tui.Tab, tea.Cmd) {
 	// Check if this message is for the currently selected program
 	if p.selected < len(p.programs) && p.programs[p.selected] != msg.Program {
 		// Ignore messages from a different program (user switched)
@@ -514,7 +637,7 @@ func (p *Programs) handleLogStreamMsg(msg tui.LogStreamMsg) (tui.Tab, tea.Cmd) {
 	return p, p.waitForNextLogLine(msg.Program)
 }
 
-func (p *Programs) handleLogLine(msg tui.LogLineMsg) (tui.Tab, tea.Cmd) {
+func (p *Programs) handleLogLine(msg logLineMsg) (tui.Tab, tea.Cmd) {
 	p.logs = append(p.logs, logEntry{
 		content: msg.Line,
 		isError: msg.IsError,
@@ -530,12 +653,12 @@ func (p *Programs) handleLogLine(msg tui.LogLineMsg) (tui.Tab, tea.Cmd) {
 func (p *Programs) waitForNextLogLine(program string) tea.Cmd {
 	return func() tea.Msg {
 		if p.logCh == nil {
-			return tui.LogStreamMsg{Program: program, StreamEnded: true}
+			return logStreamMsg{Program: program, StreamEnded: true}
 		}
 
 		line, ok := <-p.logCh
 		if !ok {
-			return tui.LogStreamMsg{Program: program, StreamEnded: true}
+			return logStreamMsg{Program: program, StreamEnded: true}
 		}
 
 		// Parse the JSON log line
@@ -544,14 +667,14 @@ func (p *Programs) waitForNextLogLine(program string) tea.Cmd {
 			IsError bool   `json:"is_error"`
 		}
 		if unmarshalErr := json.Unmarshal(line, &logData); unmarshalErr != nil {
-			return tui.LogStreamMsg{
+			return logStreamMsg{
 				Program: program,
 				Line:    string(line),
 				IsError: false,
 			}
 		}
 
-		return tui.LogStreamMsg{
+		return logStreamMsg{
 			Program: program,
 			Line:    logData.Message,
 			IsError: logData.IsError,
@@ -594,6 +717,7 @@ func (p *Programs) ShortHelp() []key.Binding {
 			}
 		}
 		return []key.Binding{
+			p.logsKeys.Escape,
 			p.navKeys.Up,
 			p.navKeys.Down,
 			p.logsKeys.Top,

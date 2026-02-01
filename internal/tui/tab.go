@@ -25,10 +25,3 @@ type Tab interface {
 	// SetSize updates the tab dimensions
 	SetSize(width, height int)
 }
-
-// TabIndex constants for tab navigation.
-const (
-	TabPrograms = iota
-	TabLogs
-	TabConfig
-)
