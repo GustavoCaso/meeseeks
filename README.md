@@ -243,6 +243,16 @@ meeseeks exit # Stop meeseeks process
 meeseeks tui
 ```
 
+<div align="center">
+  <img src="https://raw.githubusercontent.com/GustavoCaso/meeseeks/refs/heads/main/images/tui_programs.png" alt="TUI Programs Tab" width="80%">
+  <p><em>Programs tab - View and control running programs</em></p>
+</div>
+
+<div align="center">
+  <img src="https://raw.githubusercontent.com/GustavoCaso/meeseeks/refs/heads/main/images/tui_logs.png" alt="TUI Logs Tab" width="80%">
+  <p><em>Logs tab - View program output in real-time</em></p>
+</div>
+
 The TUI provides four tabs:
 - **Programs** - Detailed view with start/stop/restart controls and access to logs
 - **Config** - YAML editor with save and reload options
