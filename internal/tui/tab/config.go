@@ -1,4 +1,4 @@
-package tabs
+package tab
 
 import (
 	"bytes"
@@ -17,7 +17,8 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/GustavoCaso/meeseeks/internal/server"
-	"github.com/GustavoCaso/meeseeks/internal/tui"
+	"github.com/GustavoCaso/meeseeks/internal/tui/messages"
+	"github.com/GustavoCaso/meeseeks/internal/tui/styles"
 )
 
 // configLoadedMsg is sent when config file is loaded.
@@ -98,7 +99,6 @@ type Config struct {
 	width        int
 	height       int
 	configKeys   configKeyMap
-	message      string
 	err          error
 }
 
@@ -125,11 +125,8 @@ func (c *Config) Init() tea.Cmd {
 }
 
 //nolint:funlen //bubbletea Update function normally has many statements
-func (c *Config) Update(msg tea.Msg) (tui.Tab, tea.Cmd) {
+func (c *Config) Update(msg tea.Msg) (Tab, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tui.ClearStatusBarMsg:
-		c.message = ""
-		return c, nil
 	case configLoadedMsg:
 		if msg.Err != nil {
 			c.err = msg.Err
@@ -143,7 +140,7 @@ func (c *Config) Update(msg tea.Msg) (tui.Tab, tea.Cmd) {
 		c.configPath = msg.Path
 		return c, nil
 
-	case tui.InitialConfigLoadMsg:
+	case messages.InitialConfigLoadMsg:
 		if msg.Err != nil {
 			c.err = msg.Err
 			return c, nil
@@ -157,14 +154,13 @@ func (c *Config) Update(msg tea.Msg) (tui.Tab, tea.Cmd) {
 
 	case configSavedMsg:
 		if msg.Success {
-			c.message = "Config saved and reloaded"
 			c.originalText = c.textarea.Value()
 			c.modified = false
 			c.viewport.SetContent(highlightYAML(c.originalText))
+			return c, c.sentStatusBarCmd("Config saved and reloaded")
 		} else {
-			c.message = fmt.Sprintf("Save failed: %s", msg.Error)
+			return c, c.sentStatusBarCmd(fmt.Sprintf("Save failed: %s", msg.Error))
 		}
-		return c, nil
 
 	case tea.KeyMsg:
 		if c.editMode {
@@ -175,21 +171,20 @@ func (c *Config) Update(msg tea.Msg) (tui.Tab, tea.Cmd) {
 		case key.Matches(msg, c.configKeys.Edit):
 			c.editMode = true
 			c.textarea.Focus()
-			c.message = ""
 			return c, textarea.Blink
 
 		case key.Matches(msg, c.configKeys.Save):
 			return c, c.saveConfig()
 
 		case key.Matches(msg, c.configKeys.Refresh):
-			c.message = fmt.Sprintf("Config loaded from %s", c.configPath)
 			return c, c.loadConfig()
 
 		case key.Matches(msg, c.configKeys.Undo):
 			c.textarea.SetValue(c.originalText)
 			c.viewport.SetContent(highlightYAML(c.originalText))
 			c.modified = false
-			c.message = "Changes reverted"
+
+			return c, c.sentStatusBarCmd("Changes reverted")
 
 		case key.Matches(msg, c.configKeys.ScrollUp):
 			c.viewport.ScrollUp(1)
@@ -208,7 +203,7 @@ func (c *Config) Update(msg tea.Msg) (tui.Tab, tea.Cmd) {
 	return c, nil
 }
 
-func (c *Config) handleEditMode(msg tea.KeyMsg) (tui.Tab, tea.Cmd) {
+func (c *Config) handleEditMode(msg tea.KeyMsg) (Tab, tea.Cmd) {
 	if key.Matches(msg, c.configKeys.Escape) {
 		c.editMode = false
 		c.textarea.Blur()
@@ -228,22 +223,22 @@ func (c *Config) configHeader() string {
 
 	// Header with file path
 	header := fmt.Sprintf("CONFIG: %s", c.configPath)
-	b.WriteString(tui.TitleStyle.Render(header))
+	b.WriteString(styles.TitleStyle.Render(header))
 
 	// Modified indicator
 	if c.modified {
-		b.WriteString(tui.ErrorStyle.Render("  [modified]"))
+		b.WriteString(styles.ErrorStyle.Render("  [modified]"))
 	}
 
 	// Edit mode indicator
 	if c.editMode {
-		b.WriteString(tui.RunningStyle.Render("  [editing]"))
+		b.WriteString(styles.RunningStyle.Render("  [editing]"))
 	}
 	b.WriteString("\n\n")
 
 	// Error display
 	if c.err != nil {
-		b.WriteString(tui.ErrorStyle.Render(fmt.Sprintf("Error: %v\n\n", c.err)))
+		b.WriteString(styles.ErrorStyle.Render(fmt.Sprintf("Error: %v\n\n", c.err)))
 	}
 
 	return b.String()
@@ -252,26 +247,16 @@ func (c *Config) configHeader() string {
 func (c *Config) configFooter() string {
 	var b strings.Builder
 
-	contentWidth := c.width - tui.BorderStyleWidth
+	contentWidth := c.width - styles.BorderStyleWidth
 
 	// Show cursor/scroll position
 	if c.editMode {
 		row, col := c.textarea.Line(), c.textarea.LineInfo().ColumnOffset
 		b.WriteString(
-			tui.StatusBarStyle.
+			styles.IdleStyle.
 				Width(contentWidth).
 				AlignHorizontal(lipgloss.Right).
 				Render(fmt.Sprintf("L:%d C:%d", row+1, col+1)),
-		)
-	}
-
-	// Message
-	if c.message != "" {
-		b.WriteString(
-			tui.StatusBarStyle.
-				Width(contentWidth).
-				AlignHorizontal(lipgloss.Right).
-				Render(c.message),
 		)
 	}
 
@@ -286,10 +271,10 @@ func (c *Config) renderContent() string {
 }
 
 func (c *Config) View() string {
-	contentWidth := c.width - tui.BorderStyleWidth
+	contentWidth := c.width - styles.BorderStyleWidth
 
-	content := tui.BorderStyle.Width(contentWidth).
-		Height(c.height - tui.BorderStyleHeight).
+	content := styles.BorderStyle.Width(contentWidth).
+		Height(c.height - styles.BorderStyleHeight).
 		Render(
 			lipgloss.JoinVertical(
 				lipgloss.Left,
@@ -306,9 +291,9 @@ func (c *Config) initLoadConfig() tea.Cmd {
 	return func() tea.Msg {
 		content, err := os.ReadFile(c.configPath)
 		if err != nil {
-			return tui.InitialConfigLoadMsg{Err: err}
+			return messages.InitialConfigLoadMsg{Err: err}
 		}
-		return tui.InitialConfigLoadMsg{
+		return messages.InitialConfigLoadMsg{
 			Content: string(content),
 		}
 	}
@@ -323,6 +308,14 @@ func (c *Config) loadConfig() tea.Cmd {
 		return configLoadedMsg{
 			Content: string(content),
 			Path:    c.configPath,
+		}
+	}
+}
+
+func (c *Config) sentStatusBarCmd(message string) tea.Cmd {
+	return func() tea.Msg {
+		return messages.SetStatusBarMsg{
+			Message: message,
 		}
 	}
 }
@@ -387,11 +380,11 @@ func (c *Config) SetSize(width, height int) {
 	c.height = height
 
 	// Content width: full width minus border
-	contentWidth := max(1, width-tui.BorderStyleWidth)
+	contentWidth := max(1, width-styles.BorderStyleWidth)
 	// Content height: full height minus border, header, and footer
 	headerHeight := lipgloss.Height(c.configHeader())
 	footerHeight := lipgloss.Height(c.configFooter())
-	contentHeight := max(1, height-tui.BorderStyleHeight-headerHeight-footerHeight)
+	contentHeight := max(1, height-styles.BorderStyleHeight-headerHeight-footerHeight)
 
 	c.textarea.SetWidth(contentWidth)
 	c.textarea.SetHeight(contentHeight)

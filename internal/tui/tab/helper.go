@@ -1,4 +1,4 @@
-package tabs
+package tab
 
 func getPanelsWidth(width int) (int, int) {
 	rightPanel := (width * 3 / 4)

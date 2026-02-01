@@ -1,4 +1,4 @@
-package tabs
+package tab
 
 import (
 	"context"
@@ -14,7 +14,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/GustavoCaso/meeseeks/internal/server"
-	"github.com/GustavoCaso/meeseeks/internal/tui"
+	"github.com/GustavoCaso/meeseeks/internal/tui/messages"
+	"github.com/GustavoCaso/meeseeks/internal/tui/styles"
 	"github.com/GustavoCaso/meeseeks/pkg/meeseeks"
 	"github.com/GustavoCaso/meeseeks/pkg/program"
 )
@@ -37,14 +38,6 @@ type logLineMsg struct {
 	Program string
 	Line    string
 	IsError bool
-}
-
-// actionResultMsg is sent when a program action completes.
-type actionResultMsg struct {
-	Action  string // "start", "stop", "restart"
-	Program string
-	Success bool
-	Error   string
 }
 
 // navigationKeyMap defines keys for list navigation.
@@ -155,7 +148,6 @@ type Programs struct {
 	height   int
 	navKeys  navigationKeyMap
 	progKeys programKeyMap
-	message  string // Status message after actions
 	err      error
 
 	showLogs     bool
@@ -170,7 +162,7 @@ type Programs struct {
 }
 
 // NewPrograms creates a new Programs tab.
-func NewPrograms(client *server.Client) *Programs {
+func NewPrograms(client *server.Client) Tab {
 	return &Programs{
 		client:     client,
 		statistics: make(map[string]meeseeks.Statistics),
@@ -185,9 +177,9 @@ func (p *Programs) Init() tea.Cmd {
 	return nil
 }
 
-func (p *Programs) Update(msg tea.Msg) (tui.Tab, tea.Cmd) {
+func (p *Programs) Update(msg tea.Msg) (Tab, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tui.StatusUpdateMsg:
+	case messages.StatusUpdateMsg:
 		if msg.Err != nil {
 			p.err = msg.Err
 			return p, nil
@@ -205,11 +197,7 @@ func (p *Programs) Update(msg tea.Msg) (tui.Tab, tea.Cmd) {
 
 		return p, nil
 
-	case tui.ClearStatusBarMsg:
-		p.message = ""
-		return p, nil
-
-	case tui.SwitchTabMsg:
+	case messages.SwitchTabMsg:
 		// Pre-select program if specified
 		if msg.Program != "" {
 			for i, name := range p.programs {
@@ -218,14 +206,6 @@ func (p *Programs) Update(msg tea.Msg) (tui.Tab, tea.Cmd) {
 					break
 				}
 			}
-		}
-		return p, nil
-
-	case actionResultMsg:
-		if msg.Success {
-			p.message = fmt.Sprintf("%s %s: success", msg.Action, msg.Program)
-		} else {
-			p.message = fmt.Sprintf("%s %s: %s", msg.Action, msg.Program, msg.Error)
 		}
 		return p, nil
 
@@ -239,7 +219,7 @@ func (p *Programs) Update(msg tea.Msg) (tui.Tab, tea.Cmd) {
 	return p, nil
 }
 
-func (p *Programs) handleKeyMsg(msg tea.KeyMsg) (tui.Tab, tea.Cmd) {
+func (p *Programs) handleKeyMsg(msg tea.KeyMsg) (Tab, tea.Cmd) {
 	if p.searchMode {
 		return p.handleSearchInput(msg)
 	}
@@ -252,12 +232,10 @@ func (p *Programs) handleKeyMsg(msg tea.KeyMsg) (tui.Tab, tea.Cmd) {
 	case key.Matches(msg, p.navKeys.Up):
 		if p.selected > 0 {
 			p.selected--
-			p.message = ""
 		}
 	case key.Matches(msg, p.navKeys.Down):
 		if p.selected < len(p.programs)-1 {
 			p.selected++
-			p.message = ""
 		}
 	case key.Matches(msg, p.progKeys.Start):
 		if len(p.programs) > 0 {
@@ -279,7 +257,7 @@ func (p *Programs) handleKeyMsg(msg tea.KeyMsg) (tui.Tab, tea.Cmd) {
 	return p, nil
 }
 
-func (p *Programs) handleSearchInput(msg tea.KeyMsg) (tui.Tab, tea.Cmd) {
+func (p *Programs) handleSearchInput(msg tea.KeyMsg) (Tab, tea.Cmd) {
 	switch {
 	case key.Matches(msg, p.logsKeys.Escape):
 		p.searchMode = false
@@ -300,7 +278,7 @@ func (p *Programs) handleSearchInput(msg tea.KeyMsg) (tui.Tab, tea.Cmd) {
 	return p, nil
 }
 
-func (p *Programs) handleLogInput(msg tea.KeyMsg) (tui.Tab, tea.Cmd) {
+func (p *Programs) handleLogInput(msg tea.KeyMsg) (Tab, tea.Cmd) {
 	switch {
 	case key.Matches(msg, p.logsKeys.Escape):
 		p.showLogs = false
@@ -308,14 +286,12 @@ func (p *Programs) handleLogInput(msg tea.KeyMsg) (tui.Tab, tea.Cmd) {
 	case key.Matches(msg, p.navKeys.Up):
 		if p.selected > 0 {
 			p.selected--
-			p.message = ""
 			p.logs = []logEntry{}
 			return p, p.startLogStream()
 		}
 	case key.Matches(msg, p.navKeys.Down):
 		if p.selected < len(p.programs)-1 {
 			p.selected++
-			p.message = ""
 			p.logs = []logEntry{}
 			return p, p.startLogStream()
 		}
@@ -349,11 +325,11 @@ func (p *Programs) handleLogInput(msg tea.KeyMsg) (tui.Tab, tea.Cmd) {
 
 func (p *Programs) View() string {
 	if p.err != nil {
-		return tui.ErrorStyle.Render(fmt.Sprintf("Error: %v", p.err))
+		return styles.ErrorStyle.Render(fmt.Sprintf("Error: %v", p.err))
 	}
 
 	if len(p.programs) == 0 {
-		return tui.IdleStyle.Render("No programs configured")
+		return styles.IdleStyle.Render("No programs configured")
 	}
 
 	// Split view: left panel (program list), right panel (details)
@@ -363,35 +339,28 @@ func (p *Programs) View() string {
 	rightPanel := p.renderDetails()
 
 	// Join panels
-	left := tui.BorderStyle.Width(leftWidth - tui.BorderStyleWidth).
-		Height(p.height - tui.BorderStyleHeight).
+	left := styles.BorderStyle.Width(leftWidth - styles.BorderStyleWidth).
+		Height(p.height - styles.BorderStyleHeight).
 		Render(leftPanel)
-	right := tui.BorderStyle.Width(rightWidth - tui.BorderStyleWidth).
-		Height(p.height - tui.BorderStyleHeight).
+	right := styles.BorderStyle.Width(rightWidth - styles.BorderStyleWidth).
+		Height(p.height - styles.BorderStyleHeight).
 		Render(rightPanel)
 
 	content := lipgloss.JoinHorizontal(lipgloss.Left, left, right)
-
-	// Add message if present
-	if p.message != "" {
-		content += "\n" + tui.StatusBarStyle.Width(p.width).
-			AlignHorizontal(lipgloss.Right).
-			Render(p.message)
-	}
 
 	return content
 }
 
 func (p *Programs) renderProgramList(width int) string {
 	var b strings.Builder
-	b.WriteString(tui.TitleStyle.Render("PROGRAMS"))
+	b.WriteString(styles.TitleStyle.Render("PROGRAMS"))
 	b.WriteString("\n\n")
 
 	for i, name := range p.programs {
 		line := truncate(name, width-4)
 		if i == p.selected {
 			line = "> " + line
-			b.WriteString(tui.SelectedStyle.Render(line))
+			b.WriteString(styles.SelectedStyle.Render(line))
 		} else {
 			line = "  " + line
 			b.WriteString(line)
@@ -415,7 +384,7 @@ func (p *Programs) renderDetails() string {
 	stats := p.statistics[name]
 
 	var b strings.Builder
-	b.WriteString(tui.TitleStyle.Render("DETAILS"))
+	b.WriteString(styles.TitleStyle.Render("DETAILS"))
 	b.WriteString("\n\n")
 
 	// Program details
@@ -450,11 +419,11 @@ func (p *Programs) logsHeader() string {
 	}
 
 	title := fmt.Sprintf("LOGS: %s", programName)
-	b.WriteString(tui.TitleStyle.Render(title))
+	b.WriteString(styles.TitleStyle.Render(title))
 
 	// Following indicator
 	if p.following {
-		b.WriteString(tui.IdleStyle.Render("  ▼ following"))
+		b.WriteString(styles.IdleStyle.Render("  ▼ following"))
 	}
 	b.WriteString("\n\n")
 
@@ -462,7 +431,7 @@ func (p *Programs) logsHeader() string {
 	if p.searchMode {
 		b.WriteString(fmt.Sprintf("Search: %s█\n\n", p.searchQuery))
 	} else if p.searchQuery != "" {
-		b.WriteString(tui.IdleStyle.Render(fmt.Sprintf("Filter: %s\n\n", p.searchQuery)))
+		b.WriteString(styles.IdleStyle.Render(fmt.Sprintf("Filter: %s\n\n", p.searchQuery)))
 	}
 	return b.String()
 }
@@ -474,15 +443,15 @@ func (p *Programs) renderLogView() string {
 func (p *Programs) statusIndicator(state string) string {
 	switch state {
 	case "running":
-		return tui.RunningStyle.Render("● running")
+		return styles.RunningStyle.Render("● running")
 	case "error":
-		return tui.ErrorStyle.Render("✗ error")
+		return styles.ErrorStyle.Render("✗ error")
 	case "cancelled":
-		return tui.StoppedStyle.Render("○ stopped")
+		return styles.StoppedStyle.Render("○ stopped")
 	case "finished":
-		return tui.RunningStyle.Render("finished")
+		return styles.RunningStyle.Render("finished")
 	default:
-		return tui.IdleStyle.Render("○ idle")
+		return styles.IdleStyle.Render("○ idle")
 	}
 }
 
@@ -491,17 +460,12 @@ func (p *Programs) startProgram(name string) tea.Cmd {
 		ctx := context.Background()
 		_, err := p.client.RunProgram(ctx, name, true)
 		if err != nil {
-			return actionResultMsg{
-				Action:  "start",
-				Program: name,
-				Success: false,
-				Error:   err.Error(),
+			return messages.SetStatusBarMsg{
+				Err: err,
 			}
 		}
-		return actionResultMsg{
-			Action:  "start",
-			Program: name,
-			Success: true,
+		return messages.SetStatusBarMsg{
+			Message: fmt.Sprintf("%s started successfully", name),
 		}
 	}
 }
@@ -511,17 +475,12 @@ func (p *Programs) stopProgram(name string) tea.Cmd {
 		ctx := context.Background()
 		_, err := p.client.Stop(ctx, name, "5s")
 		if err != nil {
-			return actionResultMsg{
-				Action:  "stop",
-				Program: name,
-				Success: false,
-				Error:   err.Error(),
+			return messages.SetStatusBarMsg{
+				Err: err,
 			}
 		}
-		return actionResultMsg{
-			Action:  "stop",
-			Program: name,
-			Success: true,
+		return messages.SetStatusBarMsg{
+			Message: fmt.Sprintf("%s stopped successfully", name),
 		}
 	}
 }
@@ -532,11 +491,8 @@ func (p *Programs) restartProgram(name string) tea.Cmd {
 		// Stop first
 		_, err := p.client.Stop(ctx, name, "5s")
 		if err != nil {
-			return actionResultMsg{
-				Action:  "restart",
-				Program: name,
-				Success: false,
-				Error:   fmt.Sprintf("stop failed: %s", err.Error()),
+			return messages.SetStatusBarMsg{
+				Err: err,
 			}
 		}
 
@@ -546,17 +502,12 @@ func (p *Programs) restartProgram(name string) tea.Cmd {
 		// Then start
 		_, err = p.client.RunProgram(ctx, name, true)
 		if err != nil {
-			return actionResultMsg{
-				Action:  "restart",
-				Program: name,
-				Success: false,
-				Error:   fmt.Sprintf("start failed: %s", err.Error()),
+			return messages.SetStatusBarMsg{
+				Err: err,
 			}
 		}
-		return actionResultMsg{
-			Action:  "restart",
-			Program: name,
-			Success: true,
+		return messages.SetStatusBarMsg{
+			Message: fmt.Sprintf("%s restarted successfully", name),
 		}
 	}
 }
@@ -581,7 +532,7 @@ func (p *Programs) startLogStream() tea.Cmd {
 	return func() tea.Msg {
 		err := p.client.FollowLogs(ctx, programName, true, p.logCh)
 		if err != nil {
-			return tui.ErrorMsg{Error: err}
+			return messages.ErrorMsg{Error: err}
 		}
 
 		// Read the first log line (blocking)
@@ -609,7 +560,7 @@ func (p *Programs) startLogStream() tea.Cmd {
 	}
 }
 
-func (p *Programs) handlelogStreamMsg(msg logStreamMsg) (tui.Tab, tea.Cmd) {
+func (p *Programs) handlelogStreamMsg(msg logStreamMsg) (Tab, tea.Cmd) {
 	// Check if this message is for the currently selected program
 	if p.selected < len(p.programs) && p.programs[p.selected] != msg.Program {
 		// Ignore messages from a different program (user switched)
@@ -637,7 +588,7 @@ func (p *Programs) handlelogStreamMsg(msg logStreamMsg) (tui.Tab, tea.Cmd) {
 	return p, p.waitForNextLogLine(msg.Program)
 }
 
-func (p *Programs) handleLogLine(msg logLineMsg) (tui.Tab, tea.Cmd) {
+func (p *Programs) handleLogLine(msg logLineMsg) (Tab, tea.Cmd) {
 	p.logs = append(p.logs, logEntry{
 		content: msg.Line,
 		isError: msg.IsError,
@@ -695,7 +646,7 @@ func (p *Programs) updateLogsViewport() {
 		}
 
 		if entry.isError {
-			content.WriteString(tui.ErrorStyle.Render(line))
+			content.WriteString(styles.ErrorStyle.Render(line))
 		} else {
 			content.WriteString(line)
 		}
@@ -747,11 +698,11 @@ func (p *Programs) SetSize(width, height int) {
 	_, rightPanelWidth := getPanelsWidth(width)
 
 	// Right panel is 3/4 of width, minus border
-	vpWidth := max(1, rightPanelWidth-tui.BorderStyleWidth)
+	vpWidth := max(1, rightPanelWidth-styles.BorderStyleWidth)
 	// Height minus border and logs header
 	logsHeaderHeight := lipgloss.Height(p.logsHeader())
 	logsHeaderHeight += 1 // We need. to account for the case that we search for logs. We add an extra line
-	vpHeight := max(1, height-tui.BorderStyleHeight-logsHeaderHeight)
+	vpHeight := max(1, height-styles.BorderStyleHeight-logsHeaderHeight)
 
 	vp := viewport.New(vpWidth, vpHeight)
 	vp.SetContent("")

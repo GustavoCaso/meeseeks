@@ -12,7 +12,7 @@ import (
 	"github.com/GustavoCaso/meeseeks/internal/logger"
 	"github.com/GustavoCaso/meeseeks/internal/server"
 	"github.com/GustavoCaso/meeseeks/internal/tui"
-	"github.com/GustavoCaso/meeseeks/internal/tui/tabs"
+	"github.com/GustavoCaso/meeseeks/internal/tui/tab"
 )
 
 func tuiCommand(args []string, _ *logger.Logger) error {
@@ -39,13 +39,13 @@ func tuiCommand(args []string, _ *logger.Logger) error {
 	client := server.NewClient(ctx, socketPath)
 
 	// Create tabs
-	tabList := []tui.Tab{
-		tabs.NewPrograms(client),
-		tabs.NewConfig(client, configPath),
+	tabList := []tab.Tab{
+		tab.NewPrograms(client),
+		tab.NewConfig(client, configPath),
 	}
 
 	// Create and run app
-	app := tui.NewApp(client, configPath, tabList)
+	app := tui.NewApp(client, configPath, tabList, version)
 	p := tea.NewProgram(app, tea.WithAltScreen())
 
 	if _, err := p.Run(); err != nil {

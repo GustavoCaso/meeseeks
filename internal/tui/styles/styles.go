@@ -1,4 +1,4 @@
-package tui
+package styles
 
 import "github.com/charmbracelet/lipgloss"
 
@@ -40,11 +40,6 @@ var (
 
 	IdleStyle = lipgloss.NewStyle().
 			Foreground(ColorDim)
-
-	StatusBarStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#FAFAFA")).
-			Background(lipgloss.Color("#7D56F4"))
 )
 
 // Selected row style.
@@ -53,19 +48,4 @@ var (
 		Bold(true).
 		Background(lipgloss.Color("8")).
 		Foreground(lipgloss.Color("15"))
-)
-
-// Syntax highlighting styles for YAML.
-var (
-	SyntaxKeyStyle = lipgloss.NewStyle().
-			Foreground(ColorCyan)
-
-	SyntaxStringStyle = lipgloss.NewStyle().
-				Foreground(ColorRunning)
-
-	SyntaxCommentStyle = lipgloss.NewStyle().
-				Foreground(ColorDim)
-
-	SyntaxNumberStyle = lipgloss.NewStyle().
-				Foreground(ColorStopped)
 )

@@ -16,24 +16,19 @@ var (
 			BorderStyle(lipgloss.NormalBorder()).
 			BorderTop(true).
 			Foreground(lipgloss.Color("8"))
-	HelpBarStyleWidth = lipgloss.Width(HelpBarStyle.Render(""))
-
-	HelpKeyStyle = lipgloss.NewStyle().
-			Bold(true)
-
-	HelpDescStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("8"))
+	HelpKeyStyle  = lipgloss.NewStyle().Bold(true)
+	HelpDescStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 )
 
-type footer struct {
+type help struct {
 	ctx     context.Context
 	width   int
 	height  int
 	content string
 }
 
-func NewFooter(ctx context.Context) Component {
-	return &footer{
+func NewHelp(ctx context.Context) Component {
+	return &help{
 		ctx:     ctx,
 		width:   0,
 		height:  0,
@@ -41,20 +36,20 @@ func NewFooter(ctx context.Context) Component {
 	}
 }
 
-func (f *footer) SetSize(width, height int) {
-	f.width = width
-	f.height = height
+func (h *help) SetSize(width, height int) {
+	h.width = width
+	h.height = height
 }
 
-func (f *footer) Init() tea.Cmd {
+func (h *help) Init() tea.Cmd {
 	return nil
 }
 
-func (f *footer) updateContent() {
+func (h *help) updateContent() {
 	var keys []string
 
 	// Add tab-specific key bindings
-	for _, binding := range f.ctx.HelpBindings {
+	for _, binding := range h.ctx.HelpBindings {
 		keys = append(keys, fmt.Sprintf("%s %s",
 			HelpKeyStyle.Render(binding.Help().Key),
 			HelpDescStyle.Render(binding.Help().Desc)))
@@ -65,20 +60,21 @@ func (f *footer) updateContent() {
 		HelpKeyStyle.Render("q"),
 		HelpDescStyle.Render("quit")))
 
-	content := strings.Join(keys, " ")
-	f.content = HelpBarStyle.Width(f.width - HelpBarStyleWidth).MaxHeight(f.height).Render(content)
+	h.content = HelpBarStyle.Width(h.width).
+		Height(h.height).
+		Render(strings.Join(keys, "  "))
 }
 
-func (f *footer) View() string {
-	f.updateContent()
-	return f.content
+func (h *help) View() string {
+	h.updateContent()
+	return h.content
 }
 
-func (f *footer) Update(msg tea.Msg) (Component, tea.Cmd) {
-	return f, nil
+func (h *help) Update(msg tea.Msg) (Component, tea.Cmd) {
+	return h, nil
 }
 
-func (f *footer) SyncAppContext(ctx context.Context) {
-	f.ctx = ctx
-	f.updateContent()
+func (h *help) SyncAppContext(ctx context.Context) {
+	h.ctx = ctx
+	h.updateContent()
 }

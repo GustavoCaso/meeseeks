@@ -1,4 +1,4 @@
-package tui
+package tab
 
 import (
 	"github.com/charmbracelet/bubbles/key"
