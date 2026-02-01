@@ -7,6 +7,9 @@ import (
 	"time"
 
 	tuiContext "github.com/GustavoCaso/meeseeks/internal/tui/context"
+	"github.com/GustavoCaso/meeseeks/internal/tui/messages"
+	"github.com/GustavoCaso/meeseeks/internal/tui/styles"
+	"github.com/GustavoCaso/meeseeks/internal/tui/tab"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -24,11 +27,12 @@ const statusBarTickInterval = 2 * time.Second
 type App struct {
 	client     *server.Client
 	configPath string
-	tabs       []Tab
+	tabs       []tab.Tab
 	activeTab  int
 	ctx        tuiContext.Context
 	header     components.Component
-	footer     components.Component
+	status     components.Component
+	help       components.Component
 	width      int
 	height     int
 	globalKeys GlobalKeyMap
@@ -37,7 +41,7 @@ type App struct {
 }
 
 // NewApp creates a new App instance.
-func NewApp(client *server.Client, configPath string, tabs []Tab) *App {
+func NewApp(client *server.Client, configPath string, tabs []tab.Tab, version string) *App {
 	ctx := tuiContext.Context{}
 	tabNames := make([]string, len(tabs))
 	for i, tab := range tabs {
@@ -51,7 +55,8 @@ func NewApp(client *server.Client, configPath string, tabs []Tab) *App {
 		activeTab:  0,
 		ctx:        ctx,
 		header:     components.NewHeader(ctx, tabNames),
-		footer:     components.NewFooter(ctx),
+		status:     components.NewStatus(ctx, version),
+		help:       components.NewHelp(ctx),
 		globalKeys: DefaultGlobalKeyMap(),
 	}
 }
@@ -77,13 +82,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		return a.handleWindowSize(msg)
-	case TickMsg:
+	case messages.TickMsg:
 		return a, tea.Batch(a.tick(), a.fetchStatus())
-	case ClearStatusBarTickMsg:
+	case messages.ClearStatusBarTickMsg:
 		return a, tea.Batch(a.clearStatusBarTick(), a.clearStatus())
-	case SwitchTabMsg:
+	case messages.SwitchTabMsg:
 		return a.handleSwitchTab(msg)
-	case ErrorMsg:
+	case messages.SetStatusBarMsg:
+		return a.handleSetStatus(msg)
+	case messages.ClearStatusBarMsg:
+		return a.handleClearStatus(msg)
+	case messages.ErrorMsg:
 		a.err = msg.Error
 		return a, nil
 	case tea.KeyMsg:
@@ -102,13 +111,14 @@ func (a *App) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	a.width = msg.Width
 	a.height = msg.Height
 
-	// Header and footer each take ~2 lines (content + border)
 	headerHeight := lipgloss.Height(a.header.View())
-	footerHeight := lipgloss.Height(a.footer.View())
-	contentHeight := a.height - headerHeight - footerHeight
+	statusHeight := lipgloss.Height(a.status.View())
+	helpHeight := 1 // We do not want to help to take more space than one
+	contentHeight := a.height - headerHeight - statusHeight - helpHeight
 
 	a.header.SetSize(a.width, headerHeight)
-	a.footer.SetSize(a.width, footerHeight)
+	a.status.SetSize(a.width, statusHeight)
+	a.help.SetSize(a.width, helpHeight)
 
 	for _, tab := range a.tabs {
 		tab.SetSize(a.width, contentHeight)
@@ -116,7 +126,7 @@ func (a *App) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-func (a *App) handleSwitchTab(msg SwitchTabMsg) (tea.Model, tea.Cmd) {
+func (a *App) handleSwitchTab(msg messages.SwitchTabMsg) (tea.Model, tea.Cmd) {
 	a.activeTab = msg.TabIndex
 	if a.activeTab < len(a.tabs) {
 		tab, cmd := a.tabs[a.activeTab].Update(msg)
@@ -126,13 +136,28 @@ func (a *App) handleSwitchTab(msg SwitchTabMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
+func (a *App) handleSetStatus(msg messages.SetStatusBarMsg) (tea.Model, tea.Cmd) {
+	status, cmd := a.status.Update(msg)
+	a.status = status
+
+	return a, cmd
+}
+
+func (a *App) handleClearStatus(msg messages.ClearStatusBarMsg) (tea.Model, tea.Cmd) {
+	status, cmd := a.status.Update(msg)
+	a.status = status
+
+	return a, cmd
+}
+
 func (a *App) syncContext() {
 	a.ctx.ActiveTab = a.activeTab
 	if a.activeTab < len(a.tabs) {
 		a.ctx.HelpBindings = a.tabs[a.activeTab].ShortHelp()
 	}
 	a.header.SyncAppContext(a.ctx)
-	a.footer.SyncAppContext(a.ctx)
+	a.status.SyncAppContext(a.ctx)
+	a.help.SyncAppContext(a.ctx)
 }
 
 func (a *App) handleGlobalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
@@ -162,8 +187,8 @@ func (a *App) forwardToTabs(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	_, initConfigMsg := msg.(InitialConfigLoadMsg)
-	_, statusUpdateMsg := msg.(StatusUpdateMsg)
+	_, initConfigMsg := msg.(messages.InitialConfigLoadMsg)
+	_, statusUpdateMsg := msg.(messages.StatusUpdateMsg)
 
 	if initConfigMsg || statusUpdateMsg {
 		for i, tab := range a.tabs {
@@ -187,27 +212,28 @@ func (a *App) View() string {
 
 	header := a.header.View()
 	tabContent := a.tabs[a.activeTab].View()
-	content := ContentStyle.Render(tabContent)
-	footer := a.footer.View()
+	content := styles.ContentStyle.Render(tabContent)
+	status := a.status.View()
+	help := a.help.View()
 
-	return lipgloss.JoinVertical(lipgloss.Top, header, content, footer)
+	return lipgloss.JoinVertical(lipgloss.Top, header, content, status, help)
 }
 
 func (a *App) tick() tea.Cmd {
 	return tea.Tick(tickInterval, func(time.Time) tea.Msg {
-		return TickMsg{}
+		return messages.TickMsg{}
 	})
 }
 
 func (a *App) clearStatusBarTick() tea.Cmd {
 	return tea.Tick(statusBarTickInterval, func(time.Time) tea.Msg {
-		return ClearStatusBarTickMsg{}
+		return messages.ClearStatusBarTickMsg{}
 	})
 }
 
 func (a *App) clearStatus() tea.Cmd {
 	return func() tea.Msg {
-		return ClearStatusBarMsg{}
+		return messages.ClearStatusBarMsg{}
 	}
 }
 
@@ -216,20 +242,20 @@ func (a *App) fetchStatus() tea.Cmd {
 		ctx := context.Background()
 		resp, err := a.client.Statistics(ctx, "")
 		if err != nil {
-			return StatusUpdateMsg{Err: err}
+			return messages.StatusUpdateMsg{Err: err}
 		}
 
 		if !resp.Success {
-			return StatusUpdateMsg{Err: fmt.Errorf("%s", resp.Error)}
+			return messages.StatusUpdateMsg{Err: fmt.Errorf("%s", resp.Error)}
 		}
 
 		// Parse statistics from response
 		stats, err := parseStatistics(resp.Data)
 		if err != nil {
-			return StatusUpdateMsg{Err: err}
+			return messages.StatusUpdateMsg{Err: err}
 		}
 
-		return StatusUpdateMsg{Statistics: stats}
+		return messages.StatusUpdateMsg{Statistics: stats}
 	}
 }
 

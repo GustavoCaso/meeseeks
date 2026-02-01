@@ -1,4 +1,4 @@
-package tui
+package messages
 
 import (
 	"github.com/GustavoCaso/meeseeks/pkg/meeseeks"
@@ -12,6 +12,12 @@ type StatusUpdateMsg struct {
 
 // ClearStatusBarMsg is sent on an interval.
 type ClearStatusBarMsg struct {
+}
+
+// SetStatusBarMsg is sent when a tab need to update the status bar.
+type SetStatusBarMsg struct {
+	Message string
+	Err     error
 }
 
 type InitialConfigLoadMsg struct {
