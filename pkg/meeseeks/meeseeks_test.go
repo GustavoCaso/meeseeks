@@ -276,7 +276,10 @@ func TestMeeseek_Statistic(t *testing.T) {
 				}
 			} else {
 				if statistic.Successful+statistic.Failed != 0 {
-					t.Errorf("Statistic().Successful + statistic().Failed = %d, want 0 for not started program", statistic.Successful+statistic.Failed)
+					t.Errorf(
+						"Statistic().Successful + statistic().Failed = %d, want 0 for not started program",
+						statistic.Successful+statistic.Failed,
+					)
 				}
 			}
 		})

@@ -51,6 +51,7 @@ func writePidFile(pidFile string, pid int) error {
 	if err := os.MkdirAll(filepath.Dir(pidFile), 0750); err != nil {
 		return fmt.Errorf("failed to create PID directory: %w", err)
 	}
+	//nolint:gosec // writing the pid file is ok
 	return os.WriteFile(pidFile, []byte(strconv.Itoa(pid)), 0600)
 }
 
