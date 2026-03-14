@@ -388,23 +388,23 @@ func (p *Programs) renderDetails() string {
 	b.WriteString("\n\n")
 
 	// Program details
-	b.WriteString(fmt.Sprintf("  Name:       %s\n", stats.ProgramName))
-	b.WriteString(fmt.Sprintf("  Status:     %s\n", p.statusIndicator(stats.State)))
+	fmt.Fprintf(&b, "  Name:       %s\n", stats.ProgramName)
+	fmt.Fprintf(&b, "  Status:     %s\n", p.statusIndicator(stats.State))
 
 	interval := "none"
 	if stats.Interval != "" {
 		interval = stats.Interval
 	}
-	b.WriteString(fmt.Sprintf("  Interval:   %s\n", interval))
+	fmt.Fprintf(&b, "  Interval:   %s\n", interval)
 	b.WriteString("\n")
 
-	b.WriteString(fmt.Sprintf("  Successful: %d\n", stats.Successful))
-	b.WriteString(fmt.Sprintf("  Failed:     %d\n", stats.Failed))
-	b.WriteString(fmt.Sprintf("  Retries:    %d\n", stats.Retries))
-	b.WriteString(fmt.Sprintf("  Last Run:   %s\n", stats.LastRunAt))
+	fmt.Fprintf(&b, "  Successful: %d\n", stats.Successful)
+	fmt.Fprintf(&b, "  Failed:     %d\n", stats.Failed)
+	fmt.Fprintf(&b, "  Retries:    %d\n", stats.Retries)
+	fmt.Fprintf(&b, "  Last Run:   %s\n", stats.LastRunAt)
 
 	if stats.NextRunAt != "" {
-		b.WriteString(fmt.Sprintf("  Next Run:   %s\n", stats.NextRunAt))
+		fmt.Fprintf(&b, "  Next Run:   %s\n", stats.NextRunAt)
 	}
 
 	return b.String()
@@ -429,7 +429,7 @@ func (p *Programs) logsHeader() string {
 
 	// Search bar if in search mode
 	if p.searchMode {
-		b.WriteString(fmt.Sprintf("Search: %s█\n\n", p.searchQuery))
+		fmt.Fprintf(&b, "Search: %s█\n\n", p.searchQuery)
 	} else if p.searchQuery != "" {
 		b.WriteString(styles.IdleStyle.Render(fmt.Sprintf("Filter: %s\n\n", p.searchQuery)))
 	}
@@ -522,7 +522,7 @@ func (p *Programs) startLogStream() tea.Cmd {
 	if p.cancelFunc != nil {
 		p.cancelFunc()
 	}
-
+	//nolint:gosec // context cancellation function is called
 	ctx, cancel := context.WithCancel(context.Background())
 
 	p.cancelFunc = cancel
