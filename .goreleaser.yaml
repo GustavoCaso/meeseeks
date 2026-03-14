@@ -15,33 +15,49 @@ before:
 builds:
   - env:
       - CGO_ENABLED=0
-    goos:
-      - darwin
     
     main: ./cmd/meeseeks
     binary: meeseeks
     ldflags:
       - "-s -w"
       - -X main.version={{.Version}}
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
 
 archives:
-  - formats: [tar.gz]
-    name_template: >-
-      {{ .ProjectName }}_
-      {{- title .Os }}_
-      {{- if eq .Arch "amd64" }}x86_64
-      {{- else if eq .Arch "386" }}i386
-      {{- else }}{{ .Arch }}{{ end }}
-      {{- if .Arm }}v{{ .Arm }}{{ end }}
-    # use zip for windows archives
-    format_overrides:
-      - goos: windows
-        formats: [zip]
+  - formats:
+      - binary
+    name_template: "meeseeks_{{ .Tag }}_{{ .Os }}-{{ .Arch }}{{if .Arm}}_{{.Arm}}{{end}}"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-devel"
+
+checksum:
+  name_template: "checksums.txt"
 
 changelog:
   sort: asc
   use: github
   filters:
     exclude:
-      - "^docs:"
       - "^test:"
+      - "^chore"
+      - "merge conflict"
+      - Merge pull request
+      - Merge remote-tracking branch
+      - Merge branch
+      - go mod tidy
+
+homebrew_casks:
+  - name: meeseeks
+    binaries:
+      - meeseeks
+    repository:
+      owner: GustavoCaso
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/GustavoCaso/meeseeks"
+    description: "A simple and lightweight process manager for Go applications and CLI tool that simplify managing background processes"
