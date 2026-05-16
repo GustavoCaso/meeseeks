@@ -355,6 +355,75 @@ func TestProgram_DeadlineExceeded(t *testing.T) {
 	})
 }
 
+func TestProgramCallbacks(t *testing.T) {
+	t.Parallel()
+
+	t.Run("on success callback is executed", func(t *testing.T) {
+		t.Parallel()
+		callbackCalled := make(chan string, 1)
+		p := New(
+			"callback-success",
+			"echo",
+			Args("ok"),
+			OnSuccess(func(programName string) {
+				callbackCalled <- programName
+			}),
+		)
+
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
+		}
+		<-done
+
+		select {
+		case programName := <-callbackCalled:
+			if programName != "callback-success" {
+				t.Fatalf("Callback program name = %q, want %q", programName, "callback-success")
+			}
+		case <-time.After(1 * time.Second):
+			t.Fatal("Expected success callback to be called")
+		}
+	})
+
+	t.Run("on failure callback is executed", func(t *testing.T) {
+		t.Parallel()
+		callbackResult := make(chan struct {
+			name string
+			err  error
+		}, 1)
+		p := New(
+			"callback-failure",
+			"sh",
+			Args("-c", "exit 1"),
+			OnFailure(func(programName string, err error) {
+				callbackResult <- struct {
+					name string
+					err  error
+				}{name: programName, err: err}
+			}),
+		)
+
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
+		}
+		<-done
+
+		select {
+		case result := <-callbackResult:
+			if result.name != "callback-failure" {
+				t.Fatalf("Callback program name = %q, want %q", result.name, "callback-failure")
+			}
+			if result.err == nil {
+				t.Fatal("Expected callback error to be set")
+			}
+		case <-time.After(1 * time.Second):
+			t.Fatal("Expected failure callback to be called")
+		}
+	})
+}
+
 func TestEdgeCases(t *testing.T) {
 	t.Parallel()
 	t.Run("command not found", func(t *testing.T) {

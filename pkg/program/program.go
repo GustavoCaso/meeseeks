@@ -132,6 +132,8 @@ type program struct {
 	pipes      *pipes
 	logger     logger.Logger
 	finalizers []func() error
+	onSuccess  SuccessCallback
+	onFailure  FailureCallback
 }
 
 type pipes struct {
@@ -541,6 +543,7 @@ func (p *program) run(done chan struct{}) error {
 
 		p.state = StateError
 		p.dataLock.Unlock()
+		p.triggerFailure(err)
 		close(done)
 		return err
 	}
@@ -609,6 +612,7 @@ func (p *program) monitorProcess(done chan struct{}) {
 	p.runFinalizers()
 
 	p.dataLock.Lock()
+	var callbackErr error
 	if err != nil {
 		p.state = StateError
 		var exitError *exec.ExitError
@@ -619,10 +623,17 @@ func (p *program) monitorProcess(done chan struct{}) {
 			}
 		}
 		p.writeOutput(err.Error(), true)
+		callbackErr = err
 	} else {
 		p.state = StateFinished
 	}
 	p.dataLock.Unlock()
+
+	if callbackErr != nil {
+		p.triggerFailure(callbackErr)
+	} else {
+		p.triggerSuccess()
+	}
 
 	close(done)
 }
@@ -730,4 +741,39 @@ func (p *program) forcekill() error {
 	}
 
 	return nil
+}
+
+func (p *program) triggerSuccess() {
+	if p.onSuccess == nil {
+		return
+	}
+
+	defer p.recoverCallbackPanic("success callback")
+	p.onSuccess(p.name)
+}
+
+func (p *program) triggerFailure(err error) {
+	if p.onFailure == nil {
+		return
+	}
+
+	defer p.recoverCallbackPanic("failure callback")
+	p.onFailure(p.name, err)
+}
+
+func (p *program) recoverCallbackPanic(callbackName string) {
+	v := recover()
+	if v == nil || p.logger == nil {
+		return
+	}
+
+	p.logger.Error(
+		"callback panic recovered",
+		"program",
+		p.name,
+		"callback",
+		callbackName,
+		"panic",
+		fmt.Sprintf("%v", v),
+	)
 }

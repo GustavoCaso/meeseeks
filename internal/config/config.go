@@ -32,6 +32,8 @@ type ProgramConfig struct {
 	Stdout          string   `yaml:"stdout,omitempty"            json:"stdout,omitempty"`
 	Stderr          string   `yaml:"stderr,omitempty"            json:"stderr,omitempty"`
 	BufferSizeLimit string   `yaml:"buffer_size_limit,omitempty" json:"buffer_size_limit,omitempty"`
+	OnSuccess       string   `yaml:"on_success,omitempty"        json:"on_success,omitempty"`
+	OnFailure       string   `yaml:"on_failure,omitempty"        json:"on_failure,omitempty"`
 }
 
 func (pc *ProgramConfig) GetInterval() (time.Duration, error) {

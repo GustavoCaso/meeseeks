@@ -10,6 +10,12 @@ import (
 // Option defines a function type for configuring program instances.
 type Option func(*program)
 
+// SuccessCallback is called after a program execution finishes successfully.
+type SuccessCallback func(programName string)
+
+// FailureCallback is called after a program execution fails.
+type FailureCallback func(programName string, err error)
+
 // StdoutFile redirects program stdout to the specified file path.
 // The file will be created if it doesn't exist, with output appended.
 func StdoutFile(file string) Option {
@@ -135,5 +141,19 @@ func Deadline(duration time.Duration) Option {
 func BufferSizeLimit(limit int) Option {
 	return func(p *program) {
 		p.bufferLimit = limit
+	}
+}
+
+// OnSuccess sets a callback that runs after successful program completion.
+func OnSuccess(callback SuccessCallback) Option {
+	return func(p *program) {
+		p.onSuccess = callback
+	}
+}
+
+// OnFailure sets a callback that runs after failed program completion.
+func OnFailure(callback FailureCallback) Option {
+	return func(p *program) {
+		p.onFailure = callback
 	}
 }

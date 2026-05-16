@@ -161,6 +161,8 @@ program.New("name", "command",
     program.RetryCount(3),                  // Retry up to 3 times on failure
     program.RetryDelay(5*time.Second),      // Wait 5 seconds between retries
     program.Deadline(5*time.Minute),        // Kill program if it runs longer than deadline
+    program.OnSuccess(func(name string) {}),               // Callback invoked when execution succeeds
+    program.OnFailure(func(name string, err error) {}),    // Callback invoked when execution fails
 )
 ```
 
@@ -297,7 +299,11 @@ programs:
     stdout: "/path/to/stdout.log"       # Optional: Redirect stdout to file
     stderr: "/path/to/stderr.log"       # Optional: Redirect stderr to file
     buffer_size_limit: "1MB"            # Optional: Limit memory usage for output buffers
+    on_success: "echo done"             # Optional: Command executed when program succeeds
+    on_failure: "echo failed"           # Optional: Command executed when program fails
 ```
+
+Callback commands run in a shell and receive `MEESEEKS_PROGRAM`, `MEESEEKS_STATUS`, and (for failures) `MEESEEKS_ERROR` environment variables.
 
 ### Buffer Size Limits
 

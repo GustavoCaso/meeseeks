@@ -30,7 +30,9 @@ func TestLoadConfig(t *testing.T) {
     buffer_size_limit: "3MB"
     keep_stdin_open: true
     stdout: "/tmp/out.log"
-    stderr: "/tmp/err.log"`,
+    stderr: "/tmp/err.log"
+    on_success: "echo success"
+    on_failure: "echo fail"`,
 			expected: &Config{
 				Programs: []ProgramConfig{
 					{
@@ -44,6 +46,8 @@ func TestLoadConfig(t *testing.T) {
 						KeepStdinOpen:   true,
 						Stdout:          "/tmp/out.log",
 						Stderr:          "/tmp/err.log",
+						OnSuccess:       "echo success",
+						OnFailure:       "echo fail",
 					},
 				},
 			},
@@ -525,7 +529,8 @@ func configsEqual(a, b *Config) bool {
 
 func programConfigsEqual(a, b ProgramConfig) bool {
 	if a.Name != b.Name || a.Command != b.Command || a.Interval != b.Interval ||
-		a.KeepStdinOpen != b.KeepStdinOpen || a.Stdout != b.Stdout || a.Stderr != b.Stderr {
+		a.KeepStdinOpen != b.KeepStdinOpen || a.Stdout != b.Stdout || a.Stderr != b.Stderr ||
+		a.OnSuccess != b.OnSuccess || a.OnFailure != b.OnFailure {
 		return false
 	}
 
