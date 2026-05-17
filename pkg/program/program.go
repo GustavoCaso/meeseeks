@@ -134,6 +134,8 @@ type program struct {
 	finalizers []func() error
 	onSuccess  SuccessCallback
 	onFailure  FailureCallback
+
+	consecutiveFailures int
 }
 
 type pipes struct {
@@ -196,6 +198,7 @@ func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
 		p.state = StateError
 		p.dataLock.Unlock()
 		done := make(chan struct{})
+		p.triggerFailureIfNeeded(err)
 		close(done)
 		return done, err
 	}
@@ -543,7 +546,7 @@ func (p *program) run(done chan struct{}) error {
 
 		p.state = StateError
 		p.dataLock.Unlock()
-		p.triggerFailure(err)
+		p.triggerFailureIfNeeded(err)
 		close(done)
 		return err
 	}
@@ -626,11 +629,12 @@ func (p *program) monitorProcess(done chan struct{}) {
 		callbackErr = err
 	} else {
 		p.state = StateFinished
+		p.consecutiveFailures = 0
 	}
 	p.dataLock.Unlock()
 
 	if callbackErr != nil {
-		p.triggerFailure(callbackErr)
+		p.triggerFailureIfNeeded(callbackErr)
 	} else {
 		p.triggerSuccess()
 	}
@@ -759,6 +763,33 @@ func (p *program) triggerFailure(err error) {
 
 	defer p.recoverCallbackPanic("failure callback")
 	p.onFailure(p.name, err)
+}
+
+func (p *program) triggerFailureIfNeeded(err error) {
+	if !p.shouldTriggerFailureCallback() {
+		return
+	}
+
+	p.triggerFailure(err)
+}
+
+func (p *program) shouldTriggerFailureCallback() bool {
+	p.dataLock.Lock()
+	defer p.dataLock.Unlock()
+
+	p.consecutiveFailures++
+
+	if p.retryCount == 0 {
+		p.consecutiveFailures = 0
+		return true
+	}
+
+	if p.consecutiveFailures > p.retryCount {
+		p.consecutiveFailures = 0
+		return true
+	}
+
+	return false
 }
 
 func (p *program) recoverCallbackPanic(callbackName string) {

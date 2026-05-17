@@ -93,7 +93,6 @@ func runCallbackCommand(
 	callbackErr error,
 	logger *logger.Logger,
 ) {
-
 	cmd := exec.Command("sh", "-c", command)
 	env := append(
 		os.Environ(),

@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1763,6 +1764,103 @@ func TestMeeseekRetry(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMeeseekRetry_CallbacksAreNotDuplicatedByRetries(t *testing.T) {
+	t.Parallel()
+
+	t.Run("failure callback fires once after retries exhausted", func(t *testing.T) {
+		t.Parallel()
+
+		var failureCalls atomic.Int32
+		var successCalls atomic.Int32
+
+		prog := program.New(
+			"retry-failure-callback",
+			"sh",
+			program.Args("-c", "exit 1"),
+			program.RetryCount(3),
+			program.OnFailure(func(_ string, _ error) {
+				failureCalls.Add(1)
+			}),
+			program.OnSuccess(func(_ string) {
+				successCalls.Add(1)
+			}),
+		)
+
+		m := New()
+		if err := m.AddProgram(prog); err != nil {
+			t.Fatalf("Failed to add program: %v", err)
+		}
+
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+		defer cancel()
+		m.Start(ctx)
+		if err := m.Wait(ctx); err != nil {
+			t.Fatalf("Wait() unexpected error = %v", err)
+		}
+
+		if got := failureCalls.Load(); got != 1 {
+			t.Fatalf("failure callback calls = %d, want 1", got)
+		}
+		if got := successCalls.Load(); got != 0 {
+			t.Fatalf("success callback calls = %d, want 0", got)
+		}
+	})
+
+	t.Run("failure callback does not fire when retry eventually succeeds", func(t *testing.T) {
+		t.Parallel()
+
+		var failureCalls atomic.Int32
+		var successCalls atomic.Int32
+
+		tempDir := t.TempDir()
+		markerFile := filepath.Join(tempDir, "fail-once-marker")
+		err := os.WriteFile(markerFile, []byte("fail"), 0600)
+		if err != nil {
+			t.Fatalf("Failed to create marker file: %v", err)
+		}
+
+		prog := program.New(
+			"retry-eventual-success-callback",
+			"sh",
+			program.Args(
+				"-c",
+				fmt.Sprintf(
+					"if [ -f %s ]; then rm %s; exit 1; else exit 0; fi",
+					markerFile,
+					markerFile,
+				),
+			),
+			program.RetryCount(3),
+			program.RetryDelay(10*time.Millisecond),
+			program.OnFailure(func(_ string, _ error) {
+				failureCalls.Add(1)
+			}),
+			program.OnSuccess(func(_ string) {
+				successCalls.Add(1)
+			}),
+		)
+
+		m := New()
+		if err := m.AddProgram(prog); err != nil {
+			t.Fatalf("Failed to add program: %v", err)
+		}
+
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+		defer cancel()
+		m.Start(ctx)
+		if err := m.Wait(ctx); err != nil {
+			t.Fatalf("Wait() unexpected error = %v", err)
+		}
+
+		if got := failureCalls.Load(); got != 0 {
+			t.Fatalf("failure callback calls = %d, want 0", got)
+		}
+		if got := successCalls.Load(); got != 1 {
+			t.Fatalf("success callback calls = %d, want 1", got)
+		}
+	})
 }
 
 func TestMeeseek_RetryEventualSuccess(t *testing.T) {
