@@ -43,13 +43,13 @@ func createProgramFromConfig(
 
 	if pc.OnSuccess != "" {
 		opts = append(opts, program.OnSuccess(func(programName string) {
-			runCallbackCommand(pc.OnSuccess, programName, "success", nil, logger)
+			runCallbackCommand(pc, pc.OnSuccess, programName, "success", nil, logger)
 		}))
 	}
 
 	if pc.OnFailure != "" {
 		opts = append(opts, program.OnFailure(func(programName string, callbackErr error) {
-			runCallbackCommand(pc.OnFailure, programName, "failure", callbackErr, logger)
+			runCallbackCommand(pc, pc.OnFailure, programName, "failure", callbackErr, logger)
 		}))
 	}
 
@@ -87,13 +87,26 @@ func createProgramFromConfig(
 }
 
 func runCallbackCommand(
+	pc config.ProgramConfig,
 	command string,
 	programName string,
 	status string,
 	callbackErr error,
 	logger *logger.Logger,
 ) {
-	cmd := exec.Command("sh", "-c", command)
+	//nolint:gosec // callback commands are user-provided configuration
+	callbackShell := pc.CallbackShell
+	if callbackShell == "" {
+		callbackShell = "sh"
+	}
+
+	callbackArgs := pc.CallbackArgs
+	if len(callbackArgs) == 0 {
+		callbackArgs = []string{"-c"}
+	}
+
+	args := append(append([]string{}, callbackArgs...), command)
+	cmd := exec.Command(callbackShell, args...)
 	env := append(
 		os.Environ(),
 		"MEESEEKS_PROGRAM="+programName,

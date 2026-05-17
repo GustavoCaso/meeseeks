@@ -32,7 +32,9 @@ func TestLoadConfig(t *testing.T) {
     stdout: "/tmp/out.log"
     stderr: "/tmp/err.log"
     on_success: "echo success"
-    on_failure: "echo fail"`,
+    on_failure: "echo fail"
+    callback_shell: "bash"
+    callback_args: ["-c"]`,
 			expected: &Config{
 				Programs: []ProgramConfig{
 					{
@@ -48,6 +50,8 @@ func TestLoadConfig(t *testing.T) {
 						Stderr:          "/tmp/err.log",
 						OnSuccess:       "echo success",
 						OnFailure:       "echo fail",
+						CallbackShell:   "bash",
+						CallbackArgs:    []string{"-c"},
 					},
 				},
 			},
@@ -530,11 +534,13 @@ func configsEqual(a, b *Config) bool {
 func programConfigsEqual(a, b ProgramConfig) bool {
 	if a.Name != b.Name || a.Command != b.Command || a.Interval != b.Interval ||
 		a.KeepStdinOpen != b.KeepStdinOpen || a.Stdout != b.Stdout || a.Stderr != b.Stderr ||
-		a.OnSuccess != b.OnSuccess || a.OnFailure != b.OnFailure {
+		a.OnSuccess != b.OnSuccess || a.OnFailure != b.OnFailure || a.CallbackShell != b.CallbackShell {
 		return false
 	}
 
-	if !stringSlicesEqual(a.Args, b.Args) || !stringSlicesEqual(a.Env, b.Env) {
+	if !stringSlicesEqual(a.Args, b.Args) ||
+		!stringSlicesEqual(a.Env, b.Env) ||
+		!stringSlicesEqual(a.CallbackArgs, b.CallbackArgs) {
 		return false
 	}
 

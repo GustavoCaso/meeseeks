@@ -301,9 +301,11 @@ programs:
     buffer_size_limit: "1MB"            # Optional: Limit memory usage for output buffers
     on_success: "echo done"             # Optional: Command executed when program succeeds
     on_failure: "echo failed"           # Optional: Command executed when program fails
+    callback_shell: "sh"                # Optional: Shell/executable used for callbacks (default: "sh")
+    callback_args: ["-c"]               # Optional: Args passed before callback command (default: ["-c"])
 ```
 
-Callback commands run in a shell and receive `MEESEEKS_PROGRAM`, `MEESEEKS_STATUS`, and (for failures) `MEESEEKS_ERROR` environment variables.
+Callback commands run with `callback_shell` + `callback_args` (defaults: `sh -c`) and receive `MEESEEKS_PROGRAM`, `MEESEEKS_STATUS`, and (for failures) `MEESEEKS_ERROR` environment variables.
 
 Example: send an email when a program fails using a dedicated script (requires `mail`/`mailx` installed):
 

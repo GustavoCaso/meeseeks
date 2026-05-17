@@ -198,3 +198,40 @@ func TestCreateProgramFromConfig_CallbackCommands(t *testing.T) {
 		t.Fatalf("Unexpected callback content: %q", got)
 	}
 }
+
+func TestCreateProgramFromConfig_CallbackCommands_WithCustomShellArgs(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	successFile := filepath.Join(tempDir, "on_success.log")
+
+	cfg := config.ProgramConfig{
+		Name:          "callback-program-custom-shell-args",
+		Command:       "echo",
+		Args:          []string{"hello"},
+		CallbackArgs:  []string{"-u", "-c"},
+		OnSuccess:     "echo \"$UNDEFINED_VAR\" > " + successFile,
+		CallbackShell: "sh",
+	}
+
+	logger := logger.New()
+	prog, err := createProgramFromConfig(cfg, logger)
+	if err != nil {
+		t.Fatalf("Unexpected error creating program: %v", err)
+	}
+
+	done, err := prog.Start(context.Background())
+	if err != nil {
+		t.Fatalf("Unexpected error starting program: %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Program did not finish in time")
+	}
+
+	if _, err = os.Stat(successFile); !os.IsNotExist(err) {
+		t.Fatalf("Expected callback command to fail and avoid file creation, got err: %v", err)
+	}
+}
