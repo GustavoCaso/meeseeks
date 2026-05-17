@@ -305,6 +305,18 @@ programs:
 
 Callback commands run in a shell and receive `MEESEEKS_PROGRAM`, `MEESEEKS_STATUS`, and (for failures) `MEESEEKS_ERROR` environment variables.
 
+Example: send an email when a program fails (requires `mail`/`mailx` installed):
+
+```yaml
+programs:
+  - name: "nightly-backup"
+    command: "sh"
+    args: ["-c", "./scripts/backup.sh"]
+    retry_count: 2
+    retry_delay: "30s"
+    on_failure: "printf 'Program: %s\nStatus: %s\nError: %s\n' \"$MEESEEKS_PROGRAM\" \"$MEESEEKS_STATUS\" \"$MEESEEKS_ERROR\" | mail -s '[meeseeks] backup failed' ops@example.com"
+```
+
 ### Buffer Size Limits
 
 Control memory usage by limiting output buffer sizes. When the limit is reached, older output is discarded and a truncation message is added.
