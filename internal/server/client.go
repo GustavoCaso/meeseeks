@@ -55,7 +55,7 @@ func (c *Client) Logs(ctx context.Context, programName string) (*Response, error
 	return c.sendRequest(ctx, "/logs", params)
 }
 
-//nolint:gochecknoglobals // This gloabls is convinient
+//nolint:gochecknoglobals // This global is convenient
 var headerData = []byte("data:")
 
 func (c *Client) FollowLogs(

@@ -554,29 +554,56 @@ func TestProgramConfig_GetBufferSizeLimit(t *testing.T) {
 		name            string
 		bufferSizeLimit string
 		expected        int
+		expectError     bool
 	}{
-		{"empty", "", 0},
-		{"bytes", "512B", 512},
-		{"kilobytes", "2KB", 2048},
-		{"megabytes", "3MB", 3145728},
-		{"gigabytes", "1GB", 1073741824},
-		{"terabytes", "1TB", 1099511627776},
-		{"zero", "0B", 0},
-		{"invalid format", "invalid", 0},
-		{"no unit", "1000", 0},
-		{"negative", "-5MB", 0},
-		{"decimal", "1.5MB", 0},
+		{"empty", "", 0, false},
+		{"bytes", "512B", 512, false},
+		{"kilobytes", "2KB", 2048, false},
+		{"megabytes", "3MB", 3145728, false},
+		{"gigabytes", "1GB", 1073741824, false},
+		{"terabytes", "1TB", 1099511627776, false},
+		{"zero", "0B", 0, false},
+		{"invalid format", "invalid", 0, true},
+		{"no unit", "1000", 0, true},
+		{"negative", "-5MB", 0, true},
+		{"decimal", "1.5MB", 0, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			pc := &ProgramConfig{BufferSizeLimit: tt.bufferSizeLimit}
-			result := pc.GetBufferSizeLimit()
+			result, err := pc.GetBufferSizeLimit()
+			if tt.expectError {
+				if err == nil {
+					t.Fatalf(
+						"GetBufferSizeLimit() expected error for %q, got none",
+						tt.bufferSizeLimit,
+					)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("GetBufferSizeLimit() unexpected error = %v", err)
+			}
 			if result != tt.expected {
 				t.Fatalf("GetBufferSizeLimit() = %d, want %d", result, tt.expected)
 			}
 		})
+	}
+}
+
+func TestConfig_ValidateRejectsInvalidBufferSizeLimit(t *testing.T) {
+	t.Parallel()
+
+	c := &Config{Programs: []ProgramConfig{{
+		Name:            "test",
+		Command:         "echo",
+		BufferSizeLimit: "bogus",
+	}}}
+
+	if err := c.Validate(); err == nil {
+		t.Fatal("Validate() should reject invalid buffer_size_limit")
 	}
 }
 

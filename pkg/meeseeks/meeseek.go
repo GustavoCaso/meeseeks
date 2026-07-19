@@ -44,7 +44,7 @@ type Meeseek interface {
 	// Run executes a specific program immediately, regardless of its scheduling configuration.
 	// Returns an error if the program is not found or is already running.
 	Run(programName string) error
-	// RunAsync executes a specific program asyncrounisly, regardless of its scheduling configuration.
+	// RunAsync executes a specific program asynchronously, regardless of its scheduling configuration.
 	// Returns an error if the program is not found or is already running.
 	RunAsync(programName string) error
 	// Wait blocks until all programs have finished execution or the context is cancelled.
@@ -180,7 +180,7 @@ func (m *meeseek) Reload(ctx context.Context, programs []program.Program, deadli
 	err := m.shutdown(deadline)
 	if err != nil {
 		if m.logger != nil {
-			m.logger.Warn("error shutding down old programs while reloading", "error", err.Error())
+			m.logger.Warn("error shutting down old programs while reloading", "error", err.Error())
 		}
 	}
 
@@ -230,42 +230,25 @@ func (m *meeseek) Stop(programName string, timeout time.Duration) error {
 	if program.Interval() > 0 {
 		// Stop schedule loop
 		m.mu.Lock()
-		stop, exists := m.schedulerStops[programName]
-		m.mu.Unlock()
-
-		if exists {
-			select {
-			case <-stop:
-				// Channel already closed
-			default:
-				close(stop)
-			}
+		if stop, exists := m.schedulerStops[programName]; exists {
+			closeOnce(stop)
+			delete(m.schedulerStops, programName)
 		}
+		m.mu.Unlock()
 	}
 
 	return err
 }
 
 func (m *meeseek) Run(programName string) error {
-	m.mu.RLock()
-	prog, ok := m.programs[programName]
-	m.mu.RUnlock()
-
-	if !ok {
-		return fmt.Errorf("program %s not present", programName)
-	}
-
-	state := prog.State()
-	if state == program.StateRunning {
-		return fmt.Errorf("program %s already running", programName)
-	}
-
-	m.runOneTimeProgram(context.Background(), prog)
-
-	return nil
+	return m.runByName(programName, false)
 }
 
 func (m *meeseek) RunAsync(programName string) error {
+	return m.runByName(programName, true)
+}
+
+func (m *meeseek) runByName(programName string, async bool) error {
 	m.mu.RLock()
 	prog, ok := m.programs[programName]
 	m.mu.RUnlock()
@@ -274,12 +257,15 @@ func (m *meeseek) RunAsync(programName string) error {
 		return fmt.Errorf("program %s not present", programName)
 	}
 
-	state := prog.State()
-	if state == program.StateRunning {
+	if prog.State() == program.StateRunning {
 		return fmt.Errorf("program %s already running", programName)
 	}
 
-	go m.runOneTimeProgram(context.Background(), prog)
+	if async {
+		go m.runOneTimeProgram(context.Background(), prog)
+	} else {
+		m.runOneTimeProgram(context.Background(), prog)
+	}
 
 	return nil
 }
@@ -359,14 +345,20 @@ func (m *meeseek) Shutdown(timeout time.Duration) error {
 // this function is meant to be called while holding the lock.
 func (m *meeseek) resetSchedulerStops() {
 	for _, stop := range m.schedulerStops {
-		select {
-		case <-stop:
-			// Channel already closed
-		default:
-			close(stop)
-		}
+		closeOnce(stop)
 	}
 	m.schedulerStops = make(map[string]chan struct{})
+}
+
+// closeOnce closes ch if it is not already closed. Callers must hold m.mu so
+// two goroutines cannot race to close the same channel.
+func closeOnce(ch chan struct{}) {
+	select {
+	case <-ch:
+		// Channel already closed
+	default:
+		close(ch)
+	}
 }
 
 func (m *meeseek) shutdown(timeout time.Duration) error {
@@ -405,19 +397,13 @@ func (m *meeseek) runOneTimeProgram(ctx context.Context, prog program.Program) {
 		return
 	}
 
-	success, retryAttempts := m.runWithRetry(ctx, prog)
-
-	m.trackProgramCompletion(prog.Name(), success, retryAttempts)
-}
-
-func (m *meeseek) runWithRetry(ctx context.Context, prog program.Program) (bool, int) {
-	if m.run(ctx, prog) {
-		return true, 0
+	success := m.run(ctx, prog)
+	retryAttempts := 0
+	if !success {
+		success, retryAttempts = m.retry(ctx, prog)
 	}
 
-	success, retryAttempts := m.retry(ctx, prog)
-
-	return success, retryAttempts
+	m.trackProgramCompletion(prog.Name(), success, retryAttempts)
 }
 
 func (m *meeseek) run(ctx context.Context, prog program.Program) bool {
@@ -446,25 +432,36 @@ func (m *meeseek) run(ctx context.Context, prog program.Program) bool {
 		)
 	}
 
-	if prog.State() == program.StateFinished {
-		return true
-	}
-
-	return false
+	return prog.State() == program.StateFinished
 }
 
-//nolint:gocognit //The complexity is acceptable
 func (m *meeseek) retry(ctx context.Context, prog program.Program) (bool, int) {
-	if prog.RetryCount() == 0 {
-		return false, 0
+	retryDelay := prog.RetryDelay()
+
+	var timer *time.Timer
+	if retryDelay > 0 {
+		timer = time.NewTimer(retryDelay)
+		defer timer.Stop()
 	}
 
 	retryAttempts := 0
 	for retryAttempts < prog.RetryCount() {
-		select {
-		case <-ctx.Done():
-			return false, retryAttempts
-		default:
+		// Wait for the retry delay (if any) before each attempt, bailing out
+		// if the context is cancelled in the meantime. Without a delay both
+		// select cases would be ready at once and a cancelled context would
+		// only bail out half the time, so check it explicitly instead.
+		if timer == nil {
+			select {
+			case <-ctx.Done():
+				return false, retryAttempts
+			default:
+			}
+		} else {
+			select {
+			case <-ctx.Done():
+				return false, retryAttempts
+			case <-timer.C:
+			}
 		}
 
 		if m.logger != nil {
@@ -478,30 +475,18 @@ func (m *meeseek) retry(ctx context.Context, prog program.Program) (bool, int) {
 		}
 
 		done, err := prog.Start(ctx)
-		if err != nil {
-			retryAttempts++
-			if retryAttempts <= prog.RetryCount() && prog.RetryDelay() > 0 {
-				select {
-				case <-ctx.Done():
-					return false, retryAttempts
-				case <-time.After(prog.RetryDelay()):
-				}
-			}
-			continue
+		if err == nil {
+			<-done
 		}
-		<-done
 		retryAttempts++
 
-		if prog.State() == program.StateFinished {
+		if err == nil && prog.State() == program.StateFinished {
 			return true, retryAttempts
 		}
 
-		if retryAttempts <= prog.RetryCount() && prog.RetryDelay() > 0 {
-			select {
-			case <-ctx.Done():
-				return false, retryAttempts
-			case <-time.After(prog.RetryDelay()):
-			}
+		if timer != nil && retryAttempts < prog.RetryCount() {
+			// The timer channel was drained by the select above, so Reset is safe.
+			timer.Reset(retryDelay)
 		}
 	}
 
@@ -543,9 +528,9 @@ func (m *meeseek) runScheduledProgram(ctx context.Context, prog program.Program)
 			exec := m.executions[prog.Name()]
 			m.mu.RUnlock()
 
-			// We strip the monotonomic clock information using Round(0) because in some system
-			// will stop if the computer goes to sleep. That way we ensure calling now.Sub() is
-			// accurate
+			// We strip the monotonic clock information using Round(0) because on some systems
+			// the monotonic clock stops while the computer sleeps. That ensures now.Sub() is
+			// accurate.
 			now := time.Now().Round(0)
 			strippedLastRunAt := exec.lastRunAt.Round(0)
 			timeSinceLastRun := now.Sub(strippedLastRunAt)

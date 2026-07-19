@@ -32,7 +32,11 @@ func createProgramFromConfig(
 		opts = append(opts, program.StderrFile(pc.Stderr))
 	}
 
-	opts = append(opts, program.BufferSizeLimit(pc.GetBufferSizeLimit()))
+	bufferSizeLimit, err := pc.GetBufferSizeLimit()
+	if err != nil {
+		return nil, err
+	}
+	opts = append(opts, program.BufferSizeLimit(bufferSizeLimit))
 
 	opts = append(opts, program.Logger(logger))
 
