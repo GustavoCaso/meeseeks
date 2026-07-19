@@ -390,6 +390,14 @@ func (p *program) String() string {
 		s += fmt.Sprintf(", buffer limit: %d", p.bufferLimit)
 	}
 
+	if p.onSuccess != nil {
+		s += fmt.Sprintf(", success callback: %s %s", p.onSuccess.Command, p.onSuccess.Args)
+	}
+
+	if p.onFailure != nil {
+		s += fmt.Sprintf(", failure callback: %s %s", p.onFailure.Command, p.onFailure.Args)
+	}
+
 	return s
 }
 

@@ -1722,9 +1722,17 @@ func TestProgram_String(t *testing.T) {
 		StderrFile("/tmp/err.log"),
 		KeepStdinOpen(),
 		BufferSizeLimit(1024),
+		OnSuccess(&Callback{
+			Command: "echo",
+			Args:    []string{"success"},
+		}),
+		OnFailure(&Callback{
+			Command: "echo",
+			Args:    []string{"failed"},
+		}),
 	)
 
-	expected := "name: test, command: bash, arguments: (-c, echo hello), interval: 1s, initial delay: 1s, retry count: 3, retry delay: 1s, deadline: 1s, env: (FOO=bar), stdout file: /tmp/out.log, stderr file: /tmp/err.log, keep stdin open: true, buffer limit: 1024"
+	expected := "name: test, command: bash, arguments: (-c, echo hello), interval: 1s, initial delay: 1s, retry count: 3, retry delay: 1s, deadline: 1s, env: (FOO=bar), stdout file: /tmp/out.log, stderr file: /tmp/err.log, keep stdin open: true, buffer limit: 1024, success callback: echo [success], failure callback: echo [failed]"
 
 	if p.String() != expected {
 		t.Fatalf(
