@@ -161,8 +161,15 @@ program.New("name", "command",
     program.RetryCount(3),                  // Retry up to 3 times on failure
     program.RetryDelay(5*time.Second),      // Wait 5 seconds between retries
     program.Deadline(5*time.Minute),        // Kill program if it runs longer than deadline
-    program.OnSuccess(func(name string) {}),               // Callback invoked when execution succeeds
-    program.OnFailure(func(name string, err error) {}),    // Callback invoked when execution fails
+    program.OnSuccess(&program.Callback{
+      Command: "echo", 
+      Args: []string{"success"},
+    }), // Callback invoked when execution succeeds
+    program.OnFailure(
+      &program.Callback{
+        Command: "echo", 
+        Args: []string{"failure"},
+    }), // Callback invoked when execution fails
 )
 ```
 

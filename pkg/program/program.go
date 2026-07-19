@@ -391,11 +391,11 @@ func (p *program) String() string {
 	}
 
 	if p.onSuccess != nil {
-		s += fmt.Sprintf(", success callback: %s %s", p.onSuccess.Command, p.onSuccess.Args)
+		s += fmt.Sprintf(", success callback: %s %v", p.onSuccess.Command, p.onSuccess.Args)
 	}
 
 	if p.onFailure != nil {
-		s += fmt.Sprintf(", failure callback: %s %s", p.onFailure.Command, p.onFailure.Args)
+		s += fmt.Sprintf(", failure callback: %s %v", p.onFailure.Command, p.onFailure.Args)
 	}
 
 	return s
@@ -798,6 +798,8 @@ func (p *program) runCallback(kind string, callback *Callback, env []string) {
 		Args(callback.Args...),
 		Envs(env...),
 		Deadline(callbackDeadline),
+		BufferSizeLimit(p.bufferLimit),
+		Logger(p.logger),
 	)
 
 	done, err := cb.Start(context.Background())
