@@ -628,7 +628,7 @@ func TestProgramState(t *testing.T) {
 	t.Run("cancelled execution state transitions", func(t *testing.T) {
 		t.Parallel()
 
-		p := New("state-cancel", "sleep", Args("10"))
+		p := New("state-cancel", "sleep", Args("10"), Async())
 
 		ctx, cancel := context.WithCancel(context.Background())
 		done, err := p.Start(ctx)
