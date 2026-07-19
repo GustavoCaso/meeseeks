@@ -1,7 +1,12 @@
 package server
 
 import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/GustavoCaso/meeseeks/internal/config"
 	"github.com/GustavoCaso/meeseeks/internal/logger"
@@ -151,5 +156,89 @@ func TestCreateProgramFromConfig(t *testing.T) {
 				t.Fatalf("Expected name %q, got %q", tt.expectedName, prog.Name())
 			}
 		})
+	}
+}
+
+func TestCreateProgramFromConfig_CallbackCommands(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	successFile := filepath.Join(tempDir, "on_success.log")
+
+	cfg := config.ProgramConfig{
+		Name:              "callback-program",
+		Command:           "echo",
+		Args:              []string{"hello"},
+		OnSuccessCallback: "sh",
+		OnSuccessCallbackArgs: []string{
+			"-c",
+			"echo \"$MEESEEKS_PROGRAM:$MEESEEKS_STATUS\" > " + successFile,
+		},
+	}
+
+	logger := logger.New()
+	prog, err := createProgramFromConfig(cfg, logger)
+	if err != nil {
+		t.Fatalf("Unexpected error creating program: %v", err)
+	}
+
+	done, err := prog.Start(context.Background())
+	if err != nil {
+		t.Fatalf("Unexpected error starting program: %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Program did not finish in time")
+	}
+
+	content, err := os.ReadFile(successFile)
+	if err != nil {
+		t.Fatalf("Expected success callback file to be written: %v", err)
+	}
+
+	if got := strings.TrimSpace(string(content)); got != "callback-program:finished" {
+		t.Fatalf("Unexpected callback content: %q", got)
+	}
+}
+
+func TestCreateProgramFromConfig_CallbackCommands_FailingCallback(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	successFile := filepath.Join(tempDir, "on_success.log")
+
+	cfg := config.ProgramConfig{
+		Name:              "callback-program-failing-callback",
+		Command:           "echo",
+		Args:              []string{"hello"},
+		OnSuccessCallback: "sh",
+		OnSuccessCallbackArgs: []string{
+			"-u",
+			"-c",
+			"echo \"$UNDEFINED_VAR\" > " + successFile,
+		},
+	}
+
+	logger := logger.New()
+	prog, err := createProgramFromConfig(cfg, logger)
+	if err != nil {
+		t.Fatalf("Unexpected error creating program: %v", err)
+	}
+
+	done, err := prog.Start(context.Background())
+	if err != nil {
+		t.Fatalf("Unexpected error starting program: %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Program did not finish in time")
+	}
+
+	if _, err = os.Stat(successFile); !os.IsNotExist(err) {
+		t.Fatalf("Expected callback command to fail and avoid file creation, got err: %v", err)
 	}
 }
