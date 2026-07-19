@@ -64,41 +64,42 @@ func (pc *ProgramConfig) GetInitialDelay() (time.Duration, error) {
 
 var sizeRegex = regexp.MustCompile(`^(?P<amount>\d+)(?P<unit>B|KB|MB|GB|TB)$`)
 
-func (pc *ProgramConfig) GetBufferSizeLimit() int {
+func (pc *ProgramConfig) GetBufferSizeLimit() (int, error) {
 	if pc.BufferSizeLimit == "" {
-		return 0
+		return 0, nil
 	}
 
 	match := sizeRegex.FindStringSubmatch(pc.BufferSizeLimit)
-
-	if len(match) > 0 {
-		amount := match[1]
-		unit := match[2]
-
-		var multiplier int64
-		switch unit {
-		case "B":
-			multiplier = 1
-		case "KB":
-			multiplier = 1024
-		case "MB":
-			multiplier = 1024 * 1024
-		case "GB":
-			multiplier = 1024 * 1024 * 1024
-		case "TB":
-			multiplier = 1024 * 1024 * 1024 * 1024
-		default:
-			multiplier = 1
-		}
-
-		v64, err := strconv.ParseInt(amount, 10, 64)
-		if err != nil {
-			return 0
-		}
-		return int(v64 * multiplier)
+	if len(match) == 0 {
+		return 0, fmt.Errorf(
+			"invalid buffer size %q (expected <number><unit> with unit B, KB, MB, GB or TB)",
+			pc.BufferSizeLimit,
+		)
 	}
 
-	return 0
+	amount := match[1]
+	unit := match[2]
+
+	var multiplier int64
+	switch unit {
+	case "B":
+		multiplier = 1
+	case "KB":
+		multiplier = 1024
+	case "MB":
+		multiplier = 1024 * 1024
+	case "GB":
+		multiplier = 1024 * 1024 * 1024
+	case "TB":
+		multiplier = 1024 * 1024 * 1024 * 1024
+	}
+
+	v64, err := strconv.ParseInt(amount, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid buffer size %q: %w", pc.BufferSizeLimit, err)
+	}
+
+	return int(v64 * multiplier), nil
 }
 
 func LoadConfig(filename string) (*Config, error) {
@@ -133,7 +134,6 @@ func LoadConfig(filename string) (*Config, error) {
 	return &config, nil
 }
 
-//nolint:gocognit //The complexity is acceptable
 func (c *Config) Validate() error {
 	if len(c.Programs) == 0 {
 		return errors.New("no programs defined in config")
@@ -151,35 +151,31 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("duplicate program name: %s", program.Name)
 		}
 
-		if program.Interval != "" {
-			if _, err := time.ParseDuration(program.Interval); err != nil {
-				return fmt.Errorf("invalid interval for program %s: %w", program.Name, err)
-			}
+		if _, err := program.GetInterval(); err != nil {
+			return fmt.Errorf("invalid interval for program %s: %w", program.Name, err)
 		}
 
-		if program.InitialDelay != "" {
-			if _, err := time.ParseDuration(program.InitialDelay); err != nil {
-				return fmt.Errorf("invalid initial_delay for program %s: %w", program.Name, err)
-			}
+		if _, err := program.GetInitialDelay(); err != nil {
+			return fmt.Errorf("invalid initial_delay for program %s: %w", program.Name, err)
 		}
 
 		if program.RetryCount < 0 {
 			return fmt.Errorf(
-				"invalid retry count for program %s: retry_count if set must be bigger than zerp",
+				"invalid retry count for program %s: retry_count if set must be zero or greater",
 				program.Name,
 			)
 		}
 
-		if program.RetryDelay != "" {
-			if _, err := time.ParseDuration(program.RetryDelay); err != nil {
-				return fmt.Errorf("invalid retry_delay for program %s: %w", program.Name, err)
-			}
+		if _, err := program.GetRetryDelay(); err != nil {
+			return fmt.Errorf("invalid retry_delay for program %s: %w", program.Name, err)
 		}
 
-		if program.Deadline != "" {
-			if _, err := time.ParseDuration(program.Deadline); err != nil {
-				return fmt.Errorf("invalid deadline for program %s: %w", program.Name, err)
-			}
+		if _, err := program.GetDeadline(); err != nil {
+			return fmt.Errorf("invalid deadline for program %s: %w", program.Name, err)
+		}
+
+		if _, err := program.GetBufferSizeLimit(); err != nil {
+			return fmt.Errorf("invalid buffer_size_limit for program %s: %w", program.Name, err)
 		}
 
 		programNames[program.Name] = true

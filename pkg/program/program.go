@@ -87,7 +87,7 @@ const (
 
 // StateToString provides human-readable string representations of process states.
 //
-//nolint:gochecknoglobals // This gloabls is convinient
+//nolint:gochecknoglobals // This global is convenient
 var StateToString = map[ProcessState]string{
 	StateNotStarted: "not started",
 	StateRunning:    "running",
@@ -144,35 +144,11 @@ type pipes struct {
 }
 
 func (p *pipes) closeWriters() error {
-	err := p.outWriter.Close()
-	if err != nil {
-		return err
-	}
-	err = p.errWriter.Close()
-	if err != nil {
-		return err
-	}
-	err = p.inWriter.Close()
-	if err != nil {
-		return err
-	}
-	return nil
+	return errors.Join(p.outWriter.Close(), p.errWriter.Close(), p.inWriter.Close())
 }
 
 func (p *pipes) closeReaders() error {
-	err := p.outReader.Close()
-	if err != nil {
-		return err
-	}
-	err = p.errReader.Close()
-	if err != nil {
-		return err
-	}
-	err = p.inReader.Close()
-	if err != nil {
-		return err
-	}
-	return nil
+	return errors.Join(p.outReader.Close(), p.errReader.Close(), p.inReader.Close())
 }
 
 // New creates a new Program instance with the provided options.
@@ -265,7 +241,7 @@ func (p *program) Send(data []byte) error {
 
 	if !p.keepStdinOpen {
 		return errors.New(
-			"to send data to a running please use the KeepStdinOpen option when initialazing the program",
+			"to send data to a running program please use the KeepStdinOpen option when initializing the program",
 		)
 	}
 
@@ -284,7 +260,7 @@ func (p *program) CloseStdin() error {
 
 	if !p.keepStdinOpen {
 		return errors.New(
-			"stding is already closed please KeepStdinOpen option when initialazing the program to have full control over stdin",
+			"stdin is already closed, use the KeepStdinOpen option when initializing the program to have full control over stdin",
 		)
 	}
 
@@ -657,11 +633,7 @@ func (p *program) readOutput(reader io.Reader, isError bool) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		p.dataLock.Lock()
-		if isError {
-			p.writeOutput(line, true)
-		} else {
-			p.writeOutput(line, false)
-		}
+		p.writeOutput(line, isError)
 		p.dataLock.Unlock()
 	}
 
