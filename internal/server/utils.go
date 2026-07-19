@@ -1,9 +1,6 @@
 package server
 
 import (
-	"os"
-	"os/exec"
-
 	"github.com/GustavoCaso/meeseeks/internal/config"
 	"github.com/GustavoCaso/meeseeks/internal/logger"
 	"github.com/GustavoCaso/meeseeks/pkg/program"
@@ -41,15 +38,17 @@ func createProgramFromConfig(
 	}
 	opts = append(opts, program.BufferSizeLimit(bufferSizeLimit))
 
-	if pc.OnSuccess != "" {
-		opts = append(opts, program.OnSuccess(func(programName string) {
-			runCallbackCommand(pc, pc.OnSuccess, programName, "success", nil, logger)
+	if pc.OnSuccessCallback != "" {
+		opts = append(opts, program.OnSuccess(&program.Callback{
+			Command: pc.OnSuccessCallback,
+			Args:    pc.OnSuccessCallbackArgs,
 		}))
 	}
 
-	if pc.OnFailure != "" {
-		opts = append(opts, program.OnFailure(func(programName string, callbackErr error) {
-			runCallbackCommand(pc, pc.OnFailure, programName, "failure", callbackErr, logger)
+	if pc.OnFailureCallback != "" {
+		opts = append(opts, program.OnFailure(&program.Callback{
+			Command: pc.OnFailureCallback,
+			Args:    pc.OnFailureCallbackArgs,
 		}))
 	}
 
@@ -84,67 +83,4 @@ func createProgramFromConfig(
 	opts = append(opts, program.Deadline(deadline))
 
 	return program.New(pc.Name, pc.Command, opts...), nil
-}
-
-func runCallbackCommand(
-	pc config.ProgramConfig,
-	command string,
-	programName string,
-	status string,
-	callbackErr error,
-	logger *logger.Logger,
-) {
-	//nolint:gosec // callback commands are user-provided configuration
-	callbackShell := pc.CallbackShell
-	if callbackShell == "" {
-		callbackShell = "sh"
-	}
-
-	callbackArgs := pc.CallbackArgs
-	if len(callbackArgs) == 0 {
-		callbackArgs = []string{"-c"}
-	}
-
-	args := append(append([]string{}, callbackArgs...), command)
-	cmd := exec.Command(callbackShell, args...)
-	env := append(
-		os.Environ(),
-		"MEESEEKS_PROGRAM="+programName,
-		"MEESEEKS_STATUS="+status,
-	)
-
-	if callbackErr != nil {
-		env = append(env, "MEESEEKS_ERROR="+callbackErr.Error())
-	}
-
-	cmd.Env = env
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		if logger != nil {
-			logger.Error(
-				"callback command failed",
-				"program",
-				programName,
-				"status",
-				status,
-				"error",
-				err.Error(),
-				"output",
-				string(output),
-			)
-		}
-		return
-	}
-
-	if logger != nil && len(output) > 0 {
-		logger.Info(
-			"callback command output",
-			"program",
-			programName,
-			"status",
-			status,
-			"output",
-			string(output),
-		)
-	}
 }

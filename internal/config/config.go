@@ -19,23 +19,23 @@ type Config struct {
 }
 
 type ProgramConfig struct {
-	Name            string   `yaml:"name"                        json:"name"`
-	Command         string   `yaml:"command"                     json:"command"`
-	Args            []string `yaml:"args,omitempty"              json:"args,omitempty"`
-	Env             []string `yaml:"env,omitempty"               json:"env,omitempty"`
-	Interval        string   `yaml:"interval,omitempty"          json:"interval,omitempty"`
-	InitialDelay    string   `yaml:"initial_delay,omitempty"     json:"initial_delay,omitempty"`
-	RetryCount      int      `yaml:"retry_count,omitempty"       json:"retry_count,omitempty"`
-	RetryDelay      string   `yaml:"retry_delay,omitempty"       json:"retry_delay,omitempty"`
-	Deadline        string   `yaml:"deadline,omitempty"          json:"deadline,omitempty"`
-	KeepStdinOpen   bool     `yaml:"keep_stdin_open,omitempty"   json:"keep_stdin_open,omitempty"`
-	Stdout          string   `yaml:"stdout,omitempty"            json:"stdout,omitempty"`
-	Stderr          string   `yaml:"stderr,omitempty"            json:"stderr,omitempty"`
-	BufferSizeLimit string   `yaml:"buffer_size_limit,omitempty" json:"buffer_size_limit,omitempty"`
-	OnSuccess       string   `yaml:"on_success,omitempty"        json:"on_success,omitempty"`
-	OnFailure       string   `yaml:"on_failure,omitempty"        json:"on_failure,omitempty"`
-	CallbackShell   string   `yaml:"callback_shell,omitempty"    json:"callback_shell,omitempty"`
-	CallbackArgs    []string `yaml:"callback_args,omitempty"     json:"callback_args,omitempty"`
+	Name                  string   `yaml:"name"                               json:"name"`
+	Command               string   `yaml:"command"                            json:"command"`
+	Args                  []string `yaml:"args,omitempty"                     json:"args,omitempty"`
+	Env                   []string `yaml:"env,omitempty"                      json:"env,omitempty"`
+	Interval              string   `yaml:"interval,omitempty"                 json:"interval,omitempty"`
+	InitialDelay          string   `yaml:"initial_delay,omitempty"            json:"initial_delay,omitempty"`
+	RetryCount            int      `yaml:"retry_count,omitempty"              json:"retry_count,omitempty"`
+	RetryDelay            string   `yaml:"retry_delay,omitempty"              json:"retry_delay,omitempty"`
+	Deadline              string   `yaml:"deadline,omitempty"                 json:"deadline,omitempty"`
+	KeepStdinOpen         bool     `yaml:"keep_stdin_open,omitempty"          json:"keep_stdin_open,omitempty"`
+	Stdout                string   `yaml:"stdout,omitempty"                   json:"stdout,omitempty"`
+	Stderr                string   `yaml:"stderr,omitempty"                   json:"stderr,omitempty"`
+	BufferSizeLimit       string   `yaml:"buffer_size_limit,omitempty"        json:"buffer_size_limit,omitempty"`
+	OnSuccessCallback     string   `yaml:"on_success_callback,omitempty"      json:"on_success_callback,omitempty"`
+	OnFailureCallback     string   `yaml:"on_failure_callback,omitempty"      json:"on_failure_callback,omitempty"`
+	OnSuccessCallbackArgs []string `yaml:"on_success_callback_args,omitempty" json:"on_success_callback_args,omitempty"`
+	OnFailureCallbackArgs []string `yaml:"on_failure_callback_args,omitempty" json:"on_failure_callback_args,omitempty"`
 }
 
 func (pc *ProgramConfig) GetInterval() (time.Duration, error) {

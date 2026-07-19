@@ -10,11 +10,13 @@ import (
 // Option defines a function type for configuring program instances.
 type Option func(*program)
 
-// SuccessCallback is called after a program execution finishes successfully.
-type SuccessCallback func(programName string)
-
-// FailureCallback is called after a program execution fails.
-type FailureCallback func(programName string, err error)
+// Callback describes an external command executed after a program
+// finishes or fails. It receives MEESEEKS_PROGRAM, MEESEEKS_STATUS and,
+// on failure, MEESEEKS_ERROR environment variables.
+type Callback struct {
+	Command string
+	Args    []string
+}
 
 // StdoutFile redirects program stdout to the specified file path.
 // The file will be created if it doesn't exist, with output appended.
@@ -145,14 +147,14 @@ func BufferSizeLimit(limit int) Option {
 }
 
 // OnSuccess sets a callback that runs after successful program completion.
-func OnSuccess(callback SuccessCallback) Option {
+func OnSuccess(callback *Callback) Option {
 	return func(p *program) {
 		p.onSuccess = callback
 	}
 }
 
 // OnFailure sets a callback that runs after failed program completion.
-func OnFailure(callback FailureCallback) Option {
+func OnFailure(callback *Callback) Option {
 	return func(p *program) {
 		p.onFailure = callback
 	}

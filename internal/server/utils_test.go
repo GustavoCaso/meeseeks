@@ -166,10 +166,14 @@ func TestCreateProgramFromConfig_CallbackCommands(t *testing.T) {
 	successFile := filepath.Join(tempDir, "on_success.log")
 
 	cfg := config.ProgramConfig{
-		Name:      "callback-program",
-		Command:   "echo",
-		Args:      []string{"hello"},
-		OnSuccess: "echo \"$MEESEEKS_PROGRAM:$MEESEEKS_STATUS\" > " + successFile,
+		Name:              "callback-program",
+		Command:           "echo",
+		Args:              []string{"hello"},
+		OnSuccessCallback: "sh",
+		OnSuccessCallbackArgs: []string{
+			"-c",
+			"echo \"$MEESEEKS_PROGRAM:$MEESEEKS_STATUS\" > " + successFile,
+		},
 	}
 
 	logger := logger.New()
@@ -194,24 +198,27 @@ func TestCreateProgramFromConfig_CallbackCommands(t *testing.T) {
 		t.Fatalf("Expected success callback file to be written: %v", err)
 	}
 
-	if got := strings.TrimSpace(string(content)); got != "callback-program:success" {
+	if got := strings.TrimSpace(string(content)); got != "callback-program:finished" {
 		t.Fatalf("Unexpected callback content: %q", got)
 	}
 }
 
-func TestCreateProgramFromConfig_CallbackCommands_WithCustomShellArgs(t *testing.T) {
+func TestCreateProgramFromConfig_CallbackCommands_FailingCallback(t *testing.T) {
 	t.Parallel()
 
 	tempDir := t.TempDir()
 	successFile := filepath.Join(tempDir, "on_success.log")
 
 	cfg := config.ProgramConfig{
-		Name:          "callback-program-custom-shell-args",
-		Command:       "echo",
-		Args:          []string{"hello"},
-		CallbackArgs:  []string{"-u", "-c"},
-		OnSuccess:     "echo \"$UNDEFINED_VAR\" > " + successFile,
-		CallbackShell: "sh",
+		Name:              "callback-program-failing-callback",
+		Command:           "echo",
+		Args:              []string{"hello"},
+		OnSuccessCallback: "sh",
+		OnSuccessCallbackArgs: []string{
+			"-u",
+			"-c",
+			"echo \"$UNDEFINED_VAR\" > " + successFile,
+		},
 	}
 
 	logger := logger.New()

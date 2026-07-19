@@ -355,18 +355,22 @@ func TestProgram_DeadlineExceeded(t *testing.T) {
 	})
 }
 
-func TestProgramCallbacks(t *testing.T) {
+func TestCallbacks(t *testing.T) {
 	t.Parallel()
 
 	t.Run("on success callback is executed", func(t *testing.T) {
 		t.Parallel()
-		callbackCalled := make(chan string, 1)
+		callbackFile := filepath.Join(t.TempDir(), "success.log")
 		p := New(
 			"callback-success",
 			"echo",
 			Args("ok"),
-			OnSuccess(func(programName string) {
-				callbackCalled <- programName
+			OnSuccess(&Callback{
+				Command: "sh",
+				Args: []string{
+					"-c",
+					"echo \"$MEESEEKS_PROGRAM:$MEESEEKS_STATUS\" > " + callbackFile,
+				},
 			}),
 		)
 
@@ -376,31 +380,28 @@ func TestProgramCallbacks(t *testing.T) {
 		}
 		<-done
 
-		select {
-		case programName := <-callbackCalled:
-			if programName != "callback-success" {
-				t.Fatalf("Callback program name = %q, want %q", programName, "callback-success")
-			}
-		case <-time.After(1 * time.Second):
-			t.Fatal("Expected success callback to be called")
+		content, err := os.ReadFile(callbackFile)
+		if err != nil {
+			t.Fatalf("Expected success callback file to be written: %v", err)
+		}
+		if got := strings.TrimSpace(string(content)); got != "callback-success:finished" {
+			t.Fatalf("Callback content = %q, want %q", got, "callback-success:finished")
 		}
 	})
 
 	t.Run("on failure callback is executed", func(t *testing.T) {
 		t.Parallel()
-		callbackResult := make(chan struct {
-			name string
-			err  error
-		}, 1)
+		callbackFile := filepath.Join(t.TempDir(), "failure.log")
 		p := New(
 			"callback-failure",
 			"sh",
 			Args("-c", "exit 1"),
-			OnFailure(func(programName string, err error) {
-				callbackResult <- struct {
-					name string
-					err  error
-				}{name: programName, err: err}
+			OnFailure(&Callback{
+				Command: "sh",
+				Args: []string{
+					"-c",
+					"echo \"$MEESEEKS_PROGRAM:$MEESEEKS_STATUS:$MEESEEKS_ERROR\" > " + callbackFile,
+				},
 			}),
 		)
 
@@ -410,16 +411,16 @@ func TestProgramCallbacks(t *testing.T) {
 		}
 		<-done
 
-		select {
-		case result := <-callbackResult:
-			if result.name != "callback-failure" {
-				t.Fatalf("Callback program name = %q, want %q", result.name, "callback-failure")
-			}
-			if result.err == nil {
-				t.Fatal("Expected callback error to be set")
-			}
-		case <-time.After(1 * time.Second):
-			t.Fatal("Expected failure callback to be called")
+		content, err := os.ReadFile(callbackFile)
+		if err != nil {
+			t.Fatalf("Expected failure callback file to be written: %v", err)
+		}
+		got := strings.TrimSpace(string(content))
+		if !strings.HasPrefix(got, "callback-failure:error:") {
+			t.Fatalf("Callback content = %q, want prefix %q", got, "callback-failure:error:")
+		}
+		if got == "callback-failure:error:" {
+			t.Fatal("Expected MEESEEKS_ERROR to be set")
 		}
 	})
 }

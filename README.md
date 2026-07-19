@@ -299,13 +299,13 @@ programs:
     stdout: "/path/to/stdout.log"       # Optional: Redirect stdout to file
     stderr: "/path/to/stderr.log"       # Optional: Redirect stderr to file
     buffer_size_limit: "1MB"            # Optional: Limit memory usage for output buffers
-    on_success: "echo done"             # Optional: Command executed when program succeeds
-    on_failure: "echo failed"           # Optional: Command executed when program fails
-    callback_shell: "sh"                # Optional: Shell/executable used for callbacks (default: "sh")
-    callback_args: ["-c"]               # Optional: Args passed before callback command (default: ["-c"])
+    on_success_callback: "notify"       # Optional: Executable run when program succeeds
+    on_success_callback_args: ["done"]  # Optional: Arguments for the success callback
+    on_failure_callback: "notify"       # Optional: Executable run when program fails
+    on_failure_callback_args: ["fail"]  # Optional: Arguments for the failure callback
 ```
 
-Callback commands run with `callback_shell` + `callback_args` (defaults: `sh -c`) and receive `MEESEEKS_PROGRAM`, `MEESEEKS_STATUS`, and (for failures) `MEESEEKS_ERROR` environment variables.
+Callbacks are executed directly (not through a shell), so `on_success_callback` must be an executable and its arguments go in `on_success_callback_args`. To use shell features like pipes or variable expansion, invoke a shell explicitly: `on_success_callback: "sh"` with `on_success_callback_args: ["-c", "echo done >> /tmp/log"]`. Callbacks receive `MEESEEKS_PROGRAM`, `MEESEEKS_STATUS`, and (for failures) `MEESEEKS_ERROR` environment variables, and are killed if they run longer than one minute.
 
 Example: send an email when a program fails using a dedicated script (requires `mail`/`mailx` installed):
 
@@ -316,7 +316,7 @@ programs:
     args: ["-c", "./scripts/backup.sh"]
     retry_count: 2
     retry_delay: "30s"
-    on_failure: "./scripts/on-failure-email.sh"
+    on_failure_callback: "./scripts/on-failure-email.sh"
 ```
 
 `./scripts/on-failure-email.sh`:

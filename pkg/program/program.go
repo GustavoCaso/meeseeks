@@ -132,8 +132,8 @@ type program struct {
 	pipes      *pipes
 	logger     logger.Logger
 	finalizers []func() error
-	onSuccess  SuccessCallback
-	onFailure  FailureCallback
+	onSuccess  *Callback
+	onFailure  *Callback
 
 	consecutiveFailures int
 }
@@ -198,7 +198,7 @@ func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
 		p.state = StateError
 		p.dataLock.Unlock()
 		done := make(chan struct{})
-		p.triggerFailureIfNeeded(err)
+		p.triggerFailureIfNeeded(StateError, err)
 		close(done)
 		return done, err
 	}
@@ -546,7 +546,7 @@ func (p *program) run(done chan struct{}) error {
 
 		p.state = StateError
 		p.dataLock.Unlock()
-		p.triggerFailureIfNeeded(err)
+		p.triggerFailureIfNeeded(StateError, err)
 		close(done)
 		return err
 	}
@@ -616,25 +616,29 @@ func (p *program) monitorProcess(done chan struct{}) {
 
 	p.dataLock.Lock()
 	var callbackErr error
+	var callbackState ProcessState
 	if err != nil {
 		p.state = StateError
+		callbackState = StateError
 		var exitError *exec.ExitError
 		if errors.As(err, &exitError) {
 			status, _ := exitError.Sys().(syscall.WaitStatus)
 			if status.Signaled() {
 				p.state = StateCancelled
+				callbackState = StateCancelled
 			}
 		}
 		p.writeOutput(err.Error(), true)
 		callbackErr = err
 	} else {
 		p.state = StateFinished
+		callbackState = StateFinished
 		p.consecutiveFailures = 0
 	}
 	p.dataLock.Unlock()
 
 	if callbackErr != nil {
-		p.triggerFailureIfNeeded(callbackErr)
+		p.triggerFailureIfNeeded(callbackState, callbackErr)
 	} else {
 		p.triggerSuccess()
 	}
@@ -747,30 +751,91 @@ func (p *program) forcekill() error {
 	return nil
 }
 
+// callbackDeadline caps callback execution so a hung callback cannot block
+// the parent program's completion indefinitely.
+const callbackDeadline = time.Minute
+
 func (p *program) triggerSuccess() {
 	if p.onSuccess == nil {
 		return
 	}
 
-	defer p.recoverCallbackPanic("success callback")
-	p.onSuccess(p.name)
+	env := []string{
+		fmt.Sprintf("MEESEEKS_PROGRAM=%s", p.name),
+		fmt.Sprintf("MEESEEKS_STATUS=%s", StateToString[StateFinished]),
+	}
+	p.runCallback("success", p.onSuccess, env)
 }
 
-func (p *program) triggerFailure(err error) {
+func (p *program) triggerFailure(status ProcessState, err error) {
 	if p.onFailure == nil {
 		return
 	}
 
-	defer p.recoverCallbackPanic("failure callback")
-	p.onFailure(p.name, err)
+	env := []string{
+		fmt.Sprintf("MEESEEKS_PROGRAM=%s", p.name),
+		fmt.Sprintf("MEESEEKS_STATUS=%s", StateToString[status]),
+		fmt.Sprintf("MEESEEKS_ERROR=%s", err.Error()),
+	}
+	p.runCallback("failure", p.onFailure, env)
 }
 
-func (p *program) triggerFailureIfNeeded(err error) {
+// runCallback executes a callback command as its own Program and blocks until
+// it completes or callbackDeadline expires.
+func (p *program) runCallback(kind string, callback *Callback, env []string) {
+	name := fmt.Sprintf("%s_callback_%s", kind, p.name)
+	cb := New(
+		name,
+		callback.Command,
+		Args(callback.Args...),
+		Envs(env...),
+		Deadline(callbackDeadline),
+	)
+
+	done, err := cb.Start(context.Background())
+	if err != nil {
+		if p.logger != nil {
+			p.logger.Error(
+				"callback command failed to start",
+				"program", p.name,
+				"callback", kind,
+				"error", err.Error(),
+			)
+		}
+		return
+	}
+	<-done
+
+	if cb.State() != StateFinished {
+		if p.logger != nil {
+			p.logger.Error(
+				"callback command failed",
+				"program", p.name,
+				"callback", kind,
+				"state", StateToString[cb.State()],
+				"output", cb.Stdout(),
+				"error", cb.Stderr(),
+			)
+		}
+		return
+	}
+
+	if p.logger != nil && cb.Stdout() != "" {
+		p.logger.Info(
+			"callback command output",
+			"program", p.name,
+			"callback", kind,
+			"output", cb.Stdout(),
+		)
+	}
+}
+
+func (p *program) triggerFailureIfNeeded(status ProcessState, err error) {
 	if !p.shouldTriggerFailureCallback() {
 		return
 	}
 
-	p.triggerFailure(err)
+	p.triggerFailure(status, err)
 }
 
 func (p *program) shouldTriggerFailureCallback() bool {
@@ -790,21 +855,4 @@ func (p *program) shouldTriggerFailureCallback() bool {
 	}
 
 	return false
-}
-
-func (p *program) recoverCallbackPanic(callbackName string) {
-	v := recover()
-	if v == nil || p.logger == nil {
-		return
-	}
-
-	p.logger.Error(
-		"callback panic recovered",
-		"program",
-		p.name,
-		"callback",
-		callbackName,
-		"panic",
-		fmt.Sprintf("%v", v),
-	)
 }

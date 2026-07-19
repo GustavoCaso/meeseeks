@@ -31,27 +31,27 @@ func TestLoadConfig(t *testing.T) {
     keep_stdin_open: true
     stdout: "/tmp/out.log"
     stderr: "/tmp/err.log"
-    on_success: "echo success"
-    on_failure: "echo fail"
-    callback_shell: "bash"
-    callback_args: ["-c"]`,
+    on_success_callback: "echo"
+    on_success_callback_args: ["success"]
+    on_failure_callback: "echo"
+    on_failure_callback_args: ["failed"]`,
 			expected: &Config{
 				Programs: []ProgramConfig{
 					{
-						Name:            "test-program",
-						Command:         "echo",
-						Args:            []string{"hello"},
-						Env:             []string{"VAR=value"},
-						Interval:        "30s",
-						InitialDelay:    "15s",
-						BufferSizeLimit: "3MB",
-						KeepStdinOpen:   true,
-						Stdout:          "/tmp/out.log",
-						Stderr:          "/tmp/err.log",
-						OnSuccess:       "echo success",
-						OnFailure:       "echo fail",
-						CallbackShell:   "bash",
-						CallbackArgs:    []string{"-c"},
+						Name:                  "test-program",
+						Command:               "echo",
+						Args:                  []string{"hello"},
+						Env:                   []string{"VAR=value"},
+						Interval:              "30s",
+						InitialDelay:          "15s",
+						BufferSizeLimit:       "3MB",
+						KeepStdinOpen:         true,
+						Stdout:                "/tmp/out.log",
+						Stderr:                "/tmp/err.log",
+						OnSuccessCallback:     "echo",
+						OnSuccessCallbackArgs: []string{"success"},
+						OnFailureCallback:     "echo",
+						OnFailureCallbackArgs: []string{"failed"},
 					},
 				},
 			},
@@ -534,13 +534,14 @@ func configsEqual(a, b *Config) bool {
 func programConfigsEqual(a, b ProgramConfig) bool {
 	if a.Name != b.Name || a.Command != b.Command || a.Interval != b.Interval ||
 		a.KeepStdinOpen != b.KeepStdinOpen || a.Stdout != b.Stdout || a.Stderr != b.Stderr ||
-		a.OnSuccess != b.OnSuccess || a.OnFailure != b.OnFailure || a.CallbackShell != b.CallbackShell {
+		a.OnSuccessCallback != b.OnSuccessCallback || a.OnFailureCallback != b.OnFailureCallback {
 		return false
 	}
 
 	if !stringSlicesEqual(a.Args, b.Args) ||
 		!stringSlicesEqual(a.Env, b.Env) ||
-		!stringSlicesEqual(a.CallbackArgs, b.CallbackArgs) {
+		!stringSlicesEqual(a.OnSuccessCallbackArgs, b.OnSuccessCallbackArgs) ||
+		!stringSlicesEqual(a.OnFailureCallbackArgs, b.OnFailureCallbackArgs) {
 		return false
 	}
 

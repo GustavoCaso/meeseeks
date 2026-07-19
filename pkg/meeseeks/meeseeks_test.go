@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1772,19 +1771,22 @@ func TestMeeseekRetry_CallbacksAreNotDuplicatedByRetries(t *testing.T) {
 	t.Run("failure callback fires once after retries exhausted", func(t *testing.T) {
 		t.Parallel()
 
-		var failureCalls atomic.Int32
-		var successCalls atomic.Int32
+		tempDir := t.TempDir()
+		failureFile := filepath.Join(tempDir, "failure-calls")
+		successFile := filepath.Join(tempDir, "success-calls")
 
 		prog := program.New(
 			"retry-failure-callback",
 			"sh",
 			program.Args("-c", "exit 1"),
 			program.RetryCount(3),
-			program.OnFailure(func(_ string, _ error) {
-				failureCalls.Add(1)
+			program.OnFailure(&program.Callback{
+				Command: "sh",
+				Args:    []string{"-c", "echo called >> " + failureFile},
 			}),
-			program.OnSuccess(func(_ string) {
-				successCalls.Add(1)
+			program.OnSuccess(&program.Callback{
+				Command: "sh",
+				Args:    []string{"-c", "echo called >> " + successFile},
 			}),
 		)
 
@@ -1800,10 +1802,10 @@ func TestMeeseekRetry_CallbacksAreNotDuplicatedByRetries(t *testing.T) {
 			t.Fatalf("Wait() unexpected error = %v", err)
 		}
 
-		if got := failureCalls.Load(); got != 1 {
+		if got := countCallbackCalls(t, failureFile); got != 1 {
 			t.Fatalf("failure callback calls = %d, want 1", got)
 		}
-		if got := successCalls.Load(); got != 0 {
+		if got := countCallbackCalls(t, successFile); got != 0 {
 			t.Fatalf("success callback calls = %d, want 0", got)
 		}
 	})
@@ -1811,10 +1813,9 @@ func TestMeeseekRetry_CallbacksAreNotDuplicatedByRetries(t *testing.T) {
 	t.Run("failure callback does not fire when retry eventually succeeds", func(t *testing.T) {
 		t.Parallel()
 
-		var failureCalls atomic.Int32
-		var successCalls atomic.Int32
-
 		tempDir := t.TempDir()
+		failureFile := filepath.Join(tempDir, "failure-calls")
+		successFile := filepath.Join(tempDir, "success-calls")
 		markerFile := filepath.Join(tempDir, "fail-once-marker")
 		err := os.WriteFile(markerFile, []byte("fail"), 0600)
 		if err != nil {
@@ -1834,11 +1835,13 @@ func TestMeeseekRetry_CallbacksAreNotDuplicatedByRetries(t *testing.T) {
 			),
 			program.RetryCount(3),
 			program.RetryDelay(10*time.Millisecond),
-			program.OnFailure(func(_ string, _ error) {
-				failureCalls.Add(1)
+			program.OnFailure(&program.Callback{
+				Command: "sh",
+				Args:    []string{"-c", "echo called >> " + failureFile},
 			}),
-			program.OnSuccess(func(_ string) {
-				successCalls.Add(1)
+			program.OnSuccess(&program.Callback{
+				Command: "sh",
+				Args:    []string{"-c", "echo called >> " + successFile},
 			}),
 		)
 
@@ -1854,13 +1857,27 @@ func TestMeeseekRetry_CallbacksAreNotDuplicatedByRetries(t *testing.T) {
 			t.Fatalf("Wait() unexpected error = %v", err)
 		}
 
-		if got := failureCalls.Load(); got != 0 {
+		if got := countCallbackCalls(t, failureFile); got != 0 {
 			t.Fatalf("failure callback calls = %d, want 0", got)
 		}
-		if got := successCalls.Load(); got != 1 {
+		if got := countCallbackCalls(t, successFile); got != 1 {
 			t.Fatalf("success callback calls = %d, want 1", got)
 		}
 	})
+}
+
+// countCallbackCalls counts how many times a callback appended to its marker
+// file. A missing file means the callback never ran.
+func countCallbackCalls(t *testing.T, path string) int {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return 0
+	}
+	if err != nil {
+		t.Fatalf("Failed to read callback file %s: %v", path, err)
+	}
+	return len(strings.Split(strings.TrimSpace(string(content)), "\n"))
 }
 
 func TestMeeseek_RetryEventualSuccess(t *testing.T) {
