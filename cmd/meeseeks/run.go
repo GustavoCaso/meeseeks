@@ -39,7 +39,7 @@ func runCommand(args []string, logger *logger.Logger) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	client := server.NewClient(ctx, getSocketPath())
+	client := server.NewClient(getSocketPath())
 
 	if !*printLogs {
 		resp, err := client.RunProgram(ctx, programName, false)

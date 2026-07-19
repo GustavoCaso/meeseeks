@@ -24,12 +24,12 @@ type event struct {
 	Data []byte
 }
 
-func NewClient(ctx context.Context, sockPath string) *Client {
+func NewClient(sockPath string) *Client {
 	return &Client{
 		sockPath: sockPath,
 		client: &http.Client{
 			Transport: &http.Transport{
-				Dial: func(_, _ string) (net.Conn, error) {
+				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 					var d net.Dialer
 					raddr := net.UnixAddr{Name: sockPath, Net: "unix"}
 
@@ -120,8 +120,8 @@ func (c *Client) FollowLogs(
 			}
 		}
 
-		if err = scanner.Err(); err != nil && !errors.Is(err, context.Canceled) {
-			fmt.Fprintf(os.Stderr, "Error reading body follow logs:%s\n", err)
+		if scanErr := scanner.Err(); scanErr != nil && !errors.Is(scanErr, context.Canceled) {
+			fmt.Fprintf(os.Stderr, "Error reading body follow logs:%s\n", scanErr)
 		}
 	}()
 

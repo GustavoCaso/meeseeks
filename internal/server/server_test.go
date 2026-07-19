@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,7 +52,7 @@ func TestServer_HTTPHandlers(t *testing.T) {
 	// Give server time to start
 	time.Sleep(100 * time.Millisecond)
 
-	client := NewClient(ctx, sockPath)
+	client := NewClient(sockPath)
 
 	tests := []struct {
 		name   string
@@ -348,8 +349,7 @@ func TestServer_FailLoadConfigNotPresent(t *testing.T) {
 
 func TestClient_ConnectToNonExistentDaemon(t *testing.T) {
 	t.Parallel()
-	ctx := t.Context()
-	client := NewClient(ctx, "/nonexistent/path.sock")
+	client := NewClient("/nonexistent/path.sock")
 
 	_, err := client.Statistics(t.Context(), "")
 	if err == nil {
@@ -407,7 +407,7 @@ func TestServer_ConcurrentConnections(t *testing.T) {
 
 	for i := range numClients {
 		go func(_ int) {
-			client := NewClient(ctx, sockPath)
+			client := NewClient(sockPath)
 			resp, err := client.Statistics(t.Context(), "")
 			if err != nil {
 				results <- err
@@ -471,7 +471,7 @@ func BenchmarkServer_HandleRequest(b *testing.B) {
 
 	time.Sleep(100 * time.Millisecond) // Give server time to start
 
-	client := NewClient(ctx, sockPath)
+	client := NewClient(sockPath)
 
 	for b.Loop() {
 		_, _ = client.Statistics(b.Context(), "")
@@ -520,7 +520,7 @@ func TestFollowLogs(t *testing.T) {
 			s.Stop()
 		})
 
-		client := NewClient(ctx, sockPath)
+		client := NewClient(sockPath)
 
 		logLines := make(chan []byte, 10)
 		err = client.FollowLogs(ctx, "streaming-program", true, logLines)
@@ -610,7 +610,7 @@ func TestFollowLogs(t *testing.T) {
 			s.Stop()
 		})
 
-		client := NewClient(ctx, sockPath)
+		client := NewClient(sockPath)
 		logLines := make(chan []byte, 10)
 
 		err = client.FollowLogs(ctx, "nonexistent", true, logLines)
@@ -666,7 +666,7 @@ func TestFollowLogs(t *testing.T) {
 			s.Stop()
 		})
 
-		client := NewClient(ctx, sockPath)
+		client := NewClient(sockPath)
 		logLines := make(chan []byte, 10)
 
 		err = client.FollowLogs(ctx, "", true, logLines)
@@ -718,7 +718,7 @@ func TestFollowLogs(t *testing.T) {
 			s.Stop()
 		})
 
-		client := NewClient(ctx, sockPath)
+		client := NewClient(sockPath)
 		logLines := make(chan []byte, 10)
 
 		err = client.FollowLogs(ctx, "mixed-output", true, logLines)
@@ -813,7 +813,7 @@ func TestFollowLogs(t *testing.T) {
 		streamCtx, streamCancel := context.WithCancel(ctx)
 		defer streamCancel()
 
-		client := NewClient(streamCtx, sockPath)
+		client := NewClient(sockPath)
 		logLines := make(chan []byte, 10)
 
 		err = client.FollowLogs(streamCtx, "long-runner", true, logLines)
@@ -872,4 +872,106 @@ func TestFollowLogs(t *testing.T) {
 			t.Error("Expected channel to be closed after context cancellation")
 		}
 	})
+}
+
+func TestServer_FollowLogsInvalidBoolReturns400(t *testing.T) {
+	tmpDir := filepath.Join("/tmp/", t.Name())
+	if err := os.MkdirAll(tmpDir, 0750); err != nil {
+		t.Fatalf("error creating temp folder %s", err.Error())
+	}
+	t.Cleanup(func() { os.RemoveAll(tmpDir) })
+	sockPath := filepath.Join(tmpDir, "meeseeks.sock")
+	configFile := filepath.Join(tmpDir, "test-config.yaml")
+
+	configContent := `programs:
+  - name: "test-program1"
+    command: "echo"
+    args: ["hello"]
+`
+
+	if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
+		t.Fatalf("Failed to create test config file: %v", err)
+	}
+
+	s, err := New(sockPath, configFile, logger.New(), time.Millisecond)
+	if err != nil {
+		t.Fatalf("creating server failed: %s", err.Error())
+	}
+
+	if err = s.Start(t.Context()); err != nil {
+		t.Fatalf("Failed to start server: %v", err)
+	}
+	t.Cleanup(func() {
+		s.Stop()
+	})
+
+	time.Sleep(100 * time.Millisecond)
+
+	client := NewClient(sockPath)
+
+	resp, err := client.client.Get(
+		"http://unix/follow-logs?program=test-program1&subscribe_to_previous_logs=bogus",
+	)
+	if err != nil {
+		t.Fatalf("Get() unexpected error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+}
+
+func TestClient_DialUsesRequestContext(t *testing.T) {
+	tmpDir := filepath.Join("/tmp/", t.Name())
+	if err := os.MkdirAll(tmpDir, 0750); err != nil {
+		t.Fatalf("error creating temp folder %s", err.Error())
+	}
+	t.Cleanup(func() { os.RemoveAll(tmpDir) })
+	sockPath := filepath.Join(tmpDir, "meeseeks.sock")
+	configFile := filepath.Join(tmpDir, "test-config.yaml")
+
+	configContent := `programs:
+  - name: "test-program1"
+    command: "echo"
+    args: ["hello"]
+`
+
+	if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
+		t.Fatalf("Failed to create test config file: %v", err)
+	}
+
+	s, err := New(sockPath, configFile, logger.New(), time.Millisecond)
+	if err != nil {
+		t.Fatalf("creating server failed: %s", err.Error())
+	}
+
+	if err = s.Start(t.Context()); err != nil {
+		t.Fatalf("Failed to start server: %v", err)
+	}
+	t.Cleanup(func() {
+		s.Stop()
+	})
+
+	time.Sleep(100 * time.Millisecond)
+
+	// A context that is already cancelled at construction time must not
+	// poison requests made later with a live context.
+	staleCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	client := NewClient(sockPath)
+
+	resp, err := client.Statistics(t.Context(), "")
+	if err != nil {
+		t.Fatalf("Statistics() with live request context failed: %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("Expected success=true, got %v", resp.Success)
+	}
+
+	// A cancelled request context must fail the request.
+	if _, err = client.Statistics(staleCtx, ""); err == nil {
+		t.Fatalf("Statistics() with cancelled request context should fail")
+	}
 }

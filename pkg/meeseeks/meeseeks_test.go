@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1899,5 +1900,30 @@ func TestMeeseek_RetryContextCancellation(t *testing.T) {
 	// Should not complete all 10 retries due to context cancellation
 	if stats.Retries >= 10 {
 		t.Errorf("Retries = %d, should be < 10 due to context cancellation", stats.Retries)
+	}
+}
+
+func TestMeeseek_ConcurrentStartRace(t *testing.T) {
+	t.Parallel()
+
+	m := New()
+	if err := m.AddProgram(program.New("quick", "echo", program.Args("hi"))); err != nil {
+		t.Fatalf("AddProgram() unexpected error = %v", err)
+	}
+
+	ctx := t.Context()
+
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Go(func() {
+			m.Start(ctx)
+		})
+	}
+	wg.Wait()
+
+	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := m.Wait(waitCtx); err != nil {
+		t.Fatalf("Wait() unexpected error = %v", err)
 	}
 }

@@ -522,6 +522,7 @@ func (p *Programs) startLogStream() tea.Cmd {
 	if p.cancelFunc != nil {
 		p.cancelFunc()
 	}
+
 	//nolint:gosec // context cancellation function is called
 	ctx, cancel := context.WithCancel(context.Background())
 

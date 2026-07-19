@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -35,8 +34,7 @@ func tuiCommand(args []string, _ *logger.Logger) error {
 	}
 
 	// Create client
-	ctx := context.Background()
-	client := server.NewClient(ctx, socketPath)
+	client := server.NewClient(socketPath)
 
 	// Create tabs
 	tabList := []tab.Tab{
