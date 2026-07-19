@@ -46,6 +46,21 @@ func runCLICommand(
 	return exitCode
 }
 
+// waitFor polls cond every 10ms until it returns true or timeout expires,
+// failing the test with msg on timeout.
+func waitFor(t *testing.T, timeout time.Duration, cond func() bool, msg string) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal(msg)
+}
+
 func setMeeseeksConfigDirForTest(t *testing.T) {
 	t.Helper()
 

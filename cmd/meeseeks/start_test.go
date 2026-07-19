@@ -209,11 +209,10 @@ func TestStartCommand_Detached(t *testing.T) {
 		t.Fatalf("PID file was not created at %s", expectedPidFile)
 	}
 
-	time.Sleep(500 * time.Millisecond)
-
-	if _, err := os.Stat(expectedSocketPath); os.IsNotExist(err) {
-		t.Fatalf("Socket file was not created at %s", expectedSocketPath)
-	}
+	waitFor(t, 5*time.Second, func() bool {
+		_, err := os.Stat(expectedSocketPath)
+		return err == nil
+	}, "Socket file was not created at "+expectedSocketPath)
 
 	var stdoutBuf, stderrBuf bytes.Buffer
 	exitCode = runCLICommand(
@@ -237,15 +236,15 @@ func TestStartCommand_Detached(t *testing.T) {
 	}
 
 	// Wait for process cleanup to complete after exit signal
-	time.Sleep(1 * time.Second)
+	waitFor(t, 5*time.Second, func() bool {
+		_, err := os.Stat(expectedPidFile)
+		return os.IsNotExist(err)
+	}, "PID file still exists. Stoping meeseeks should remove the PID file")
 
-	if _, err := os.Stat(expectedPidFile); !os.IsNotExist(err) {
-		t.Fatal("PID file still exists. Stoping meeseeks should remove the PID file")
-	}
-
-	if _, err := os.Stat(expectedSocketPath); !os.IsNotExist(err) {
-		t.Fatal("Socket file still exists. Stoping meeseeks should remove the Socket file")
-	}
+	waitFor(t, 5*time.Second, func() bool {
+		_, err := os.Stat(expectedSocketPath)
+		return os.IsNotExist(err)
+	}, "Socket file still exists. Stoping meeseeks should remove the Socket file")
 
 	var stdoutBuf2, stderrBuf2 bytes.Buffer
 	exitCode = runCLICommand(
