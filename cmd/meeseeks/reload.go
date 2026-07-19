@@ -28,7 +28,7 @@ func reloadCommand(args []string, _ *logger.Logger) error {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	client := server.NewClient(ctx, getSocketPath())
+	client := server.NewClient(getSocketPath())
 	resp, err := client.Reload(ctx, *timeout)
 	if err != nil {
 		return err

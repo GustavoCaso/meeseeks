@@ -119,7 +119,6 @@ type program struct {
 	customEnv     []string
 
 	state                   ProcessState
-	exitCode                int
 	buffer                  []LogLine
 	bufferSize              int // current byte size of buffer contents
 	bufferLimit             int // max bytes allowed in buffer (0 = unlimited)
@@ -202,7 +201,7 @@ func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
 	p.dataLock.Lock()
 	if p.state == StateRunning {
 		p.dataLock.Unlock()
-		done := make(chan struct{}, 1)
+		done := make(chan struct{})
 		close(done)
 		return done, errors.New("program already running")
 	}
@@ -212,11 +211,13 @@ func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
 	cmd, err := p.setupCmd(ctx)
 
 	if err != nil {
-		// Failed setup, revert state
+		// Failed setup, run any finalizers registered before the failure
+		// and revert state
+		p.runFinalizers()
 		p.dataLock.Lock()
 		p.state = StateError
 		p.dataLock.Unlock()
-		done := make(chan struct{}, 1)
+		done := make(chan struct{})
 		close(done)
 		return done, err
 	}
@@ -225,9 +226,12 @@ func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
 	p.cmd = cmd
 	p.cmdLock.Unlock()
 
-	p.done = make(chan struct{}, 1)
+	done := make(chan struct{})
+	p.dataLock.Lock()
+	p.done = done
+	p.dataLock.Unlock()
 
-	return p.done, p.run()
+	return done, p.run(done)
 }
 
 func (p *program) Interval() time.Duration {
@@ -316,25 +320,32 @@ func (p *program) Stderr() string {
 }
 
 func (p *program) SubscribeLogs(ctx context.Context, subscribeToPreviousLogs bool) <-chan LogLine {
-	ch := make(chan LogLine, 1000)
+	const liveBuffer = 1000
+
 	id := p.subscriptionIDCounter.Add(1)
 
-	var bufferCopy []LogLine
-
+	// Holding dataLock blocks writeOutput (which broadcasts under dataLock),
+	// so filling the backlog and registering the subscription here guarantees
+	// no log line is dropped, duplicated, or delivered out of order.
 	p.dataLock.RLock()
-	if subscribeToPreviousLogs && len(p.buffer) > 0 {
-		bufferCopy = make([]LogLine, len(p.buffer))
-		copy(bufferCopy, p.buffer)
+
+	capacity := liveBuffer
+	if subscribeToPreviousLogs {
+		capacity += len(p.buffer)
 	}
-	p.dataLock.RUnlock()
+	ch := make(chan LogLine, capacity)
+
+	if subscribeToPreviousLogs {
+		for _, logLine := range p.buffer {
+			ch <- logLine
+		}
+	}
 
 	p.subsLock.Lock()
 	p.logSubscriptionChannels[id] = ch
 	p.subsLock.Unlock()
 
-	if len(bufferCopy) > 0 && subscribeToPreviousLogs {
-		sendLinesToChannel(ctx, bufferCopy, ch)
-	}
+	p.dataLock.RUnlock()
 
 	go func() {
 		<-ctx.Done()
@@ -371,7 +382,31 @@ func (p *program) String() string {
 	}
 
 	if p.retryDelay > 0 {
-		s += fmt.Sprintf(", retry count: %s", p.retryDelay)
+		s += fmt.Sprintf(", retry delay: %s", p.retryDelay)
+	}
+
+	if p.deadline > 0 {
+		s += fmt.Sprintf(", deadline: %s", p.deadline)
+	}
+
+	if len(p.customEnv) > 0 {
+		s += fmt.Sprintf(", env: (%s)", strings.Join(p.customEnv, ", "))
+	}
+
+	if p.stdoutFile != "" {
+		s += fmt.Sprintf(", stdout file: %s", p.stdoutFile)
+	}
+
+	if p.stderrFile != "" {
+		s += fmt.Sprintf(", stderr file: %s", p.stderrFile)
+	}
+
+	if p.keepStdinOpen {
+		s += ", keep stdin open: true"
+	}
+
+	if p.bufferLimit > 0 {
+		s += fmt.Sprintf(", buffer limit: %d", p.bufferLimit)
 	}
 
 	return s
@@ -395,9 +430,13 @@ func (p *program) Shutdown(timeout time.Duration) error {
 		return p.forcekill()
 	}
 
+	p.dataLock.RLock()
+	done := p.done
+	p.dataLock.RUnlock()
+
 	// Wait for the existing monitoring to handle process exit
 	select {
-	case <-p.done:
+	case <-done:
 		return nil
 	case <-time.After(timeout):
 		// Timeout exceeded, force kill
@@ -405,7 +444,10 @@ func (p *program) Shutdown(timeout time.Duration) error {
 	}
 }
 
-func (p *program) finalize() {
+// runFinalizers must run before the final state is published, so a caller
+// cannot observe a finished program and Start() it again while cleanup of the
+// previous run is still mutating p.finalizers.
+func (p *program) runFinalizers() {
 	for _, finalizer := range p.finalizers {
 		err := finalizer()
 		if err != nil {
@@ -415,8 +457,6 @@ func (p *program) finalize() {
 		}
 	}
 	p.finalizers = []func() error{}
-
-	close(p.done)
 }
 
 func (p *program) setupCmd(ctx context.Context) (*exec.Cmd, error) {
@@ -513,31 +553,32 @@ func (p *program) setupCmd(ctx context.Context) (*exec.Cmd, error) {
 	return cmd, nil
 }
 
-func (p *program) run() error {
+func (p *program) run(done chan struct{}) error {
 	p.cmdLock.Lock()
 	err := p.cmd.Start()
 	p.cmdLock.Unlock()
 
 	if err != nil {
+		p.runFinalizers()
 		p.dataLock.Lock()
 		p.writeOutput(err.Error(), true)
 
 		p.state = StateError
 		p.dataLock.Unlock()
-		p.finalize()
+		close(done)
 		return err
 	}
 
 	if p.async {
-		go p.monitorProcess()
+		go p.monitorProcess(done)
 		return nil
 	}
 
-	p.monitorProcess()
+	p.monitorProcess(done)
 	return nil
 }
 
-func (p *program) monitorProcess() {
+func (p *program) monitorProcess(done chan struct{}) {
 	// WaitGroup ensures readOutput goroutines finish reading all data.
 	// This prevents race conditions where callers might see incomplete output.
 	var wg sync.WaitGroup
@@ -589,7 +630,7 @@ func (p *program) monitorProcess() {
 		}
 	}
 
-	p.exitCode = cmd.ProcessState.ExitCode()
+	p.runFinalizers()
 
 	p.dataLock.Lock()
 	if err != nil {
@@ -607,7 +648,7 @@ func (p *program) monitorProcess() {
 	}
 	p.dataLock.Unlock()
 
-	p.finalize()
+	close(done)
 }
 
 func (p *program) readOutput(reader io.Reader, isError bool) {
@@ -717,16 +758,4 @@ func (p *program) forcekill() error {
 	}
 
 	return nil
-}
-
-func sendLinesToChannel(ctx context.Context, buffer []LogLine, ch chan<- LogLine) {
-	for _, logLine := range buffer {
-		select {
-		case ch <- logLine:
-		case <-ctx.Done():
-			return
-		default:
-			// Channel full - drop the log line
-		}
-	}
 }

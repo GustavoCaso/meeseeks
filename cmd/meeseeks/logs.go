@@ -39,7 +39,7 @@ func logsCommand(args []string, _ *logger.Logger) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	client := server.NewClient(ctx, getSocketPath())
+	client := server.NewClient(getSocketPath())
 
 	if !*follow {
 		return nonFollowLogs(ctx, client, programName)

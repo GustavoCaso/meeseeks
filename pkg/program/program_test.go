@@ -1646,9 +1646,15 @@ func TestProgram_String(t *testing.T) {
 		InitialDelay(duration),
 		RetryCount(3),
 		RetryDelay(duration),
+		Deadline(duration),
+		Envs("FOO=bar"),
+		StdoutFile("/tmp/out.log"),
+		StderrFile("/tmp/err.log"),
+		KeepStdinOpen(),
+		BufferSizeLimit(1024),
 	)
 
-	expected := "name: test, command: bash, arguments: (-c, echo hello), interval: 1s, initial delay: 1s, retry count: 3, retry count: 1s"
+	expected := "name: test, command: bash, arguments: (-c, echo hello), interval: 1s, initial delay: 1s, retry count: 3, retry delay: 1s, deadline: 1s, env: (FOO=bar), stdout file: /tmp/out.log, stderr file: /tmp/err.log, keep stdin open: true, buffer limit: 1024"
 
 	if p.String() != expected {
 		t.Fatalf(
@@ -1720,5 +1726,72 @@ func TestProgramStartConcurrentCalls(t *testing.T) {
 	}
 	if errorCount != numGoroutines-1 {
 		t.Errorf("Error count = %d, want %d", errorCount, numGoroutines-1)
+	}
+}
+
+func TestProgram_ConcurrentStartShutdownRace(t *testing.T) {
+	t.Parallel()
+
+	p := New("race-start-shutdown", "sleep", Args("0.01"))
+	ctx := t.Context()
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Go(func() {
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				_ = p.Shutdown(5 * time.Millisecond)
+			}
+		})
+	}
+
+	for range 100 {
+		done, err := p.Start(ctx)
+		if err == nil {
+			<-done
+		}
+	}
+
+	close(stop)
+	wg.Wait()
+}
+
+func TestProgram_SubscribeLogsLargeBacklog(t *testing.T) {
+	t.Parallel()
+
+	p := New("large-backlog", "seq", Args("1500"))
+
+	done, err := p.Start(t.Context())
+	if err != nil {
+		t.Fatalf("Start() unexpected error = %v", err)
+	}
+	<-done
+
+	subCtx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	ch := p.SubscribeLogs(subCtx, true)
+
+	var lines []string
+	timeout := time.After(2 * time.Second)
+	for len(lines) < 1500 {
+		select {
+		case line := <-ch:
+			lines = append(lines, line.Message)
+		case <-timeout:
+			t.Fatalf("timed out waiting for backlog: got %d lines, want 1500", len(lines))
+		}
+	}
+
+	if lines[0] != "1" {
+		t.Errorf("first backlog line = %q, want %q", lines[0], "1")
+	}
+	if lines[len(lines)-1] != "1500" {
+		t.Errorf("last backlog line = %q, want %q", lines[len(lines)-1], "1500")
 	}
 }

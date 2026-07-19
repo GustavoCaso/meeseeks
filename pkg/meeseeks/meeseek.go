@@ -90,8 +90,6 @@ type executionTrack struct {
 }
 
 type meeseek struct {
-	startTime      time.Time
-	endTime        time.Time
 	programs       map[string]program.Program // Unified storage for all programs
 	schedulerStops map[string]chan struct{}   // Only for scheduled programs
 	executions     map[string]*executionTrack // execution tracking for each program
@@ -208,8 +206,6 @@ func (m *meeseek) Start(ctx context.Context) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	m.startTime = time.Now()
-
 	// Start all programs
 	for _, p := range m.programs {
 		m.wg.Add(1)
@@ -293,10 +289,6 @@ func (m *meeseek) Wait(ctx context.Context) error {
 	go func() {
 		m.wg.Wait()
 		close(done)
-	}()
-
-	defer func() {
-		m.endTime = time.Now()
 	}()
 
 	select {
