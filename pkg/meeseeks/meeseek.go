@@ -436,14 +436,32 @@ func (m *meeseek) run(ctx context.Context, prog program.Program) bool {
 }
 
 func (m *meeseek) retry(ctx context.Context, prog program.Program) (bool, int) {
+	retryDelay := prog.RetryDelay()
+
+	var timer *time.Timer
+	if retryDelay > 0 {
+		timer = time.NewTimer(retryDelay)
+		defer timer.Stop()
+	}
+
 	retryAttempts := 0
 	for retryAttempts < prog.RetryCount() {
 		// Wait for the retry delay (if any) before each attempt, bailing out
-		// if the context is cancelled in the meantime.
-		select {
-		case <-ctx.Done():
-			return false, retryAttempts
-		case <-time.After(prog.RetryDelay()):
+		// if the context is cancelled in the meantime. Without a delay both
+		// select cases would be ready at once and a cancelled context would
+		// only bail out half the time, so check it explicitly instead.
+		if timer == nil {
+			select {
+			case <-ctx.Done():
+				return false, retryAttempts
+			default:
+			}
+		} else {
+			select {
+			case <-ctx.Done():
+				return false, retryAttempts
+			case <-timer.C:
+			}
 		}
 
 		if m.logger != nil {
@@ -464,6 +482,11 @@ func (m *meeseek) retry(ctx context.Context, prog program.Program) (bool, int) {
 
 		if err == nil && prog.State() == program.StateFinished {
 			return true, retryAttempts
+		}
+
+		if timer != nil && retryAttempts < prog.RetryCount() {
+			// The timer channel was drained by the select above, so Reset is safe.
+			timer.Reset(retryDelay)
 		}
 	}
 
@@ -505,9 +528,9 @@ func (m *meeseek) runScheduledProgram(ctx context.Context, prog program.Program)
 			exec := m.executions[prog.Name()]
 			m.mu.RUnlock()
 
-			// We strip the monotonic clock information using Round(0) because in some system
-			// will stop if the computer goes to sleep. That way we ensure calling now.Sub() is
-			// accurate
+			// We strip the monotonic clock information using Round(0) because on some systems
+			// the monotonic clock stops while the computer sleeps. That ensures now.Sub() is
+			// accurate.
 			now := time.Now().Round(0)
 			strippedLastRunAt := exec.lastRunAt.Round(0)
 			timeSinceLastRun := now.Sub(strippedLastRunAt)

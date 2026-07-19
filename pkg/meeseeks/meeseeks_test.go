@@ -1927,3 +1927,40 @@ func TestMeeseek_ConcurrentStartRace(t *testing.T) {
 		t.Fatalf("Wait() unexpected error = %v", err)
 	}
 }
+
+func TestMeeseek_RetryCancelledContextNoDelay(t *testing.T) {
+	t.Parallel()
+
+	prog := program.New("retry-cancelled-no-delay",
+		"sh",
+		program.Args("-c", "exit 1"),
+		program.RetryCount(50),
+	)
+
+	m := New()
+	if err := m.AddProgram(prog); err != nil {
+		t.Fatalf("Failed to add program: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	m.Start(ctx)
+
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer waitCancel()
+	if err := m.Wait(waitCtx); err != nil {
+		t.Fatalf("Wait() unexpected error = %v", err)
+	}
+
+	stats, err := m.Statistic("retry-cancelled-no-delay")
+	if err != nil {
+		t.Fatalf("Statistic() unexpected error = %v", err)
+	}
+
+	// With a cancelled context the retry loop must bail out before the first
+	// attempt, even when there is no retry delay.
+	if stats.Retries != 0 {
+		t.Errorf("Retries = %d, want 0 (context was already cancelled)", stats.Retries)
+	}
+}
