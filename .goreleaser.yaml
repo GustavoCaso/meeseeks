@@ -61,3 +61,10 @@ homebrew_casks:
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     homepage: "https://github.com/GustavoCaso/meeseeks"
     description: "A simple and lightweight process manager for Go applications and CLI tool that simplify managing background processes"
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            binary_name = Hardware::CPU.arm? ? "meeseeks_v#{version}_darwin-arm64" : "meeseeks_v#{version}_darwin-amd64"
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/#{binary_name}"]
+          end
