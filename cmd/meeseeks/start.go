@@ -34,9 +34,7 @@ func (c *cmd) startDetached() error {
 	//nolint:gosec // the arguments are provided by the user
 	cmd := exec.CommandContext(context.Background(), os.Args[0], "start", "-config", c.configPath)
 	cmd.Env = os.Environ()
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setsid: true,
-	}
+	cmd.SysProcAttr = detachSysProcAttr()
 
 	cmd.Stdin = nil
 	stdoutFile, stdoutErr := getInternalStdoutFile()
