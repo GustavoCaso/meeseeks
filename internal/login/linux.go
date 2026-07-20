@@ -33,11 +33,11 @@ Description=meeseeks process manager
 
 [Service]
 Type=simple
-ExecStart={{.ExecutablePath}} start -config {{.ConfigPath}}
+ExecStart="{{.ExecutablePath}}" start -config "{{.ConfigPath}}"
 Restart=always
-Environment=MEESEEKS_CONFIG_DIR={{.ConfigDir}}
-StandardOutput=append:{{.ConfigDir}}/meeseeks.out.log
-StandardError=append:{{.ConfigDir}}/meeseeks.error.log
+Environment="MEESEEKS_CONFIG_DIR={{.ConfigDir}}"
+StandardOutput=append:"{{.ConfigDir}}/meeseeks.out.log"
+StandardError=append:"{{.ConfigDir}}/meeseeks.error.log"
 
 [Install]
 WantedBy=default.target
@@ -183,7 +183,13 @@ func (d *linuxService) Status(ctx context.Context) (ServiceStatus, error) {
 	// systemctl is-active exits non-zero when not active; that is not a failure
 	// for us, we only care about the reported state.
 	cmd := exec.CommandContext(ctx, "systemctl", "--user", "is-active", unitName)
-	output, _ := cmd.CombinedOutput()
+	output, cmdErr := cmd.CombinedOutput()
+	if cmdErr != nil {
+		return status, fmt.Errorf(
+			"failed to query systemd service status: %s",
+			cmdErr.Error(),
+		)
+	}
 	if strings.TrimSpace(string(output)) == "active" {
 		status.Running = true
 	} else {

@@ -73,6 +73,8 @@ func (d *windowsService) Create(ctx context.Context, config ServiceConfig) (Defi
 	query := exec.CommandContext(ctx, "schtasks", "/query", "/tn", taskName)
 	if err := query.Run(); err == nil {
 		return "", fmt.Errorf("service already exists: scheduled task %q", taskName)
+	} else if _, ok := err.(*exec.ExitError); !ok {
+		return "", fmt.Errorf("failed to query scheduled task: %w", err)
 	}
 
 	// Also guard against a leftover task XML file.
@@ -163,9 +165,12 @@ func (d *windowsService) Status(ctx context.Context) (ServiceStatus, error) {
 	query := exec.CommandContext(ctx, "schtasks", "/query", "/tn", taskName, "/fo", "LIST", "/v")
 	output, err := query.CombinedOutput()
 	if err != nil {
-		// A non-zero exit means the task does not exist.
-		status.Enabled = false
-		return status, nil
+		if _, ok := err.(*exec.ExitError); ok {
+			// A non-zero exit means the task does not exist.
+			status.Enabled = false
+			return status, nil
+		}
+		return status, fmt.Errorf("failed to query scheduled task: %w", err)
 	}
 
 	status.Enabled = true

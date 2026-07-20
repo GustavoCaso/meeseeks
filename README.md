@@ -306,7 +306,7 @@ Notes:
   `systemd is required` error rather than failing obscurely.
 - **`MEESEEKS_CONFIG_DIR`** is passed to the daemon on macOS and Linux via the
   service definition. On Windows, Task Scheduler has no per-task environment
-  block, so the config directory is derived from the `-config` path instead.
+  block, so configure `MEESEEKS_CONFIG_DIR` as a user/system environment variable (or rely on the default `~/.meeseeks`).
 
 ### File Formats
 
