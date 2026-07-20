@@ -38,6 +38,20 @@ func createProgramFromConfig(
 	}
 	opts = append(opts, program.BufferSizeLimit(bufferSizeLimit))
 
+	if pc.OnSuccessCallback != "" {
+		opts = append(opts, program.OnSuccess(&program.Callback{
+			Command: pc.OnSuccessCallback,
+			Args:    pc.OnSuccessCallbackArgs,
+		}))
+	}
+
+	if pc.OnFailureCallback != "" {
+		opts = append(opts, program.OnFailure(&program.Callback{
+			Command: pc.OnFailureCallback,
+			Args:    pc.OnFailureCallbackArgs,
+		}))
+	}
+
 	opts = append(opts, program.Logger(logger))
 
 	interval, err := pc.GetInterval()

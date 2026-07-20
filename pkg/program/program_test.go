@@ -355,6 +355,76 @@ func TestProgram_DeadlineExceeded(t *testing.T) {
 	})
 }
 
+func TestCallbacks(t *testing.T) {
+	t.Parallel()
+
+	t.Run("on success callback is executed", func(t *testing.T) {
+		t.Parallel()
+		callbackFile := filepath.Join(t.TempDir(), "success.log")
+		p := New(
+			"callback-success",
+			"echo",
+			Args("ok"),
+			OnSuccess(&Callback{
+				Command: "sh",
+				Args: []string{
+					"-c",
+					"echo \"$MEESEEKS_PROGRAM:$MEESEEKS_STATUS\" > " + callbackFile,
+				},
+			}),
+		)
+
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
+		}
+		<-done
+
+		content, err := os.ReadFile(callbackFile)
+		if err != nil {
+			t.Fatalf("Expected success callback file to be written: %v", err)
+		}
+		if got := strings.TrimSpace(string(content)); got != "callback-success:finished" {
+			t.Fatalf("Callback content = %q, want %q", got, "callback-success:finished")
+		}
+	})
+
+	t.Run("on failure callback is executed", func(t *testing.T) {
+		t.Parallel()
+		callbackFile := filepath.Join(t.TempDir(), "failure.log")
+		p := New(
+			"callback-failure",
+			"sh",
+			Args("-c", "exit 1"),
+			OnFailure(&Callback{
+				Command: "sh",
+				Args: []string{
+					"-c",
+					"echo \"$MEESEEKS_PROGRAM:$MEESEEKS_STATUS:$MEESEEKS_ERROR\" > " + callbackFile,
+				},
+			}),
+		)
+
+		done, err := p.Start(t.Context())
+		if err != nil {
+			t.Fatalf("Failed to start program: %v", err)
+		}
+		<-done
+
+		content, err := os.ReadFile(callbackFile)
+		if err != nil {
+			t.Fatalf("Expected failure callback file to be written: %v", err)
+		}
+		got := strings.TrimSpace(string(content))
+		if !strings.HasPrefix(got, "callback-failure:error:") {
+			t.Fatalf("Callback content = %q, want prefix %q", got, "callback-failure:error:")
+		}
+		if got == "callback-failure:error:" {
+			t.Fatal("Expected MEESEEKS_ERROR to be set")
+		}
+	})
+}
+
 func TestEdgeCases(t *testing.T) {
 	t.Parallel()
 	t.Run("command not found", func(t *testing.T) {
@@ -1652,9 +1722,17 @@ func TestProgram_String(t *testing.T) {
 		StderrFile("/tmp/err.log"),
 		KeepStdinOpen(),
 		BufferSizeLimit(1024),
+		OnSuccess(&Callback{
+			Command: "echo",
+			Args:    []string{"success"},
+		}),
+		OnFailure(&Callback{
+			Command: "echo",
+			Args:    []string{"failed"},
+		}),
 	)
 
-	expected := "name: test, command: bash, arguments: (-c, echo hello), interval: 1s, initial delay: 1s, retry count: 3, retry delay: 1s, deadline: 1s, env: (FOO=bar), stdout file: /tmp/out.log, stderr file: /tmp/err.log, keep stdin open: true, buffer limit: 1024"
+	expected := "name: test, command: bash, arguments: (-c, echo hello), interval: 1s, initial delay: 1s, retry count: 3, retry delay: 1s, deadline: 1s, env: (FOO=bar), stdout file: /tmp/out.log, stderr file: /tmp/err.log, keep stdin open: true, buffer limit: 1024, success callback: echo [success], failure callback: echo [failed]"
 
 	if p.String() != expected {
 		t.Fatalf(
