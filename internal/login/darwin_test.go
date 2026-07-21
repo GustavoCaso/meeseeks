@@ -3,7 +3,6 @@
 package login
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,13 +17,7 @@ func TestDarwinService_Validate_ServiceAlreadyExists(t *testing.T) {
 	execPath := createTestExecutable(t, testDir)
 	configPath := createTestConfig(t, testDir)
 
-	// Use home directory for config dir to pass validation
-	homeDir, _ := os.UserHomeDir()
-	configDir := filepath.Join(homeDir, ".meeseeks-test")
-
-	t.Cleanup(func() {
-		os.RemoveAll(configDir)
-	})
+	configDir := filepath.Join(testDir, "config")
 
 	ctx := t.Context()
 

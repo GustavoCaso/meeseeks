@@ -50,6 +50,7 @@ const taskXMLTemplate = `<?xml version="1.0" encoding="UTF-16"?>
     <AllowHardTerminate>true</AllowHardTerminate>
     <StartWhenAvailable>true</StartWhenAvailable>
     <Enabled>true</Enabled>
+    <Hidden>true</Hidden>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
     <RestartOnFailure>
       <Interval>PT1M</Interval>

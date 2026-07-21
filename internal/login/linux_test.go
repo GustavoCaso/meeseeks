@@ -17,12 +17,7 @@ func TestLinuxService_Create_ServiceAlreadyExists(t *testing.T) {
 	execPath := createTestExecutable(t, testDir)
 	configPath := createTestConfig(t, testDir)
 
-	homeDir, _ := os.UserHomeDir()
-	configDir := filepath.Join(homeDir, ".meeseeks-test")
-
-	t.Cleanup(func() {
-		os.RemoveAll(configDir)
-	})
+	configDir := filepath.Join(testDir, "config")
 
 	ctx := t.Context()
 
@@ -90,7 +85,7 @@ func TestLinuxService_Create_RendersUnit(t *testing.T) {
 	content := string(data)
 	for _, want := range []string{
 		"Restart=always",
-		"WantedBy=default.target",
+		"WantedBy=multi-user.target",
 		execPath,
 		configPath,
 		"MEESEEKS_CONFIG_DIR=" + configDir,

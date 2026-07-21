@@ -40,7 +40,7 @@ StandardOutput=append:"{{.ConfigDir}}/meeseeks.out.log"
 StandardError=append:"{{.ConfigDir}}/meeseeks.error.log"
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target
 `
 
 // ensureSystemd returns a clear error if systemd is not available on the host.
@@ -55,7 +55,11 @@ func ensureSystemd() error {
 }
 
 func (d *linuxService) Create(_ context.Context, config ServiceConfig) (Defintion, error) {
-	unitPath := getUnitPath()
+	unitPath, unitPathErr := getUnitPath()
+
+	if unitPathErr != nil {
+		return "", fmt.Errorf("fail to get user unitPath %w", unitPathErr)
+	}
 
 	// Check if service already exists
 	if _, err := os.Stat(unitPath); err == nil {
@@ -127,7 +131,11 @@ func (d *linuxService) Disable(ctx context.Context) error {
 		return err
 	}
 
-	unitPath := getUnitPath()
+	unitPath, unitPathErr := getUnitPath()
+
+	if unitPathErr != nil {
+		return fmt.Errorf("failed to get unit path: %w", unitPathErr)
+	}
 
 	if _, err := os.Stat(unitPath); os.IsNotExist(err) {
 		return fmt.Errorf("service %s not found", unitPath)
@@ -171,7 +179,10 @@ func (d *linuxService) Status(ctx context.Context) (ServiceStatus, error) {
 		return status, err
 	}
 
-	unitPath := getUnitPath()
+	unitPath, unitPathErr := getUnitPath()
+	if unitPathErr != nil {
+		return status, fmt.Errorf("failed to get unit path: %w", unitPathErr)
+	}
 
 	if _, err := os.Stat(unitPath); os.IsNotExist(err) {
 		status.Enabled = false
@@ -212,14 +223,18 @@ func (d *linuxService) Status(ctx context.Context) (ServiceStatus, error) {
 }
 
 // getUnitPath returns the path to the systemd user unit file.
-func getUnitPath() string {
+func getUnitPath() (string, error) {
 	testDir, ok := os.LookupEnv("MEESEEKS_TEST_LOGIN_DIR")
 	if ok {
-		return filepath.Join(testDir, unitName)
+		return filepath.Join(testDir, unitName), nil
 	}
 
-	homeDir, _ := os.UserHomeDir()
-	return filepath.Join(homeDir, ".config", "systemd", "user", unitName)
+	userConfig, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Join(userConfig, "systemd", "user", unitName), nil
 }
 
 // getLogPath returns the path to the log file for the service.
