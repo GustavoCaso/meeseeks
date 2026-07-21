@@ -238,13 +238,3 @@ func getLaunchAgentPath() string {
 	homeDir, _ := os.UserHomeDir()
 	return filepath.Join(homeDir, "Library", "LaunchAgents", "com.meeseeks.plist")
 }
-
-// getLogPath returns the path to the log file for the service.
-func getLogPath(logType string) string {
-	homeDir, _ := os.UserHomeDir()
-	meseeksDir := os.Getenv("MEESEEKS_CONFIG_DIR")
-	if meseeksDir == "" {
-		meseeksDir = filepath.Join(homeDir, ".meeseeks")
-	}
-	return filepath.Join(meseeksDir, fmt.Sprintf("meeseeks.%s.log", logType))
-}

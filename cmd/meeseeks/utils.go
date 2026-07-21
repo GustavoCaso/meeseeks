@@ -16,7 +16,7 @@ func getMeeseeksDir() string {
 		return dir
 	}
 	homeDir, _ := os.UserHomeDir()
-	return filepath.Join(homeDir, ".meeseeks")
+	return filepath.Join(homeDir, ".config", "meeseeks")
 }
 
 func getSocketPath() string {

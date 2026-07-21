@@ -213,16 +213,6 @@ func getTaskXMLPath() string {
 	return filepath.Join(base, "meeseeks", "meeseeks-task.xml")
 }
 
-// getLogPath returns the path to the log file for the service.
-func getLogPath(logType string) string {
-	homeDir, _ := os.UserHomeDir()
-	meseeksDir := os.Getenv("MEESEEKS_CONFIG_DIR")
-	if meseeksDir == "" {
-		meseeksDir = filepath.Join(homeDir, ".meeseeks")
-	}
-	return filepath.Join(meseeksDir, fmt.Sprintf("meeseeks.%s.log", logType))
-}
-
 // encodeUTF16LEWithBOM encodes s as UTF-16LE prefixed with a byte-order mark,
 // the format schtasks expects for /xml input.
 func encodeUTF16LEWithBOM(s string) []byte {

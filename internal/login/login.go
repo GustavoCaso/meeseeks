@@ -2,6 +2,9 @@ package login
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/GustavoCaso/meeseeks/internal/logger"
@@ -57,4 +60,14 @@ type ServiceStatus struct {
 // for the current operating system.
 func GetService(logger *logger.Logger) Service {
 	return getPlatformService(logger)
+}
+
+// getLogPath returns the path to the log file for the service.
+func getLogPath(logType string) string {
+	homeDir, _ := os.UserHomeDir()
+	meeseeksDir := os.Getenv("MEESEEKS_CONFIG_DIR")
+	if meeseeksDir == "" {
+		meeseeksDir = filepath.Join(homeDir, ".config", "meeseeks")
+	}
+	return filepath.Join(meeseeksDir, fmt.Sprintf("meeseeks.%s.log", logType))
 }
