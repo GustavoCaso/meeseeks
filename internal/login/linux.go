@@ -236,13 +236,3 @@ func getUnitPath() (string, error) {
 
 	return filepath.Join(userConfig, "systemd", "user", unitName), nil
 }
-
-// getLogPath returns the path to the log file for the service.
-func getLogPath(logType string) string {
-	homeDir, _ := os.UserHomeDir()
-	meseeksDir := os.Getenv("MEESEEKS_CONFIG_DIR")
-	if meseeksDir == "" {
-		meseeksDir = filepath.Join(homeDir, ".meeseeks")
-	}
-	return filepath.Join(meseeksDir, fmt.Sprintf("meeseeks.%s.log", logType))
-}

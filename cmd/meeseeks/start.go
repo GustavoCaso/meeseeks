@@ -101,7 +101,7 @@ func startCommand(args []string, logger *logger.Logger) error {
 	configPath := fs.String(
 		"config",
 		"",
-		"Path to configuration file (defaults to $MEESEEKS_CONFIG_DIR/config.yaml or ~/.meeseeks/config.yaml)",
+		"Path to configuration file (defaults to $MEESEEKS_CONFIG_DIR/config.yaml or ~/.config/meeseeks/config.yaml)",
 	)
 	detach := fs.Bool("d", false, "Start in detached mode")
 

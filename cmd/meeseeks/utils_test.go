@@ -22,7 +22,7 @@ func TestGetMeeseeksDir(t *testing.T) {
 		t.Parallel()
 		result := getMeeseeksDir()
 		homeDir, _ := os.UserHomeDir()
-		expected := filepath.Join(homeDir, ".meeseeks")
+		expected := filepath.Join(homeDir, ".config", "meeseeks")
 
 		if result != expected {
 			t.Fatalf("Expected %q, got %q", expected, result)
@@ -58,7 +58,7 @@ func TestPathFunctions(t *testing.T) {
 
 	t.Run("all paths use default directory when environment variable not set", func(t *testing.T) {
 		homeDir, _ := os.UserHomeDir()
-		defaultDir := filepath.Join(homeDir, ".meeseeks")
+		defaultDir := filepath.Join(homeDir, ".config", "meeseeks")
 
 		tests := []struct {
 			name     string

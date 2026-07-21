@@ -183,7 +183,7 @@ Meeseeks uses a single environment variable to simplify configuration:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MEESEEKS_CONFIG_DIR` | `~/.meeseeks` | Base directory for all configuration and runtime files |
+| `MEESEEKS_CONFIG_DIR` | `~/.config/meeseeks` | Base directory for all configuration and runtime files |
 
 When `MEESEEKS_CONFIG_DIR` is set, all meeseeks files are placed in this directory:
 - `config.yaml` - Default configuration file
@@ -306,7 +306,7 @@ Notes:
   `systemd is required` error rather than failing obscurely.
 - **`MEESEEKS_CONFIG_DIR`** is passed to the daemon on macOS and Linux via the
   service definition. On Windows, Task Scheduler has no per-task environment
-  block, so configure `MEESEEKS_CONFIG_DIR` as a user/system environment variable (or rely on the default `~/.meeseeks`).
+  block, so configure `MEESEEKS_CONFIG_DIR` as a user/system environment variable (or rely on the default `~/.config/meeseeks`).
 
 ### File Formats
 
