@@ -23,9 +23,15 @@ builds:
       - -X main.version={{.Version}}
     goos:
       - darwin
+      - linux
+      - windows
     goarch:
       - amd64
       - arm64
+    ignore:
+      # windows/arm64 support is niche; skip it.
+      - goos: windows
+        goarch: arm64
 
 archives:
   - formats:

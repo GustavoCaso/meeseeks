@@ -15,7 +15,7 @@ A simple and lightweight process manager for Go applications. Meeseeks can be us
 - **Dual Usage**: CLI tool and Go package
 - **Process Management**: Start, stop, and monitor multiple processes
 - **Daemon Mode**: Run processes in the background with Docker Compose-like commands
-- **Auto-Start at Login**: Cross-platform service management for macOS, Linux (TODO), and Windows (TODO)
+- **Auto-Start at Login**: Cross-platform service management for macOS, Linux, and Windows
 - **Configuration Files**: YAML and JSON support
 - **Scheduled Execution**: Run processes at intervals
 - **Automatic Retries**: Configurable retry count and delay for failed processes
@@ -284,6 +284,29 @@ meeseeks start-at-login enable
 meeseeks start-at-login status
 meeseeks start-at-login disable
 ```
+
+The `start-at-login` commands are identical across platforms, but each one is
+implemented with the native mechanism for that operating system:
+
+| Platform | Mechanism | Definition location | Restart on crash | Requirements |
+| --- | --- | --- | --- | --- |
+| **macOS** | `launchd` per-user LaunchAgent | `~/Library/LaunchAgents/com.meeseeks.plist` | `KeepAlive` | none (built in) |
+| **Linux** | `systemd` **user** service | `~/.config/systemd/user/meeseeks.service` | `Restart=always` | `systemd` (`systemctl` on `PATH`) |
+| **Windows** | Task Scheduler logon task | `%LOCALAPPDATA%\meeseeks\meeseeks-task.xml` | `RestartOnFailure` | none (built in) |
+
+Notes:
+
+- **All three run per user** — they start when *you* log in and do not require
+  root/administrator privileges. They do not run at boot before login.
+- **Restart on crash** is enabled everywhere for parity: if the daemon exits
+  unexpectedly it is restarted automatically, and it is stopped when you
+  disable the service or log out.
+- **Linux requires systemd.** On a host without it (e.g. some minimal or
+  container images), `enable`/`disable`/`status` return a clear
+  `systemd is required` error rather than failing obscurely.
+- **`MEESEEKS_CONFIG_DIR`** is passed to the daemon on macOS and Linux via the
+  service definition. On Windows, Task Scheduler has no per-task environment
+  block, so configure `MEESEEKS_CONFIG_DIR` as a user/system environment variable (or rely on the default `~/.meeseeks`).
 
 ### File Formats
 
