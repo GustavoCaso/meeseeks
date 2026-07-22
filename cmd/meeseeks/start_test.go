@@ -67,9 +67,8 @@ func TestStartCommand_Help(t *testing.T) {
 }
 
 func TestStartCommand_Foreground(t *testing.T) {
-	setMeeseeksConfigDirForTest(t)
+	configDir := setMeeseeksConfigDirForTest(t)
 
-	configDir := t.TempDir()
 	configFile := filepath.Join(configDir, "test-config.yaml")
 	configContent := `programs:
   - name: "test-echo"
@@ -87,7 +86,7 @@ func TestStartCommand_Foreground(t *testing.T) {
 
 	cmd := exec.CommandContext(ctx, "go", "run", ".")
 	cmd.Args = append(cmd.Args, []string{"start"}...)
-	cmd.Env = append(os.Environ(), "MEESEEKS_CONFIG_DIR="+configDir)
+	cmd.Env = os.Environ()
 
 	// Set process group to ensure we can kill child processes
 	// Running test creates a chain of processes:
@@ -170,9 +169,8 @@ func TestStartCommand_Foreground(t *testing.T) {
 }
 
 func TestStartCommand_Detached(t *testing.T) {
-	setMeeseeksConfigDirForTest(t)
+	configDir := setMeeseeksConfigDirForTest(t)
 
-	configDir := t.TempDir()
 	configFile := filepath.Join(configDir, "test-detached-config.yaml")
 	configContent := `programs:
   - name: "test-echo-detached"

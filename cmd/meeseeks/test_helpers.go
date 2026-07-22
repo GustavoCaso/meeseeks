@@ -64,7 +64,7 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool, msg string) 
 	t.Fatal(msg)
 }
 
-func setMeeseeksConfigDirForTest(t *testing.T) {
+func setMeeseeksConfigDirForTest(t *testing.T) string {
 	t.Helper()
 
 	// Make sure running tests while having a production
@@ -81,6 +81,8 @@ func setMeeseeksConfigDirForTest(t *testing.T) {
 	t.Cleanup(func() {
 		os.RemoveAll(customDir)
 	})
+
+	return customDir
 }
 
 // newTestServer creates and starts a server with the given config content.
