@@ -31,9 +31,6 @@ type Service interface {
 // ServiceConfig contains the configuration needed to set up
 // a login service across different platforms.
 type ServiceConfig struct {
-	// ConfigPath is the absolute path to the meeseeks configuration file
-	ConfigPath string
-
 	// ExecutablePath is the absolute path to the meeseeks executable
 	ExecutablePath string
 

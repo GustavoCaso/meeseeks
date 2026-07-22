@@ -33,7 +33,7 @@ Description=meeseeks process manager
 
 [Service]
 Type=simple
-ExecStart="{{.ExecutablePath}}" start -config "{{.ConfigPath}}"
+ExecStart="{{.ExecutablePath}}" start
 Restart=always
 Environment="MEESEEKS_CONFIG_DIR={{.ConfigDir}}"
 StandardOutput=append:"{{.ConfigDir}}/meeseeks.out.log"

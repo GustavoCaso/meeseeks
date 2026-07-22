@@ -4,27 +4,24 @@ package login
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
 func TestLinuxService_Create_ServiceAlreadyExists(t *testing.T) {
-	testDir := setupTestDir(t)
+	setupLoginTestDir(t)
+	testDir := setMeeseeksConfigDirForTest(t)
 
 	service := &linuxService{}
 
 	execPath := createTestExecutable(t, testDir)
-	configPath := createTestConfig(t, testDir)
-
-	configDir := filepath.Join(testDir, "config")
+	createTestConfig(t, testDir)
 
 	ctx := t.Context()
 
 	config := ServiceConfig{
 		ExecutablePath: execPath,
-		ConfigPath:     configPath,
-		ConfigDir:      configDir,
+		ConfigDir:      testDir,
 	}
 
 	if _, err := service.Create(ctx, config); err != nil {
@@ -57,19 +54,17 @@ func TestLinuxService_Enable_RequiresSystemd(t *testing.T) {
 }
 
 func TestLinuxService_Create_RendersUnit(t *testing.T) {
-	testDir := setupTestDir(t)
+	setupLoginTestDir(t)
+	testDir := setMeeseeksConfigDirForTest(t)
 
 	service := &linuxService{}
 
 	execPath := createTestExecutable(t, testDir)
-	configPath := createTestConfig(t, testDir)
-
-	configDir := filepath.Join(testDir, "config")
+	createTestConfig(t, testDir)
 
 	config := ServiceConfig{
 		ExecutablePath: execPath,
-		ConfigPath:     configPath,
-		ConfigDir:      configDir,
+		ConfigDir:      testDir,
 	}
 
 	def, err := service.Create(t.Context(), config)
@@ -87,8 +82,7 @@ func TestLinuxService_Create_RendersUnit(t *testing.T) {
 		"Restart=always",
 		"WantedBy=multi-user.target",
 		execPath,
-		configPath,
-		"MEESEEKS_CONFIG_DIR=" + configDir,
+		"MEESEEKS_CONFIG_DIR=" + testDir,
 	} {
 		if !strings.Contains(content, want) {
 			t.Errorf("unit file missing %q\n---\n%s", want, content)
