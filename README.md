@@ -208,8 +208,10 @@ programs:
 **Start in detached mode**:
 
 ```bash
-meeseeks start -d -config config.yaml
+meeseeks start -d
 ```
+
+The daemon uses `config.yaml` from `${MEESEEKS_CONFIG_DIR}` (defaults to `~/.config/meeseeks/`). Set `MEESEEKS_CONFIG_DIR` to use a different directory.
 
 **Check status**:
 

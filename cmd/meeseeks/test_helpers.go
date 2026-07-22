@@ -46,6 +46,41 @@ func runCLICommand(
 	return exitCode
 }
 
+func runCLICommandWithEnv(
+	args []string,
+	stdoutBuf io.Writer,
+	stderrBuf io.Writer,
+	timeout time.Duration,
+	env map[string]string,
+) int {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "go", "run", ".")
+	cmd.Args = append(cmd.Args, args...)
+	cmd.Env = os.Environ()
+	for k, v := range env {
+		cmd.Env = append(cmd.Env, k+"="+v)
+	}
+
+	cmd.Stdout = stdoutBuf
+	cmd.Stderr = stderrBuf
+
+	err := cmd.Run()
+
+	exitCode := 0
+	if err != nil {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) {
+			exitCode = exitError.ExitCode()
+		} else {
+			exitCode = 1
+		}
+	}
+
+	return exitCode
+}
+
 // waitFor polls cond every 10ms until it returns true or timeout expires,
 // failing the test with msg on timeout.
 func waitFor(t *testing.T, timeout time.Duration, cond func() bool, msg string) {
