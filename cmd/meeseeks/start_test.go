@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,12 +37,12 @@ func TestStartCommand_ConfigValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			var stdoutBuf, stderrBuf bytes.Buffer
-			exitCode := runCLICommandWithEnv(
+			exitCode := runCLICommand(
 				[]string{"start"},
 				&stdoutBuf,
 				&stderrBuf,
 				5*time.Second,
-				map[string]string{"MEESEEKS_CONFIG_DIR": tt.configDir},
+				fmt.Sprintf("MEESEEKS_CONFIG_DIR=%s", tt.configDir),
 			)
 			output := stdoutBuf.String() + stderrBuf.String()
 
@@ -190,12 +191,12 @@ func TestStartCommand_Detached(t *testing.T) {
 	os.Remove(expectedSocketPath)
 
 	var stdout, stderr bytes.Buffer
-	exitCode := runCLICommandWithEnv(
+	exitCode := runCLICommand(
 		[]string{"start", "-d"},
 		&stdout,
 		&stderr,
 		15*time.Second,
-		map[string]string{"MEESEEKS_CONFIG_DIR": configDir},
+		fmt.Sprintf("MEESEEKS_CONFIG_DIR=%s", configDir),
 	)
 
 	if exitCode != 0 {

@@ -20,48 +20,16 @@ func runCLICommand(
 	stdoutBuf io.Writer,
 	stderrBuf io.Writer,
 	timeout time.Duration,
+	extraEnv ...string,
 ) int {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "go", "run", ".")
 	cmd.Args = append(cmd.Args, args...)
-	cmd.Env = os.Environ()
-
-	cmd.Stdout = stdoutBuf
-	cmd.Stderr = stderrBuf
-
-	err := cmd.Run()
-
-	exitCode := 0
-	if err != nil {
-		var exitError *exec.ExitError
-		if errors.As(err, &exitError) {
-			exitCode = exitError.ExitCode()
-		} else {
-			exitCode = 1
-		}
-	}
-
-	return exitCode
-}
-
-func runCLICommandWithEnv(
-	args []string,
-	stdoutBuf io.Writer,
-	stderrBuf io.Writer,
-	timeout time.Duration,
-	env map[string]string,
-) int {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "go", "run", ".")
-	cmd.Args = append(cmd.Args, args...)
-	cmd.Env = os.Environ()
-	for k, v := range env {
-		cmd.Env = append(cmd.Env, k+"="+v)
-	}
+	env := os.Environ()
+	env = append(env, extraEnv...)
+	cmd.Env = env
 
 	cmd.Stdout = stdoutBuf
 	cmd.Stderr = stderrBuf
