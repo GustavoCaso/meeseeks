@@ -66,12 +66,6 @@ func runAtLoginEnableCommand(ctx context.Context, service login.Service, args []
 		return fmt.Errorf("failed to get absolute path for config dir: %w", err)
 	}
 
-	// Convert to absolute path if not already
-	absConfigPath, err := filepath.Abs(getDefaultConfigPath())
-	if err != nil {
-		return fmt.Errorf("failed to get absolute path for config file: %w", err)
-	}
-
 	// Get current executable path
 	execPath, err := os.Executable()
 	if err != nil {
@@ -84,7 +78,6 @@ func runAtLoginEnableCommand(ctx context.Context, service login.Service, args []
 
 	// Create login service configuration
 	loginConfig := login.ServiceConfig{
-		ConfigPath:     absConfigPath,
 		ExecutablePath: absExecPath,
 		ConfigDir:      absConfigDir,
 	}
@@ -101,7 +94,7 @@ func runAtLoginEnableCommand(ctx context.Context, service login.Service, args []
 	}
 
 	fmt.Fprintf(os.Stdout, "Successfully enabled meeseeks to start at login\n")
-	fmt.Fprintf(os.Stdout, "Config file: %s\n", absConfigPath)
+	fmt.Fprintf(os.Stdout, "Config dir: %s\n", absConfigDir)
 
 	return nil
 }

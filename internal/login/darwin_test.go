@@ -3,28 +3,25 @@
 package login
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
 func TestDarwinService_Validate_ServiceAlreadyExists(t *testing.T) {
-	testDir := setupTestDir(t)
+	setupLoginTestDir(t)
+	testDir := setMeeseeksConfigDirForTest(t)
 
 	service := &darwinService{}
 
 	// Create test executable and config
 	execPath := createTestExecutable(t, testDir)
-	configPath := createTestConfig(t, testDir)
-
-	configDir := filepath.Join(testDir, "config")
+	createTestConfig(t, testDir)
 
 	ctx := t.Context()
 
 	config := ServiceConfig{
 		ExecutablePath: execPath,
-		ConfigPath:     configPath,
-		ConfigDir:      configDir,
+		ConfigDir:      testDir,
 	}
 
 	// Create the service first time

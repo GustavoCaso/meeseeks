@@ -60,7 +60,7 @@ const taskXMLTemplate = `<?xml version="1.0" encoding="UTF-16"?>
   <Actions>
     <Exec>
       <Command>{{.ExecutablePath}}</Command>
-      <Arguments>start -config "{{.ConfigPath}}"</Arguments>
+      <Arguments>start</Arguments>
     </Exec>
   </Actions>
 </Task>

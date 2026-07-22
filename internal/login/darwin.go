@@ -38,8 +38,6 @@ const launchAgentTemplate = `<?xml version="1.0" encoding="UTF-8"?>
     <array>
         <string>{{.ExecutablePath}}</string>
         <string>start</string>
-        <string>-config</string>
-        <string>{{.ConfigPath}}</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
