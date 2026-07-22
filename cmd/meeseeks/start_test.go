@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,15 +16,18 @@ import (
 
 func TestStartCommand_ConfigValidation(t *testing.T) {
 	t.Parallel()
+	tmpDir := t.TempDir()
+	emptyConfigDir := filepath.Join(tmpDir, "nonexistent")
+
 	tests := []struct {
 		name         string
-		args         []string
+		configDir    string
 		expectedExit int
 		errorMessage string
 	}{
 		{
-			name:         "nonexistent config file",
-			args:         []string{"start", "-config", "/nonexistent/file.yaml"},
+			name:         "nonexistent config directory",
+			configDir:    emptyConfigDir,
 			expectedExit: 1,
 			errorMessage: "failed to load config",
 		},
@@ -33,7 +37,13 @@ func TestStartCommand_ConfigValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			var stdoutBuf, stderrBuf bytes.Buffer
-			exitCode := runCLICommand(tt.args, &stdoutBuf, &stderrBuf, 5*time.Second)
+			exitCode := runCLICommand(
+				[]string{"start"},
+				&stdoutBuf,
+				&stderrBuf,
+				5*time.Second,
+				fmt.Sprintf("MEESEEKS_CONFIG_DIR=%s", tt.configDir),
+			)
 			output := stdoutBuf.String() + stderrBuf.String()
 
 			if exitCode != tt.expectedExit {
@@ -52,17 +62,14 @@ func TestStartCommand_Help(t *testing.T) {
 	testCommandHelp(t, []string{"start"}, []string{
 		"Usage: meeseeks start [options]",
 		"Start programs from configuration file",
-		"-config",
 		"-d",
 	})
 }
 
 func TestStartCommand_Foreground(t *testing.T) {
-	setMeeseeksConfigDirForTest(t)
+	configDir := setMeeseeksConfigDirForTest(t)
 
-	tmpDir := t.TempDir()
-	configFile := filepath.Join(tmpDir, "test-config.yaml")
-
+	configFile := filepath.Join(configDir, "config.yaml")
 	configContent := `programs:
   - name: "test-echo"
     command: "echo"
@@ -78,7 +85,7 @@ func TestStartCommand_Foreground(t *testing.T) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "go", "run", ".")
-	cmd.Args = append(cmd.Args, []string{"start", "-config", configFile}...)
+	cmd.Args = append(cmd.Args, []string{"start"}...)
 	cmd.Env = os.Environ()
 
 	// Set process group to ensure we can kill child processes
@@ -162,11 +169,9 @@ func TestStartCommand_Foreground(t *testing.T) {
 }
 
 func TestStartCommand_Detached(t *testing.T) {
-	setMeeseeksConfigDirForTest(t)
+	configDir := setMeeseeksConfigDirForTest(t)
 
-	tmpDir := t.TempDir()
-	configFile := filepath.Join(tmpDir, "test-detached-config.yaml")
-
+	configFile := filepath.Join(configDir, "config.yaml")
 	configContent := `programs:
   - name: "test-echo-detached"
     command: "sleep"
@@ -185,7 +190,7 @@ func TestStartCommand_Detached(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	exitCode := runCLICommand(
-		[]string{"start", "-d", "-config", configFile},
+		[]string{"start", "-d"},
 		&stdout,
 		&stderr,
 		15*time.Second,

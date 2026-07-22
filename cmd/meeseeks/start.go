@@ -32,7 +32,7 @@ func (c *cmd) start() error {
 
 func (c *cmd) startDetached() error {
 	//nolint:gosec // the arguments are provided by the user
-	cmd := exec.CommandContext(context.Background(), os.Args[0], "start", "-config", c.configPath)
+	cmd := exec.CommandContext(context.Background(), os.Args[0], "start")
 	cmd.Env = os.Environ()
 	cmd.SysProcAttr = detachSysProcAttr()
 
@@ -98,11 +98,6 @@ func (c *cmd) startForeground() error {
 
 func startCommand(args []string, logger *logger.Logger) error {
 	fs := flag.NewFlagSet("start", flag.ExitOnError)
-	configPath := fs.String(
-		"config",
-		"",
-		"Path to configuration file (defaults to $MEESEEKS_CONFIG_DIR/config.yaml or ~/.config/meeseeks/config.yaml)",
-	)
 	detach := fs.Bool("d", false, "Start in detached mode")
 
 	fs.Usage = func() {
@@ -116,15 +111,12 @@ func startCommand(args []string, logger *logger.Logger) error {
 		return err
 	}
 
-	if *configPath == "" {
-		*configPath = getDefaultConfigPath()
-	}
-
+	configPath := getDefaultConfigPath()
 	sockPath := getSocketPath()
 	pidFile := getPidFile()
 
 	cmd := &cmd{
-		configPath: *configPath,
+		configPath: configPath,
 		pidFile:    pidFile,
 		socketPath: sockPath,
 		logger:     logger,
