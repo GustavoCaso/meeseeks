@@ -69,7 +69,7 @@ func TestStartCommand_Help(t *testing.T) {
 func TestStartCommand_Foreground(t *testing.T) {
 	configDir := setMeeseeksConfigDirForTest(t)
 
-	configFile := filepath.Join(configDir, "test-config.yaml")
+	configFile := filepath.Join(configDir, "config.yaml")
 	configContent := `programs:
   - name: "test-echo"
     command: "echo"
@@ -171,7 +171,7 @@ func TestStartCommand_Foreground(t *testing.T) {
 func TestStartCommand_Detached(t *testing.T) {
 	configDir := setMeeseeksConfigDirForTest(t)
 
-	configFile := filepath.Join(configDir, "test-detached-config.yaml")
+	configFile := filepath.Join(configDir, "config.yaml")
 	configContent := `programs:
   - name: "test-echo-detached"
     command: "sleep"
@@ -194,7 +194,6 @@ func TestStartCommand_Detached(t *testing.T) {
 		&stdout,
 		&stderr,
 		15*time.Second,
-		fmt.Sprintf("MEESEEKS_CONFIG_DIR=%s", configDir),
 	)
 
 	if exitCode != 0 {
