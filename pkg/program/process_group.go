@@ -3,6 +3,7 @@ package program
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"sync"
@@ -13,9 +14,22 @@ import (
 // SIGTERM when its context ends and no KillGrace option is set.
 const DefaultKillGrace = 10 * time.Second
 
+const (
+	// groupPollInterval is how often a terminating group is checked for
+	// descendants that outlived the leader.
+	groupPollInterval = 20 * time.Millisecond
+	// killSettleTime bounds the wait for a group to disappear after its kill
+	// deadline, so an unkillable process cannot block the run forever.
+	killSettleTime = time.Second
+)
+
 // processGroup coordinates termination of one run of a program, so SIGTERM is
-// delivered once and no signal is sent after the run has been reaped, when the
-// group ID could belong to an unrelated process.
+// delivered once and the per-run kill timer is the only source of a timed
+// SIGKILL.
+//
+// The leader's exit and the end of the group are tracked separately. Once the
+// leader is reaped, its group ID stays reserved only while a member remains, so
+// every later signal is preceded by a check that the group still has members.
 //
 // It watches the context itself rather than using exec.CommandContext, which
 // force-kills the process a fixed WaitDelay after cancellation and so could
@@ -25,11 +39,14 @@ type processGroup struct {
 	ctx      context.Context //nolint:containedctx // Scoped to a single run
 	grace    time.Duration
 	finished chan struct{}
+	drainEnd chan struct{}
+	endDrain sync.Once
 
 	mu          sync.Mutex
 	platform    platformGroup
 	terminating bool
-	exited      bool
+	exited      bool // The leader has been reaped.
+	closed      bool // The group can no longer be signaled.
 	cancelErr   error
 	killTimer   *time.Timer
 	killAt      time.Time
@@ -41,6 +58,7 @@ func newProcessGroup(ctx context.Context, cmd *exec.Cmd, grace time.Duration) *p
 		ctx:      ctx,
 		grace:    grace,
 		finished: make(chan struct{}),
+		drainEnd: make(chan struct{}),
 	}
 }
 
@@ -48,7 +66,8 @@ func newProcessGroup(ctx context.Context, cmd *exec.Cmd, grace time.Duration) *p
 // watching the context. Holding the lock makes a concurrent termination wait
 // until the group is attached. A failed attach is reported through
 // onAttachError but does not fail the run, because the program can still be
-// terminated individually.
+// terminated individually. A failed resume does fail it, because the program
+// would otherwise stay suspended forever.
 func (g *processGroup) start(onAttachError func(error)) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -63,6 +82,13 @@ func (g *processGroup) start(onAttachError func(error)) error {
 
 	if err := g.platform.attach(g.cmd.Process); err != nil {
 		onAttachError(err)
+	}
+
+	if err := g.platform.resume(); err != nil {
+		_ = g.cmd.Process.Kill()
+		_ = g.cmd.Wait()
+		g.platform.close()
+		return fmt.Errorf("resume process: %w", err)
 	}
 
 	go g.watchContext()
@@ -92,12 +118,13 @@ func (g *processGroup) watchContext() {
 
 // terminate asks the group to exit and schedules a forced kill after grace.
 // Repeated calls never resend SIGTERM, which could interrupt a cleanup trap,
-// but can push the pending kill later. They never bring it forward.
+// but can push the pending kill later, even after the leader has exited while
+// descendants are still cleaning up. They never bring it forward.
 func (g *processGroup) terminate(grace time.Duration) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	if g.exited {
+	if g.closed || (g.exited && !g.terminating) {
 		return os.ErrProcessDone
 	}
 
@@ -122,20 +149,28 @@ func (g *processGroup) terminate(grace time.Duration) error {
 	return nil
 }
 
-// kill force-kills the group unless the run has already been reaped.
+// kill force-kills the group. After the leader is reaped it only signals a
+// group that still has members, because an empty group's ID can be reused.
 func (g *processGroup) kill() error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	if g.exited {
+	if g.closed || (g.exited && !g.platform.alive()) {
 		return os.ErrProcessDone
 	}
 	return g.platform.kill()
 }
 
-// markExited records that Wait returned and stops any pending kill. If the run
-// was being terminated, descendants that outlived the leader are killed now,
-// because the group cannot be signaled safely later.
+// killDeadline returns when the pending forced kill is due.
+func (g *processGroup) killDeadline() time.Time {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.killAt
+}
+
+// markExited records that the leader was reaped. A leader that exited on its
+// own leaves its background processes running, so the group is released. During
+// termination the group stays open for awaitDescendants.
 func (g *processGroup) markExited() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -146,22 +181,65 @@ func (g *processGroup) markExited() {
 	g.exited = true
 	close(g.finished)
 
+	if !g.terminating {
+		g.closeLocked()
+	}
+}
+
+// awaitDescendants blocks until a terminating group is empty, giving
+// descendants the rest of their grace period. The kill timer enforces the
+// deadline, including any extension made while waiting.
+func (g *processGroup) awaitDescendants() {
+	for {
+		g.mu.Lock()
+		if g.closed {
+			g.mu.Unlock()
+			return
+		}
+		if !g.platform.alive() || time.Now().After(g.killAt.Add(killSettleTime)) {
+			g.closeLocked()
+			g.mu.Unlock()
+			return
+		}
+		g.mu.Unlock()
+
+		time.Sleep(groupPollInterval)
+	}
+}
+
+func (g *processGroup) closeLocked() {
+	g.closed = true
 	if g.killTimer != nil {
 		g.killTimer.Stop()
-	}
-	if g.terminating {
-		_ = g.platform.kill()
 	}
 	g.platform.close()
 }
 
+// drainLimit is how long output may stay open once the group is settled. After
+// termination only a process that escaped the group can still hold a pipe.
+func (g *processGroup) drainLimit() time.Duration {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if g.terminating {
+		return waitDelayMargin
+	}
+	return g.grace + waitDelayMargin
+}
+
+// stopDrain ends the wait for output held open by a background process.
+func (g *processGroup) stopDrain() {
+	g.endDrain.Do(func() { close(g.drainEnd) })
+}
+
 // exitError reports a context-ended run as failed even if its cleanup handler
 // exited successfully, so deadlines still count as failures and trigger retries.
+// A context that ends after the leader exited does not change the result.
 func (g *processGroup) exitError(waitErr error) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	if g.cancelErr != nil && (waitErr == nil || errors.Is(waitErr, exec.ErrWaitDelay)) {
+	if g.cancelErr != nil && waitErr == nil {
 		return g.cancelErr
 	}
 	return waitErr

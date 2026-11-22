@@ -5,10 +5,12 @@ package program
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -258,6 +260,140 @@ func TestProcessGroup_DeadlineWithCleanExitIsAnError(t *testing.T) {
 	}
 	if !strings.Contains(p.Stderr(), context.DeadlineExceeded.Error()) {
 		t.Fatalf("Stderr() = %q, want deadline error", p.Stderr())
+	}
+}
+
+// descendantCleanupScript starts a descendant whose TERM trap takes cleanup
+// seconds and writes $MARKER. The leader then blocks, and dies on SIGTERM.
+func descendantCleanupScript(cleanup, redirect string) string {
+	return fmt.Sprintf(
+		`bash -c 'trap "sleep %s; echo done > \"$MARKER\"; exit 0" TERM; `+
+			`echo ready > "$READY"; while :; do sleep 0.05; done' %s & `+
+			`while [ ! -f "$READY" ]; do sleep 0.02; done; echo $$ > "$LEADER"; sleep 300`,
+		cleanup, redirect,
+	)
+}
+
+func TestProcessGroup_DeadlineAfterLeaderExitKeepsSuccess(t *testing.T) {
+	t.Parallel()
+	pidFile := filepath.Join(t.TempDir(), "child.pid")
+
+	p := New("deadline-while-draining", "bash",
+		Args("-c", `sleep 300 & echo $! > "$PID_FILE"; exit 0`),
+		Envs("PID_FILE="+pidFile),
+		Deadline(time.Second),
+		KillGrace(0),
+		Async(),
+	)
+
+	done, err := p.Start(t.Context())
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	pid := readPID(t, pidFile)
+
+	waitDone(t, done, waitDelayMargin+3*time.Second)
+
+	if p.State() != StateFinished {
+		t.Fatalf("State() = %s, want finished: %s", StateToString[p.State()], p.Stderr())
+	}
+	if processGone(pid) {
+		t.Fatal("background process should survive a successful leader exit")
+	}
+}
+
+func TestProcessGroup_DescendantKeepsGraceAfterLeaderExit(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "cleanup")
+	leader := filepath.Join(dir, "leader")
+
+	p := New("descendant-grace", "bash",
+		Args("-c", descendantCleanupScript("1", ">/dev/null 2>&1 </dev/null")),
+		Envs("MARKER="+marker, "READY="+filepath.Join(dir, "ready"), "LEADER="+leader),
+		KillGrace(5*time.Second),
+		Async(),
+	)
+
+	done, err := p.Start(t.Context())
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	readPID(t, leader)
+	time.Sleep(200 * time.Millisecond)
+
+	if err = p.Shutdown(5 * time.Second); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+	waitDone(t, done, 8*time.Second)
+
+	if _, statErr := os.Stat(marker); statErr != nil {
+		t.Fatalf("descendant cleanup was cut short: %v", statErr)
+	}
+}
+
+func TestProcessGroup_ConcurrentShutdownHonorsExtendedDeadline(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "cleanup")
+	ready := filepath.Join(dir, "ready")
+
+	p := New("concurrent-shutdown", "bash",
+		Args(
+			"-c",
+			`trap 'sleep 3; echo done > "$MARKER"; exit 0' TERM; echo $$ > "$READY"; sleep 300; exit 0`,
+		),
+		Envs("MARKER="+marker, "READY="+ready),
+		Async(),
+	)
+
+	done, err := p.Start(t.Context())
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	readPID(t, ready)
+	time.Sleep(200 * time.Millisecond)
+
+	var wg sync.WaitGroup
+	wg.Go(func() { _ = p.Shutdown(time.Second) })
+	time.Sleep(100 * time.Millisecond)
+	wg.Go(func() { _ = p.Shutdown(5 * time.Second) })
+	wg.Wait()
+
+	waitDone(t, done, 6*time.Second)
+
+	if _, statErr := os.Stat(marker); statErr != nil {
+		t.Fatalf("earlier Shutdown ignored the extended deadline: %v", statErr)
+	}
+}
+
+func TestProcessGroup_ShutdownTimeoutCoversInheritedOutput(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "cleanup")
+	leader := filepath.Join(dir, "leader")
+
+	p := New("shutdown-drain", "bash",
+		Args("-c", descendantCleanupScript("6", "")),
+		Envs("MARKER="+marker, "READY="+filepath.Join(dir, "ready"), "LEADER="+leader),
+		KillGrace(0),
+		Async(),
+	)
+
+	done, err := p.Start(t.Context())
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	readPID(t, leader)
+	time.Sleep(200 * time.Millisecond)
+
+	if err = p.Shutdown(30 * time.Second); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+	waitDone(t, done, 12*time.Second)
+
+	if _, statErr := os.Stat(marker); statErr != nil {
+		t.Fatalf("descendant was killed before the granted timeout: %v", statErr)
 	}
 }
 

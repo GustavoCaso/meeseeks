@@ -141,10 +141,18 @@ type program struct {
 	consecutiveFailures int
 }
 
-// waitDelayMargin is how long Wait keeps waiting for inherited pipes after the
+// waitDelayMargin is how long a run keeps waiting for inherited pipes after the
 // grace period before closing them.
 const waitDelayMargin = 5 * time.Second
 
+// pipeCloseWait bounds the wait for copy goroutines after their pipes are
+// closed. Closing does not interrupt a blocked read on every platform.
+const pipeCloseWait = 100 * time.Millisecond
+
+// pipes connects a program to its output and input. The process gets real OS
+// pipes rather than Go writers, so cmd.Wait returns when the leader exits
+// instead of also waiting for every descendant holding an output pipe. The
+// copying is owned here and drained separately.
 type pipes struct {
 	outReader *io.PipeReader
 	outWriter *io.PipeWriter
@@ -152,6 +160,17 @@ type pipes struct {
 	errWriter *io.PipeWriter
 	inReader  *io.PipeReader
 	inWriter  *io.PipeWriter
+
+	stdin io.Reader
+
+	parentOut *os.File
+	parentErr *os.File
+	parentIn  *os.File
+	childEnds []*os.File
+
+	outputDone chan struct{}
+	copyErrMu  sync.Mutex
+	copyErr    error
 }
 
 func (p *pipes) closeWriters() error {
@@ -160,6 +179,133 @@ func (p *pipes) closeWriters() error {
 
 func (p *pipes) closeReaders() error {
 	return errors.Join(p.outReader.Close(), p.errReader.Close(), p.inReader.Close())
+}
+
+// connect creates the OS pipes, hands the child's ends to cmd, and starts
+// copying output. Those copies block until the process writes, and closeFiles
+// ends them if it never starts.
+func (p *pipes) connect(cmd *exec.Cmd, stdout, stderr io.Writer, stdin io.Reader) error {
+	var childOut, childErr, childIn *os.File
+	var err error
+
+	if p.parentOut, childOut, err = os.Pipe(); err != nil {
+		return fmt.Errorf("create stdout pipe: %w", err)
+	}
+	p.childEnds = append(p.childEnds, childOut)
+
+	if p.parentErr, childErr, err = os.Pipe(); err != nil {
+		p.closeFiles()
+		return fmt.Errorf("create stderr pipe: %w", err)
+	}
+	p.childEnds = append(p.childEnds, childErr)
+
+	if childIn, p.parentIn, err = os.Pipe(); err != nil {
+		p.closeFiles()
+		return fmt.Errorf("create stdin pipe: %w", err)
+	}
+	p.childEnds = append(p.childEnds, childIn)
+
+	p.stdin = stdin
+	cmd.Stdout = childOut
+	cmd.Stderr = childErr
+	cmd.Stdin = childIn
+
+	p.outputDone = make(chan struct{})
+
+	var output sync.WaitGroup
+	output.Add(2)
+
+	go func() {
+		defer output.Done()
+		_, copyErr := io.Copy(stdout, p.parentOut)
+		p.recordCopyError(copyErr)
+		_ = p.parentOut.Close()
+	}()
+	go func() {
+		defer output.Done()
+		_, copyErr := io.Copy(stderr, p.parentErr)
+		p.recordCopyError(copyErr)
+		_ = p.parentErr.Close()
+	}()
+	go func() {
+		output.Wait()
+		close(p.outputDone)
+	}()
+
+	return nil
+}
+
+// processStarted releases the child's pipe ends, so EOF arrives once every
+// holder exits, and starts copying stdin. Stdin waits until now so a failed
+// start cannot consume a caller's reader, and it is not part of outputDone
+// because a reader with no more data must not hold up the end of a run.
+func (p *pipes) processStarted() {
+	for _, file := range p.childEnds {
+		_ = file.Close()
+	}
+
+	go func() {
+		_, err := io.Copy(p.parentIn, p.stdin)
+		if !errors.Is(err, syscall.EPIPE) {
+			p.recordCopyError(err)
+		}
+		_ = p.parentIn.Close()
+	}()
+}
+
+// recordCopyError keeps the first real copy failure. Closed pipes are how a
+// drain is ended, so they are not failures.
+func (p *pipes) recordCopyError(err error) {
+	if err == nil || errors.Is(err, os.ErrClosed) || errors.Is(err, io.ErrClosedPipe) {
+		return
+	}
+
+	p.copyErrMu.Lock()
+	defer p.copyErrMu.Unlock()
+	if p.copyErr == nil {
+		p.copyErr = err
+	}
+}
+
+func (p *pipes) firstCopyError() error {
+	p.copyErrMu.Lock()
+	defer p.copyErrMu.Unlock()
+	return p.copyErr
+}
+
+// drain waits for output to reach EOF, up to limit or until stop closes. It
+// reports whether all output was read. On false, a process still holds a pipe
+// and the parent's ends are closed.
+func (p *pipes) drain(limit time.Duration, stop <-chan struct{}) bool {
+	timer := time.NewTimer(limit)
+	defer timer.Stop()
+
+	drained := false
+	select {
+	case <-p.outputDone:
+		drained = true
+	case <-timer.C:
+	case <-stop:
+	}
+
+	p.closeFiles()
+
+	if !drained {
+		select {
+		case <-p.outputDone:
+		case <-time.After(pipeCloseWait):
+		}
+	}
+	return drained
+}
+
+// closeFiles closes every OS pipe end. Ends that are already closed are ignored.
+func (p *pipes) closeFiles() {
+	for _, file := range append([]*os.File{p.parentOut, p.parentErr, p.parentIn}, p.childEnds...) {
+		if file != nil {
+			_ = file.Close()
+		}
+	}
 }
 
 // New creates a new Program instance with the provided options.
@@ -429,27 +575,41 @@ func (p *program) Shutdown(timeout time.Duration) error {
 	}
 
 	// Send SIGTERM to the whole process group for graceful shutdown
-	err := p.group.terminate(timeout)
+	group := p.group
+	err := group.terminate(timeout)
 	p.cmdLock.Unlock()
+
+	p.dataLock.RLock()
+	done := p.done
+	p.dataLock.RUnlock()
+
 	if err != nil {
 		if errors.Is(err, os.ErrProcessDone) {
+			// The leader already exited on its own. Background processes are left
+			// running, so only the wait for their output needs to end.
+			group.stopDrain()
+			select {
+			case <-done:
+			case <-time.After(timeout):
+			}
 			return nil
 		}
 		// If SIGTERM fails, fall back to force kill
 		return p.forcekill()
 	}
 
-	p.dataLock.RLock()
-	done := p.done
-	p.dataLock.RUnlock()
-
-	// Wait for the existing monitoring to handle process exit
-	select {
-	case <-done:
-		return nil
-	case <-time.After(timeout):
-		// Timeout exceeded, force kill
-		return p.forcekill()
+	// The group's timer delivers SIGKILL. Waiting on its current deadline means
+	// a concurrent Shutdown that extended it is honored here too. The forced
+	// kill below is only a last resort if the run fails to finish after that.
+	for {
+		select {
+		case <-done:
+			return nil
+		case <-time.After(time.Until(group.killDeadline()) + waitDelayMargin):
+			if time.Until(group.killDeadline())+waitDelayMargin <= 0 {
+				return p.forcekill()
+			}
+		}
 	}
 }
 
@@ -550,9 +710,15 @@ func (p *program) setupCmd(ctx context.Context) (*exec.Cmd, context.Context, err
 		stderrWriters = append(stderrWriters, file)
 	}
 
-	cmd.Stdout = io.MultiWriter(outputWriters...)
-	cmd.Stderr = io.MultiWriter(stderrWriters...)
-	cmd.Stdin = io.MultiReader(stdinReaders...)
+	err := pipes.connect(
+		cmd,
+		io.MultiWriter(outputWriters...),
+		io.MultiWriter(stderrWriters...),
+		io.MultiReader(stdinReaders...),
+	)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	if !p.keepStdinOpen {
 		_ = inWriter.Close()
@@ -562,8 +728,7 @@ func (p *program) setupCmd(ctx context.Context) (*exec.Cmd, context.Context, err
 }
 
 // configureTermination runs the command in its own process group and makes
-// the end of ctx terminate that group. WaitDelay guarantees Wait returns even
-// if a descendant that escaped the group still holds an output pipe.
+// the end of ctx terminate that group.
 func (p *program) configureTermination(ctx context.Context, cmd *exec.Cmd) *processGroup {
 	grace := DefaultKillGrace
 	if p.killGraceSet {
@@ -571,7 +736,6 @@ func (p *program) configureTermination(ctx context.Context, cmd *exec.Cmd) *proc
 	}
 
 	setProcessGroup(cmd)
-	cmd.WaitDelay = grace + waitDelayMargin
 
 	return newProcessGroup(ctx, cmd, grace)
 }
@@ -587,9 +751,13 @@ func (p *program) run(done chan struct{}) error {
 			)
 		}
 	})
+	if err == nil {
+		p.pipes.processStarted()
+	}
 	p.cmdLock.Unlock()
 
 	if err != nil {
+		p.pipes.closeFiles()
 		p.runFinalizers()
 		p.dataLock.Lock()
 		p.writeOutput(err.Error(), true)
@@ -630,17 +798,19 @@ func (p *program) monitorProcess(done chan struct{}) {
 	cmd := p.cmd
 	group := p.group
 	p.cmdLock.Unlock()
+	// Wait returns when the leader exits, because the process has real OS pipes.
 	err := cmd.Wait()
 	group.markExited()
-	err = group.exitError(err)
+	group.awaitDescendants()
 
-	// The program itself succeeded; only a background process kept a pipe open.
-	if errors.Is(err, exec.ErrWaitDelay) {
-		if p.logger != nil {
-			p.logger.Warn("program exited but a descendant kept its output open", "program", p.name)
-		}
-		err = nil
+	// A background process holding a pipe does not change the program's result.
+	if !p.pipes.drain(group.drainLimit(), group.drainEnd) && p.logger != nil {
+		p.logger.Warn("program exited but a descendant kept its output open", "program", p.name)
 	}
+	if err == nil {
+		err = p.pipes.firstCopyError()
+	}
+	err = group.exitError(err)
 
 	writersErr := p.pipes.closeWriters()
 

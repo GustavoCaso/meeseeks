@@ -3,10 +3,12 @@
 package program
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"syscall"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -22,14 +24,85 @@ type platformGroup struct {
 	job     windows.Handle
 }
 
-// setProcessGroup starts the command in a new console process group so it can
-// receive CTRL_BREAK without affecting meeseeks.
-func setProcessGroup(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP}
+// jobBasicAccounting mirrors JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, which
+// golang.org/x/sys/windows does not define.
+type jobBasicAccounting struct {
+	TotalUserTime             int64
+	TotalKernelTime           int64
+	ThisPeriodTotalUserTime   int64
+	ThisPeriodTotalKernelTime int64
+	TotalPageFaultCount       uint32
+	TotalProcesses            uint32
+	ActiveProcesses           uint32
+	TotalTerminatedProcesses  uint32
 }
 
-// attach assigns the started process to a new job. Go offers no way to start a
-// process suspended and resume it, so a child spawned before this call escapes.
+// setProcessGroup starts the command in a new console process group so it can
+// receive CTRL_BREAK without affecting meeseeks. It starts suspended so no user
+// code runs, and no child can escape, before the process joins its job.
+func setProcessGroup(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | windows.CREATE_SUSPENDED,
+	}
+}
+
+// resume starts the suspended process. os/exec discards the primary thread
+// handle, so the thread is found through a system snapshot.
+func (g *platformGroup) resume() error {
+	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPTHREAD, 0)
+	if err != nil {
+		return fmt.Errorf("snapshot threads: %w", err)
+	}
+	defer func() { _ = windows.CloseHandle(snapshot) }()
+
+	entry := windows.ThreadEntry32{Size: uint32(unsafe.Sizeof(windows.ThreadEntry32{}))}
+	pid := uint32(g.process.Pid) //nolint:gosec // Windows process IDs are DWORD values
+	resumed := 0
+
+	for err = windows.Thread32First(snapshot, &entry); err == nil; err = windows.Thread32Next(snapshot, &entry) {
+		if entry.OwnerProcessID != pid {
+			continue
+		}
+
+		thread, openErr := windows.OpenThread(windows.THREAD_SUSPEND_RESUME, false, entry.ThreadID)
+		if openErr != nil {
+			return fmt.Errorf("open thread: %w", openErr)
+		}
+		_, resumeErr := windows.ResumeThread(thread)
+		_ = windows.CloseHandle(thread)
+		if resumeErr != nil {
+			return fmt.Errorf("resume thread: %w", resumeErr)
+		}
+		resumed++
+	}
+
+	if !errors.Is(err, windows.ERROR_NO_MORE_FILES) {
+		return fmt.Errorf("enumerate threads: %w", err)
+	}
+	if resumed == 0 {
+		return errors.New("no thread found for process")
+	}
+	return nil
+}
+
+// alive reports whether the job still has running processes.
+func (g *platformGroup) alive() bool {
+	if g.job == 0 {
+		return false
+	}
+
+	var info jobBasicAccounting
+	err := windows.QueryInformationJobObject(
+		g.job,
+		windows.JobObjectBasicAccountingInformation,
+		uintptr(unsafe.Pointer(&info)),
+		uint32(unsafe.Sizeof(info)),
+		nil,
+	)
+	return err == nil && info.ActiveProcesses > 0
+}
+
+// attach assigns the suspended process to a new job.
 func (g *platformGroup) attach(process *os.Process) error {
 	g.process = process
 

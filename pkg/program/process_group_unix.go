@@ -24,6 +24,17 @@ func (g *platformGroup) attach(process *os.Process) error {
 	return nil
 }
 
+// resume is a no-op because a Unix process joins its group before it executes.
+func (g *platformGroup) resume() error {
+	return nil
+}
+
+// alive reports whether the group still has a member that can be signaled.
+// EPERM counts as empty because macOS returns it for a group of only zombies.
+func (g *platformGroup) alive() bool {
+	return syscall.Kill(-g.process.Pid, 0) == nil
+}
+
 func (g *platformGroup) terminate() error {
 	return g.signal(syscall.SIGTERM)
 }
