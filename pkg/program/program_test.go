@@ -224,8 +224,8 @@ func TestAsync(t *testing.T) {
 		}
 
 		errorMessage := p.Stderr()
-		// Context cancellation can result in either error or finished status depending on timing
-		if !strings.Contains(errorMessage, "signal: killed") {
+		// Context cancellation sends SIGTERM to the process group first
+		if !strings.Contains(errorMessage, "signal: terminated") {
 			t.Fatalf(
 				"Expected errorMessage to indicate error or finished after cancellation, got: %q",
 				errorMessage,

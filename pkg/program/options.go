@@ -137,6 +137,18 @@ func Deadline(duration time.Duration) Option {
 	}
 }
 
+// KillGrace sets how long the program's process group has to exit after
+// SIGTERM before it receives SIGKILL. It applies when the deadline expires or
+// the context is cancelled, and is the minimum grace period for Shutdown.
+// Without this option, deadlines use DefaultKillGrace and Shutdown uses its
+// timeout argument. A value of zero sends SIGKILL immediately after SIGTERM.
+func KillGrace(duration time.Duration) Option {
+	return func(p *program) {
+		p.killGrace = duration
+		p.killGraceSet = true
+	}
+}
+
 // BufferSizeLimit sets the maximum size in bytes for stdout/stderr buffers.
 // When the limit is reached, buffers are truncated to prevent memory issues.
 // A limit of 0 means no limit (buffers can grow indefinitely).

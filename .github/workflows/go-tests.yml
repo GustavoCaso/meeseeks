@@ -5,6 +5,9 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+    
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -20,3 +23,18 @@ jobs:
       run: go test ./...
     - name: Run test (race)
       run: go test ./... -race
+
+  test-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.26'
+        check-latest: true
+    - name: Build
+      run: go build ./...
+    # The wider suite depends on Unix tools such as bash and sleep.
+    - name: Run process tree tests
+      run: go test ./pkg/program -run 'TestWindows' -v -count=1

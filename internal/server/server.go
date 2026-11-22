@@ -294,6 +294,9 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Stopping can outlast the server's write timeout while kill_grace runs.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+
 	err = s.meeseeks.Stop(programName, duration)
 	if err != nil {
 		resp := Response{Success: false, Error: err.Error()}
@@ -348,6 +351,9 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 
 		programs = append(programs, prog)
 	}
+
+	// Reloading can outlast the server's write timeout while kill_grace runs.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 
 	s.meeseeks.Reload(context.Background(), programs, duration)
 	resp := Response{Success: true, Data: "meeseek configuration reloaded!"}
