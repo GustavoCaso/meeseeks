@@ -82,5 +82,13 @@ func createProgramFromConfig(
 	}
 	opts = append(opts, program.Deadline(deadline))
 
+	if pc.KillGrace != "" {
+		killGrace, graceErr := pc.GetKillGrace()
+		if graceErr != nil {
+			return nil, graceErr
+		}
+		opts = append(opts, program.KillGrace(killGrace))
+	}
+
 	return program.New(pc.Name, pc.Command, opts...), nil
 }

@@ -327,6 +327,7 @@ programs:
     retry_count: 3                      # Optional: Number of times to retry on failure (default: 0)
     retry_delay: "5s"                   # Optional: Delay between retries (e.g., "5s", "1m")
     deadline: "5m"                      # Optional: Kill program if it exceeds this duration (e.g., "5m", "1h")
+    kill_grace: "30s"                   # Optional: Time between SIGTERM and SIGKILL for the process group (default: 10s on deadline)
     keep_stdin_open: true               # Optional: Keep stdin open for input (default: false)
     stdout: "/path/to/stdout.log"       # Optional: Redirect stdout to file
     stderr: "/path/to/stderr.log"       # Optional: Redirect stderr to file
@@ -336,6 +337,8 @@ programs:
     on_failure_callback: "notify"       # Optional: Executable run when program fails
     on_failure_callback_args: ["fail"]  # Optional: Arguments for the failure callback
 ```
+
+On Windows, programs run in a Job Object so termination covers their process tree. `kill_grace` applies only when meeseeks shares a console with the program, where it sends `CTRL_BREAK`. Under the detached daemon no graceful signal exists, so the tree is killed immediately.
 
 Callbacks are executed directly (not through a shell), so `on_success_callback` must be an executable and its arguments go in `on_success_callback_args`. To use shell features like pipes or variable expansion, invoke a shell explicitly: `on_success_callback: "sh"` with `on_success_callback_args: ["-c", "echo done >> /tmp/log"]`. Callbacks receive `MEESEEKS_PROGRAM`, `MEESEEKS_STATUS`, and (for failures) `MEESEEKS_ERROR` environment variables, and are killed if they run longer than one minute.
 

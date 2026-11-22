@@ -28,6 +28,7 @@ type ProgramConfig struct {
 	RetryCount            int      `yaml:"retry_count,omitempty"              json:"retry_count,omitempty"`
 	RetryDelay            string   `yaml:"retry_delay,omitempty"              json:"retry_delay,omitempty"`
 	Deadline              string   `yaml:"deadline,omitempty"                 json:"deadline,omitempty"`
+	KillGrace             string   `yaml:"kill_grace,omitempty"               json:"kill_grace,omitempty"`
 	KeepStdinOpen         bool     `yaml:"keep_stdin_open,omitempty"          json:"keep_stdin_open,omitempty"`
 	Stdout                string   `yaml:"stdout,omitempty"                   json:"stdout,omitempty"`
 	Stderr                string   `yaml:"stderr,omitempty"                   json:"stderr,omitempty"`
@@ -57,6 +58,22 @@ func (pc *ProgramConfig) GetDeadline() (time.Duration, error) {
 		return 0, nil
 	}
 	return time.ParseDuration(pc.Deadline)
+}
+
+// GetKillGrace returns the configured SIGTERM to SIGKILL grace period.
+// Callers should check for an empty KillGrace to distinguish unset from zero.
+func (pc *ProgramConfig) GetKillGrace() (time.Duration, error) {
+	if pc.KillGrace == "" {
+		return 0, nil
+	}
+	grace, err := time.ParseDuration(pc.KillGrace)
+	if err != nil {
+		return 0, err
+	}
+	if grace < 0 {
+		return 0, fmt.Errorf("duration %q must be zero or greater", pc.KillGrace)
+	}
+	return grace, nil
 }
 
 func (pc *ProgramConfig) GetInitialDelay() (time.Duration, error) {
@@ -155,12 +172,8 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("duplicate program name: %s", program.Name)
 		}
 
-		if _, err := program.GetInterval(); err != nil {
-			return fmt.Errorf("invalid interval for program %s: %w", program.Name, err)
-		}
-
-		if _, err := program.GetInitialDelay(); err != nil {
-			return fmt.Errorf("invalid initial_delay for program %s: %w", program.Name, err)
+		if err := program.validateDurations(); err != nil {
+			return err
 		}
 
 		if program.RetryCount < 0 {
@@ -170,19 +183,35 @@ func (c *Config) Validate() error {
 			)
 		}
 
-		if _, err := program.GetRetryDelay(); err != nil {
-			return fmt.Errorf("invalid retry_delay for program %s: %w", program.Name, err)
-		}
-
-		if _, err := program.GetDeadline(); err != nil {
-			return fmt.Errorf("invalid deadline for program %s: %w", program.Name, err)
-		}
-
 		if _, err := program.GetBufferSizeLimit(); err != nil {
 			return fmt.Errorf("invalid buffer_size_limit for program %s: %w", program.Name, err)
 		}
 
 		programNames[program.Name] = true
+	}
+
+	return nil
+}
+
+func (pc *ProgramConfig) validateDurations() error {
+	if _, err := pc.GetInterval(); err != nil {
+		return fmt.Errorf("invalid interval for program %s: %w", pc.Name, err)
+	}
+
+	if _, err := pc.GetInitialDelay(); err != nil {
+		return fmt.Errorf("invalid initial_delay for program %s: %w", pc.Name, err)
+	}
+
+	if _, err := pc.GetRetryDelay(); err != nil {
+		return fmt.Errorf("invalid retry_delay for program %s: %w", pc.Name, err)
+	}
+
+	if _, err := pc.GetDeadline(); err != nil {
+		return fmt.Errorf("invalid deadline for program %s: %w", pc.Name, err)
+	}
+
+	if _, err := pc.GetKillGrace(); err != nil {
+		return fmt.Errorf("invalid kill_grace for program %s: %w", pc.Name, err)
 	}
 
 	return nil

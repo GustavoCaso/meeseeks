@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -665,5 +666,56 @@ func TestProgramConfig_GetDeadline(t *testing.T) {
 				t.Fatalf("GetDeadline() = %v, want %v", duration, tt.expected)
 			}
 		})
+	}
+}
+
+func TestProgramConfig_GetKillGrace(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		killGrace   string
+		expected    time.Duration
+		errContains string
+	}{
+		{name: "unset", killGrace: "", expected: 0},
+		{name: "zero", killGrace: "0s", expected: 0},
+		{name: "valid", killGrace: "30s", expected: 30 * time.Second},
+		{name: "invalid", killGrace: "soon", errContains: "invalid duration"},
+		{name: "negative", killGrace: "-1s", errContains: "zero or greater"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			pc := &ProgramConfig{KillGrace: tt.killGrace}
+
+			got, err := pc.GetKillGrace()
+			if tt.errContains != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.errContains) {
+					t.Fatalf("GetKillGrace() error = %v, want containing %q", err, tt.errContains)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("GetKillGrace() unexpected error = %v", err)
+			}
+			if got != tt.expected {
+				t.Fatalf("GetKillGrace() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestConfigValidate_KillGrace(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{Programs: []ProgramConfig{
+		{Name: "test", Command: "echo", KillGrace: "-5s"},
+	}}
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "invalid kill_grace") {
+		t.Fatalf("Validate() error = %v, want invalid kill_grace", err)
 	}
 }

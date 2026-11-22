@@ -98,6 +98,7 @@ var StateToString = map[ProcessState]string{
 
 type program struct {
 	cmd          *exec.Cmd
+	group        *processGroup
 	name         string
 	command      string
 	arguments    []string
@@ -107,6 +108,8 @@ type program struct {
 	retryCount   int
 	retryDelay   time.Duration
 	deadline     time.Duration
+	killGrace    time.Duration
+	killGraceSet bool
 	done         chan struct{}
 
 	customStdout io.Writer
@@ -137,6 +140,10 @@ type program struct {
 
 	consecutiveFailures int
 }
+
+// waitDelayMargin is how long Wait keeps waiting for inherited pipes after the
+// grace period before closing them.
+const waitDelayMargin = 5 * time.Second
 
 type pipes struct {
 	outReader *io.PipeReader
@@ -188,7 +195,7 @@ func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
 
 	p.state = StateRunning
 	p.dataLock.Unlock()
-	cmd, err := p.setupCmd(ctx)
+	cmd, runCtx, err := p.setupCmd(ctx)
 
 	if err != nil {
 		// Failed setup, run any finalizers registered before the failure
@@ -203,8 +210,11 @@ func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
 		return done, err
 	}
 
+	group := p.configureTermination(runCtx, cmd)
+
 	p.cmdLock.Lock()
 	p.cmd = cmd
+	p.group = group
 	p.cmdLock.Unlock()
 
 	done := make(chan struct{})
@@ -370,6 +380,10 @@ func (p *program) String() string {
 		s += fmt.Sprintf(", deadline: %s", p.deadline)
 	}
 
+	if p.killGraceSet {
+		s += fmt.Sprintf(", kill grace: %s", p.killGrace)
+	}
+
 	if len(p.customEnv) > 0 {
 		s += fmt.Sprintf(", env: (%s)", strings.Join(p.customEnv, ", "))
 	}
@@ -408,8 +422,14 @@ func (p *program) Shutdown(timeout time.Duration) error {
 		return nil
 	}
 
-	// Send SIGTERM for graceful shutdown
-	err := p.cmd.Process.Signal(syscall.SIGTERM)
+	// A configured kill grace is a floor, so a short stop timeout cannot cut
+	// off cleanup the program was explicitly given time to finish.
+	if p.killGraceSet && p.killGrace > timeout {
+		timeout = p.killGrace
+	}
+
+	// Send SIGTERM to the whole process group for graceful shutdown
+	err := p.group.terminate(timeout)
 	p.cmdLock.Unlock()
 	if err != nil {
 		if errors.Is(err, os.ErrProcessDone) {
@@ -448,7 +468,8 @@ func (p *program) runFinalizers() {
 	p.finalizers = []func() error{}
 }
 
-func (p *program) setupCmd(ctx context.Context) (*exec.Cmd, error) {
+// setupCmd builds the command and returns it with the context bounding its run.
+func (p *program) setupCmd(ctx context.Context) (*exec.Cmd, context.Context, error) {
 	var cancel context.CancelFunc
 
 	if p.deadline > 0 {
@@ -460,11 +481,9 @@ func (p *program) setupCmd(ctx context.Context) (*exec.Cmd, error) {
 		})
 	}
 
-	//nolint:gosec // We accept the arguments the users have manually defined
-	cmd := exec.CommandContext(
-		ctx,
-		p.command,
-		p.arguments...)
+	// processGroup watches ctx, so termination can reach the whole process tree.
+	//nolint:gosec,noctx // We accept the arguments the users have manually defined
+	cmd := exec.Command(p.command, p.arguments...)
 	cmd.Env = append(os.Environ(), p.customEnv...)
 
 	outReader, outWriter := io.Pipe()
@@ -518,7 +537,7 @@ func (p *program) setupCmd(ctx context.Context) (*exec.Cmd, error) {
 	if p.stdoutFile != "" {
 		file, err := prepareFile(p.stdoutFile)
 		if err != nil {
-			return nil, fmt.Errorf("failed to open stdout file %s: %w", p.stdoutFile, err)
+			return nil, nil, fmt.Errorf("failed to open stdout file %s: %w", p.stdoutFile, err)
 		}
 		outputWriters = append(outputWriters, file)
 	}
@@ -526,7 +545,7 @@ func (p *program) setupCmd(ctx context.Context) (*exec.Cmd, error) {
 	if p.stderrFile != "" {
 		file, err := prepareFile(p.stderrFile)
 		if err != nil {
-			return nil, fmt.Errorf("failed to open stderr file %s: %w", p.stderrFile, err)
+			return nil, nil, fmt.Errorf("failed to open stderr file %s: %w", p.stderrFile, err)
 		}
 		stderrWriters = append(stderrWriters, file)
 	}
@@ -539,12 +558,35 @@ func (p *program) setupCmd(ctx context.Context) (*exec.Cmd, error) {
 		_ = inWriter.Close()
 	}
 
-	return cmd, nil
+	return cmd, ctx, nil
+}
+
+// configureTermination runs the command in its own process group and makes
+// the end of ctx terminate that group. WaitDelay guarantees Wait returns even
+// if a descendant that escaped the group still holds an output pipe.
+func (p *program) configureTermination(ctx context.Context, cmd *exec.Cmd) *processGroup {
+	grace := DefaultKillGrace
+	if p.killGraceSet {
+		grace = p.killGrace
+	}
+
+	setProcessGroup(cmd)
+	cmd.WaitDelay = grace + waitDelayMargin
+
+	return newProcessGroup(ctx, cmd, grace)
 }
 
 func (p *program) run(done chan struct{}) error {
 	p.cmdLock.Lock()
-	err := p.cmd.Start()
+	err := p.group.start(func(attachErr error) {
+		if p.logger != nil {
+			p.logger.Warn(
+				"could not track program process tree",
+				"program", p.name,
+				"error", attachErr.Error(),
+			)
+		}
+	})
 	p.cmdLock.Unlock()
 
 	if err != nil {
@@ -586,8 +628,19 @@ func (p *program) monitorProcess(done chan struct{}) {
 
 	p.cmdLock.Lock()
 	cmd := p.cmd
+	group := p.group
 	p.cmdLock.Unlock()
 	err := cmd.Wait()
+	group.markExited()
+	err = group.exitError(err)
+
+	// The program itself succeeded; only a background process kept a pipe open.
+	if errors.Is(err, exec.ErrWaitDelay) {
+		if p.logger != nil {
+			p.logger.Warn("program exited but a descendant kept its output open", "program", p.name)
+		}
+		err = nil
+	}
 
 	writersErr := p.pipes.closeWriters()
 
@@ -743,7 +796,7 @@ func (p *program) forcekill() error {
 		return nil
 	}
 
-	err := p.cmd.Process.Kill()
+	err := p.group.kill()
 	p.cmdLock.Unlock()
 	p.dataLock.Lock()
 	p.state = StateError
