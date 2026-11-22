@@ -145,9 +145,30 @@ type program struct {
 // grace period before closing them.
 const waitDelayMargin = 5 * time.Second
 
-// pipeCloseWait bounds the wait for copy goroutines after their pipes are
-// closed. Closing does not interrupt a blocked read on every platform.
-const pipeCloseWait = 100 * time.Millisecond
+// gatedWriter lets a run end without a copy goroutine writing to the caller's
+// writer afterwards. close waits for an in-flight write and rejects later ones,
+// even if the goroutine stays blocked in a read that Close cannot interrupt.
+type gatedWriter struct {
+	mu     sync.Mutex
+	w      io.Writer
+	closed bool
+}
+
+func (g *gatedWriter) Write(data []byte) (int, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if g.closed {
+		return 0, io.ErrClosedPipe
+	}
+	return g.w.Write(data)
+}
+
+func (g *gatedWriter) close() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.closed = true
+}
 
 // pipes connects a program to its output and input. The process gets real OS
 // pipes rather than Go writers, so cmd.Wait returns when the leader exits
@@ -167,6 +188,8 @@ type pipes struct {
 	parentErr *os.File
 	parentIn  *os.File
 	childEnds []*os.File
+	outGate   *gatedWriter
+	errGate   *gatedWriter
 
 	outputDone chan struct{}
 	copyErrMu  sync.Mutex
@@ -210,6 +233,8 @@ func (p *pipes) connect(cmd *exec.Cmd, stdout, stderr io.Writer, stdin io.Reader
 	cmd.Stderr = childErr
 	cmd.Stdin = childIn
 
+	p.outGate = &gatedWriter{w: stdout}
+	p.errGate = &gatedWriter{w: stderr}
 	p.outputDone = make(chan struct{})
 
 	var output sync.WaitGroup
@@ -217,13 +242,13 @@ func (p *pipes) connect(cmd *exec.Cmd, stdout, stderr io.Writer, stdin io.Reader
 
 	go func() {
 		defer output.Done()
-		_, copyErr := io.Copy(stdout, p.parentOut)
+		_, copyErr := io.Copy(p.outGate, p.parentOut)
 		p.recordCopyError(copyErr)
 		_ = p.parentOut.Close()
 	}()
 	go func() {
 		defer output.Done()
-		_, copyErr := io.Copy(stderr, p.parentErr)
+		_, copyErr := io.Copy(p.errGate, p.parentErr)
 		p.recordCopyError(copyErr)
 		_ = p.parentErr.Close()
 	}()
@@ -246,7 +271,8 @@ func (p *pipes) processStarted() {
 
 	go func() {
 		_, err := io.Copy(p.parentIn, p.stdin)
-		if !errors.Is(err, syscall.EPIPE) {
+		// A program may exit without reading all of its input.
+		if !isClosedPipeError(err) {
 			p.recordCopyError(err)
 		}
 		_ = p.parentIn.Close()
@@ -274,8 +300,9 @@ func (p *pipes) firstCopyError() error {
 }
 
 // drain waits for output to reach EOF, up to limit or until stop closes. It
-// reports whether all output was read. On false, a process still holds a pipe
-// and the parent's ends are closed.
+// reports whether all output was read. On false, a process still holds a pipe,
+// so the parent's ends are closed and the writers are gated. That waits for any
+// in-flight write, so no caller's writer is touched after the run ends.
 func (p *pipes) drain(limit time.Duration, stop <-chan struct{}) bool {
 	timer := time.NewTimer(limit)
 	defer timer.Stop()
@@ -291,10 +318,11 @@ func (p *pipes) drain(limit time.Duration, stop <-chan struct{}) bool {
 	p.closeFiles()
 
 	if !drained {
-		select {
-		case <-p.outputDone:
-		case <-time.After(pipeCloseWait):
-		}
+		// Release a write blocked on the log pipe, whose reader may have stopped.
+		_ = p.outWriter.Close()
+		_ = p.errWriter.Close()
+		p.outGate.close()
+		p.errGate.close()
 	}
 	return drained
 }
@@ -798,10 +826,11 @@ func (p *program) monitorProcess(done chan struct{}) {
 	cmd := p.cmd
 	group := p.group
 	p.cmdLock.Unlock()
-	// Wait returns when the leader exits, because the process has real OS pipes.
+	// The leader is reaped only after signaling ends, so its group ID stays
+	// reserved. Wait does not block on output, because the process has OS pipes.
+	group.awaitLeaderExit()
 	err := cmd.Wait()
-	group.markExited()
-	group.awaitDescendants()
+	group.markReaped()
 
 	// A background process holding a pipe does not change the program's result.
 	if !p.pipes.drain(group.drainLimit(), group.drainEnd) && p.logger != nil {

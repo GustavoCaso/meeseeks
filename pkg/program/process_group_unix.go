@@ -29,10 +29,23 @@ func (g *platformGroup) resume() error {
 	return nil
 }
 
-// alive reports whether the group still has a member that can be signaled.
-// EPERM counts as empty because macOS returns it for a group of only zombies.
+// waitLeader blocks until the leader exits and leaves it unreaped. It returns
+// false if the platform cannot observe that.
+func (g *platformGroup) waitLeader() bool {
+	return waitLeaderExit(g.process.Pid)
+}
+
+// alive reports whether a process other than the exited leader is still live
+// in the group. kill(pgid, 0) cannot answer this, because the zombie leader
+// still counts as a member.
 func (g *platformGroup) alive() bool {
-	return syscall.Kill(-g.process.Pid, 0) == nil
+	return hasLiveDescendant(g.process.Pid)
+}
+
+// isClosedPipeError reports whether a stdin write failed because the program
+// closed its end of the pipe.
+func isClosedPipeError(err error) bool {
+	return errors.Is(err, syscall.EPIPE)
 }
 
 func (g *platformGroup) terminate() error {

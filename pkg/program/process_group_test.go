@@ -6,11 +6,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -394,6 +397,109 @@ func TestProcessGroup_ShutdownTimeoutCoversInheritedOutput(t *testing.T) {
 
 	if _, statErr := os.Stat(marker); statErr != nil {
 		t.Fatalf("descendant was killed before the granted timeout: %v", statErr)
+	}
+}
+
+func TestProcessGroup_UnreapedLeaderReservesGroup(t *testing.T) {
+	t.Parallel()
+	pidFile := filepath.Join(t.TempDir(), "child.pid")
+
+	cmd := exec.Command("bash", "-c", `sleep 300 & echo $! > "$PID_FILE"; exit 0`)
+	cmd.Env = append(os.Environ(), "PID_FILE="+pidFile)
+	setProcessGroup(cmd)
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	leader := cmd.Process.Pid
+	child := readPID(t, pidFile)
+
+	if !waitLeaderExit(leader) {
+		_ = cmd.Wait()
+		t.Skip("platform cannot observe exit without reaping")
+	}
+	defer func() { _ = cmd.Wait() }()
+
+	if !hasLiveDescendant(leader) {
+		t.Fatal("live descendant was not detected")
+	}
+
+	if err := syscall.Kill(child, syscall.SIGKILL); err != nil {
+		t.Fatalf("Kill() error = %v", err)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for hasLiveDescendant(leader) {
+		if time.Now().After(deadline) {
+			t.Fatal("group of only a zombie leader counts as live")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// The zombie must still exist, because it is what reserves the group ID.
+	if err := syscall.Kill(leader, 0); err != nil {
+		t.Fatalf("leader was reaped early: %v", err)
+	}
+}
+
+// slowWriter blocks inside Write until released.
+type slowWriter struct {
+	entered  chan struct{}
+	release  chan struct{}
+	finished atomic.Int32
+	once     sync.Once
+}
+
+func (w *slowWriter) Write(data []byte) (int, error) {
+	w.once.Do(func() { close(w.entered) })
+	<-w.release
+	w.finished.Add(1)
+	return len(data), nil
+}
+
+func TestPipes_DrainWaitsForInFlightWrite(t *testing.T) {
+	t.Parallel()
+
+	outReader, outWriter := io.Pipe()
+	errReader, errWriter := io.Pipe()
+	inReader, inWriter := io.Pipe()
+	p := &pipes{
+		outReader: outReader, outWriter: outWriter,
+		errReader: errReader, errWriter: errWriter,
+		inReader: inReader, inWriter: inWriter,
+	}
+
+	writer := &slowWriter{entered: make(chan struct{}), release: make(chan struct{})}
+	if err := p.connect(
+		exec.Command("true"),
+		writer,
+		io.Discard,
+		strings.NewReader(""),
+	); err != nil {
+		t.Fatalf("connect() error = %v", err)
+	}
+	if _, err := p.childEnds[0].WriteString("data"); err != nil {
+		t.Fatalf("WriteString() error = %v", err)
+	}
+	<-writer.entered
+
+	returned := make(chan bool, 1)
+	go func() { returned <- p.drain(10*time.Millisecond, nil) }()
+
+	select {
+	case <-returned:
+		t.Fatal("drain returned during an in-flight write")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	close(writer.release)
+	if drained := <-returned; drained {
+		t.Fatal("drain reported complete output")
+	}
+	if writer.finished.Load() != 1 {
+		t.Fatal("in-flight write did not finish before drain returned")
+	}
+	if _, err := p.outGate.Write([]byte("late")); !errors.Is(err, io.ErrClosedPipe) {
+		t.Fatalf("late Write() error = %v, want %v", err, io.ErrClosedPipe)
 	}
 }
 

@@ -17,7 +17,7 @@ const DefaultKillGrace = 10 * time.Second
 const (
 	// groupPollInterval is how often a terminating group is checked for
 	// descendants that outlived the leader.
-	groupPollInterval = 20 * time.Millisecond
+	groupPollInterval = 50 * time.Millisecond
 	// killSettleTime bounds the wait for a group to disappear after its kill
 	// deadline, so an unkillable process cannot block the run forever.
 	killSettleTime = time.Second
@@ -27,9 +27,9 @@ const (
 // delivered once and the per-run kill timer is the only source of a timed
 // SIGKILL.
 //
-// The leader's exit and the end of the group are tracked separately. Once the
-// leader is reaped, its group ID stays reserved only while a member remains, so
-// every later signal is preceded by a check that the group still has members.
+// The leader's exit and the end of the group are tracked separately. The leader
+// stays unreaped until signaling ends, because its zombie keeps the group ID
+// reserved. Reaping it earlier would let an unrelated group reuse that ID.
 //
 // It watches the context itself rather than using exec.CommandContext, which
 // force-kills the process a fixed WaitDelay after cancellation and so could
@@ -45,8 +45,8 @@ type processGroup struct {
 	mu          sync.Mutex
 	platform    platformGroup
 	terminating bool
-	exited      bool // The leader has been reaped.
-	closed      bool // The group can no longer be signaled.
+	exited      bool // The leader has exited, but may not be reaped yet.
+	closed      bool // The group must not be signaled again.
 	cancelErr   error
 	killTimer   *time.Timer
 	killAt      time.Time
@@ -124,7 +124,7 @@ func (g *processGroup) terminate(grace time.Duration) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	if g.closed || (g.exited && !g.terminating) {
+	if g.closed {
 		return os.ErrProcessDone
 	}
 
@@ -149,13 +149,13 @@ func (g *processGroup) terminate(grace time.Duration) error {
 	return nil
 }
 
-// kill force-kills the group. After the leader is reaped it only signals a
-// group that still has members, because an empty group's ID can be reused.
+// kill force-kills the group. The group is closed before the leader is reaped,
+// so this can never signal a reused group ID.
 func (g *processGroup) kill() error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	if g.closed || (g.exited && !g.platform.alive()) {
+	if g.closed {
 		return os.ErrProcessDone
 	}
 	return g.platform.kill()
@@ -168,27 +168,45 @@ func (g *processGroup) killDeadline() time.Time {
 	return g.killAt
 }
 
-// markExited records that the leader was reaped. A leader that exited on its
-// own leaves its background processes running, so the group is released. During
-// termination the group stays open for awaitDescendants.
-func (g *processGroup) markExited() {
+// awaitLeaderExit blocks until the leader exits, without reaping it. A leader
+// that exited on its own leaves its background processes running, so the group
+// is released. During termination, descendants get the rest of their grace.
+// Where exit cannot be observed this returns at once, and markReaped ends the
+// group instead.
+func (g *processGroup) awaitLeaderExit() {
+	if !g.platform.waitLeader() {
+		return
+	}
+
+	g.mu.Lock()
+	g.exited = true
+	close(g.finished)
+	if !g.terminating {
+		g.closeLocked()
+	}
+	g.mu.Unlock()
+
+	g.awaitDescendants()
+}
+
+// markReaped records that Wait returned. No signal may follow, because the
+// group ID is no longer reserved.
+func (g *processGroup) markReaped() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	if g.exited {
-		return
+	if !g.exited {
+		g.exited = true
+		close(g.finished)
 	}
-	g.exited = true
-	close(g.finished)
-
-	if !g.terminating {
+	if !g.closed {
 		g.closeLocked()
 	}
 }
 
-// awaitDescendants blocks until a terminating group is empty, giving
-// descendants the rest of their grace period. The kill timer enforces the
-// deadline, including any extension made while waiting.
+// awaitDescendants blocks until a terminating group has no live descendants.
+// The kill timer enforces the deadline, including any extension made while
+// waiting.
 func (g *processGroup) awaitDescendants() {
 	for {
 		g.mu.Lock()

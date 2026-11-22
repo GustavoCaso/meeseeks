@@ -85,6 +85,29 @@ func (g *platformGroup) resume() error {
 	return nil
 }
 
+// waitLeader blocks until the leader exits. os.Process keeps its handle open
+// until Wait, so the process ID cannot be reused during this call.
+func (g *platformGroup) waitLeader() bool {
+	handle, err := windows.OpenProcess(
+		windows.SYNCHRONIZE,
+		false,
+		uint32(g.process.Pid), //nolint:gosec // Windows process IDs are DWORD values
+	)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = windows.CloseHandle(handle) }()
+
+	event, err := windows.WaitForSingleObject(handle, windows.INFINITE)
+	return err == nil && event == windows.WAIT_OBJECT_0
+}
+
+// isClosedPipeError reports whether a stdin write failed because the program
+// closed its end of the pipe. Windows has two errors for this.
+func isClosedPipeError(err error) bool {
+	return errors.Is(err, windows.ERROR_BROKEN_PIPE) || errors.Is(err, windows.ERROR_NO_DATA)
+}
+
 // alive reports whether the job still has running processes.
 func (g *platformGroup) alive() bool {
 	if g.job == 0 {
