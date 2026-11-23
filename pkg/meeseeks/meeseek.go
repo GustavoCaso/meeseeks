@@ -89,23 +89,56 @@ type executionTrack struct {
 	lastRunAt  time.Time
 }
 
+// supervision is one launch of a program, covering its retries and schedule.
+// Stopping is two steps. Closing stop prevents any further run, while the
+// running process gets its full shutdown timeout. Cancelling ctx afterwards
+// terminates a run that started just as the stop arrived. Cancelling first
+// would apply the program's kill grace instead of the requested timeout.
+type supervision struct {
+	stop   chan struct{}
+	ctx    context.Context //nolint:containedctx // Scoped to a single launch
+	cancel context.CancelFunc
+}
+
+// ended reports whether no further run may start.
+func (s *supervision) ended() bool {
+	return isClosed(s.stop) || s.ctx.Err() != nil
+}
+
+// wait blocks for d and reports whether the launch may still run.
+func (s *supervision) wait(d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-s.ctx.Done():
+	case <-s.stop:
+	case <-timer.C:
+	}
+	return !s.ended()
+}
+
 type meeseek struct {
-	programs       map[string]program.Program // Unified storage for all programs
-	schedulerStops map[string]chan struct{}   // Only for scheduled programs
-	executions     map[string]*executionTrack // execution tracking for each program
-	wg             *sync.WaitGroup
-	mu             sync.RWMutex
-	logger         logger.Logger
+	programs     map[string]program.Program // Unified storage for all programs
+	supervisions map[string][]*supervision  // Active launches of each program
+	executions   map[string]*executionTrack // execution tracking for each program
+	wg           *sync.WaitGroup
+	mu           sync.RWMutex
+	logger       logger.Logger
+
+	schedulerTick time.Duration // How often schedules check whether a run is due
 }
 
 // New creates a new Meeseek instance with the provided options.
 // The returned instance is ready to have programs added and can be started.
 func New(opts ...Option) Meeseek {
 	m := &meeseek{
-		wg:             &sync.WaitGroup{},
-		programs:       make(map[string]program.Program),
-		schedulerStops: make(map[string]chan struct{}),
-		executions:     make(map[string]*executionTrack),
+		wg:           &sync.WaitGroup{},
+		programs:     make(map[string]program.Program),
+		supervisions: make(map[string][]*supervision),
+		executions:   make(map[string]*executionTrack),
+
+		schedulerTick: intervalCheckDuration,
 	}
 
 	for _, opt := range opts {
@@ -175,9 +208,10 @@ func (m *meeseek) Reload(ctx context.Context, programs []program.Program, deadli
 	m.wg.Add(1)
 	defer m.wg.Done()
 
-	m.resetSchedulerStops()
+	stopping := m.beginStopAllLocked()
 
 	err := m.shutdown(deadline)
+	cancelSupervisions(stopping)
 	if err != nil {
 		if m.logger != nil {
 			m.logger.Warn("error shutting down old programs while reloading", "error", err.Error())
@@ -197,45 +231,42 @@ func (m *meeseek) Reload(ctx context.Context, programs []program.Program, deadli
 		}
 	}
 
+	m.startLocked(ctx)
 	m.mu.Unlock()
-
-	m.Start(ctx)
 }
 
 func (m *meeseek) Start(ctx context.Context) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	// Start all programs
+	m.startLocked(ctx)
+}
+
+// startLocked launches every program. Callers must hold m.mu.
+func (m *meeseek) startLocked(ctx context.Context) {
 	for _, p := range m.programs {
+		launch := m.superviseLocked(ctx, p.Name())
 		m.wg.Add(1)
 		go func(prog program.Program) {
-			m.runProgram(ctx, prog)
-			m.wg.Done()
+			defer m.wg.Done()
+			defer m.release(prog.Name(), launch)
+			m.runProgram(launch, prog)
 		}(p)
 	}
 }
 
 func (m *meeseek) Stop(programName string, timeout time.Duration) error {
-	m.mu.RLock()
-	program, ok := m.programs[programName]
-	m.mu.RUnlock()
-
+	m.mu.Lock()
+	prog, ok := m.programs[programName]
 	if !ok {
+		m.mu.Unlock()
 		return fmt.Errorf("program %s not present", programName)
 	}
+	stopping := m.beginStopLocked(programName)
+	m.mu.Unlock()
 
-	err := program.Shutdown(timeout)
-
-	if program.Interval() > 0 {
-		// Stop schedule loop
-		m.mu.Lock()
-		if stop, exists := m.schedulerStops[programName]; exists {
-			closeOnce(stop)
-			delete(m.schedulerStops, programName)
-		}
-		m.mu.Unlock()
-	}
+	err := prog.Shutdown(timeout)
+	cancelSupervisions(stopping)
 
 	return err
 }
@@ -249,22 +280,30 @@ func (m *meeseek) RunAsync(programName string) error {
 }
 
 func (m *meeseek) runByName(programName string, async bool) error {
-	m.mu.RLock()
+	m.mu.Lock()
 	prog, ok := m.programs[programName]
-	m.mu.RUnlock()
-
 	if !ok {
+		m.mu.Unlock()
 		return fmt.Errorf("program %s not present", programName)
 	}
 
 	if prog.State() == program.StateRunning {
+		m.mu.Unlock()
 		return fmt.Errorf("program %s already running", programName)
 	}
 
+	launch := m.superviseLocked(context.Background(), programName)
+	m.mu.Unlock()
+
+	run := func() {
+		defer m.release(programName, launch)
+		m.runOneTimeProgram(launch, prog)
+	}
+
 	if async {
-		go m.runOneTimeProgram(context.Background(), prog)
+		go run()
 	} else {
-		m.runOneTimeProgram(context.Background(), prog)
+		run()
 	}
 
 	return nil
@@ -334,30 +373,80 @@ func (m *meeseek) Statistics() map[string]Statistics {
 }
 
 func (m *meeseek) Shutdown(timeout time.Duration) error {
-	// Stop all scheduled programs
 	m.mu.Lock()
-	m.resetSchedulerStops()
+	stopping := m.beginStopAllLocked()
 	m.mu.Unlock()
 
-	return m.shutdown(timeout)
+	err := m.shutdown(timeout)
+	cancelSupervisions(stopping)
+
+	return err
 }
 
-// this function is meant to be called while holding the lock.
-func (m *meeseek) resetSchedulerStops() {
-	for _, stop := range m.schedulerStops {
-		closeOnce(stop)
+// superviseLocked registers a new launch of a program. Callers must hold m.mu.
+func (m *meeseek) superviseLocked(ctx context.Context, programName string) *supervision {
+	launchCtx, cancel := context.WithCancel(ctx)
+	launch := &supervision{
+		stop:   make(chan struct{}),
+		ctx:    launchCtx,
+		cancel: cancel,
 	}
-	m.schedulerStops = make(map[string]chan struct{})
+	m.supervisions[programName] = append(m.supervisions[programName], launch)
+	return launch
 }
 
-// closeOnce closes ch if it is not already closed. Callers must hold m.mu so
-// two goroutines cannot race to close the same channel.
-func closeOnce(ch chan struct{}) {
+// release removes a finished launch. A stop or reload may already have removed
+// it, and a newer launch under the same name must be left in place.
+func (m *meeseek) release(programName string, launch *supervision) {
+	launch.cancel()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	remaining := slices.DeleteFunc(m.supervisions[programName], func(s *supervision) bool {
+		return s == launch
+	})
+	if len(remaining) == 0 {
+		delete(m.supervisions, programName)
+		return
+	}
+	m.supervisions[programName] = remaining
+}
+
+// beginStopLocked prevents further runs of a program and returns its launches
+// so they can be cancelled after shutdown. Callers must hold m.mu.
+func (m *meeseek) beginStopLocked(programName string) []*supervision {
+	launches := m.supervisions[programName]
+	delete(m.supervisions, programName)
+
+	for _, launch := range launches {
+		close(launch.stop)
+	}
+	return launches
+}
+
+// beginStopAllLocked is beginStopLocked for every program.
+func (m *meeseek) beginStopAllLocked() []*supervision {
+	var stopping []*supervision
+	for _, programName := range slices.Collect(maps.Keys(m.supervisions)) {
+		stopping = append(stopping, m.beginStopLocked(programName)...)
+	}
+	return stopping
+}
+
+func cancelSupervisions(launches []*supervision) {
+	for _, launch := range launches {
+		launch.cancel()
+	}
+}
+
+// isClosed reports whether ch has been closed.
+func isClosed(ch <-chan struct{}) bool {
 	select {
 	case <-ch:
-		// Channel already closed
+		return true
 	default:
-		close(ch)
+		return false
 	}
 }
 
@@ -371,19 +460,24 @@ func (m *meeseek) shutdown(timeout time.Duration) error {
 	return errors.Join(errs...)
 }
 
-func (m *meeseek) runProgram(ctx context.Context, prog program.Program) {
-	if prog.InitialDelay() > 0 {
-		time.Sleep(prog.InitialDelay())
+func (m *meeseek) runProgram(launch *supervision, prog program.Program) {
+	if delay := prog.InitialDelay(); delay > 0 && !launch.wait(delay) {
+		return
 	}
 
 	if prog.Interval() > 0 {
-		m.runScheduledProgram(ctx, prog)
+		m.runScheduledProgram(launch, prog)
 	} else {
-		m.runOneTimeProgram(ctx, prog)
+		m.runOneTimeProgram(launch, prog)
 	}
 }
 
-func (m *meeseek) runOneTimeProgram(ctx context.Context, prog program.Program) {
+func (m *meeseek) runOneTimeProgram(launch *supervision, prog program.Program) {
+	// A launch stopped before its first run never ran, so it is not a failure.
+	if launch.ended() {
+		return
+	}
+
 	progState := prog.State()
 
 	if progState == program.StateRunning {
@@ -397,10 +491,10 @@ func (m *meeseek) runOneTimeProgram(ctx context.Context, prog program.Program) {
 		return
 	}
 
-	success := m.run(ctx, prog)
+	success := m.run(launch.ctx, prog)
 	retryAttempts := 0
 	if !success {
-		success, retryAttempts = m.retry(ctx, prog)
+		success, retryAttempts = m.retry(launch, prog)
 	}
 
 	m.trackProgramCompletion(prog.Name(), success, retryAttempts)
@@ -435,7 +529,7 @@ func (m *meeseek) run(ctx context.Context, prog program.Program) bool {
 	return prog.State() == program.StateFinished
 }
 
-func (m *meeseek) retry(ctx context.Context, prog program.Program) (bool, int) {
+func (m *meeseek) retry(launch *supervision, prog program.Program) (bool, int) {
 	retryDelay := prog.RetryDelay()
 
 	var timer *time.Timer
@@ -447,21 +541,17 @@ func (m *meeseek) retry(ctx context.Context, prog program.Program) (bool, int) {
 	retryAttempts := 0
 	for retryAttempts < prog.RetryCount() {
 		// Wait for the retry delay (if any) before each attempt, bailing out
-		// if the context is cancelled in the meantime. Without a delay both
-		// select cases would be ready at once and a cancelled context would
-		// only bail out half the time, so check it explicitly instead.
-		if timer == nil {
+		// if the launch is stopped in the meantime. select picks at random
+		// when several cases are ready, so check explicitly after waiting.
+		if timer != nil {
 			select {
-			case <-ctx.Done():
-				return false, retryAttempts
-			default:
-			}
-		} else {
-			select {
-			case <-ctx.Done():
-				return false, retryAttempts
+			case <-launch.ctx.Done():
+			case <-launch.stop:
 			case <-timer.C:
 			}
+		}
+		if launch.ended() {
+			return false, retryAttempts
 		}
 
 		if m.logger != nil {
@@ -474,7 +564,7 @@ func (m *meeseek) retry(ctx context.Context, prog program.Program) (bool, int) {
 			)
 		}
 
-		done, err := prog.Start(ctx)
+		done, err := prog.Start(launch.ctx)
 		if err == nil {
 			<-done
 		}
@@ -493,88 +583,70 @@ func (m *meeseek) retry(ctx context.Context, prog program.Program) (bool, int) {
 	return false, retryAttempts
 }
 
-func (m *meeseek) runScheduledProgram(ctx context.Context, prog program.Program) {
+func (m *meeseek) runScheduledProgram(launch *supervision, prog program.Program) {
 	programName := prog.Name()
 	interval := prog.Interval()
-	ticker := time.NewTicker(intervalCheckDuration)
+	ticker := time.NewTicker(m.schedulerTick)
 
 	defer ticker.Stop()
 
-	// Create and register stop channel early to avoid race conditions
-	stop := make(chan struct{})
-	m.mu.Lock()
-	m.schedulerStops[programName] = stop
-	m.mu.Unlock()
-
-	// Cleanup stop channel on exit
-	defer func() {
-		m.mu.Lock()
-		delete(m.schedulerStops, programName)
-		m.mu.Unlock()
-	}()
-
 	// Execute the program immediately first
-	m.executeScheduledProgram(ctx, prog)
+	m.executeScheduledProgram(launch, prog)
 
 	// Main interval loop
 	for {
 		select {
-		case <-ctx.Done():
+		case <-launch.ctx.Done():
 			return
-		case <-stop:
+		case <-launch.stop:
 			return
 		case <-ticker.C:
-			m.mu.RLock()
-			exec := m.executions[prog.Name()]
-			m.mu.RUnlock()
+			// select picks at random when a tick and stop are both ready.
+			if launch.ended() {
+				return
+			}
+
+			lastRunAt, tracked := m.lastRunAt(programName)
+			if !tracked {
+				// A reload removed this program.
+				return
+			}
 
 			// We strip the monotonic clock information using Round(0) because on some systems
 			// the monotonic clock stops while the computer sleeps. That ensures now.Sub() is
 			// accurate.
 			now := time.Now().Round(0)
-			strippedLastRunAt := exec.lastRunAt.Round(0)
+			strippedLastRunAt := lastRunAt.Round(0)
 			timeSinceLastRun := now.Sub(strippedLastRunAt)
 			execute := timeSinceLastRun >= interval
 
 			if execute {
-				m.executeScheduledProgram(ctx, prog)
+				m.executeScheduledProgram(launch, prog)
 			}
 		}
 	}
 }
 
-// executeScheduledProgram handles execution of a scheduled program with consistent error handling.
-func (m *meeseek) executeScheduledProgram(ctx context.Context, prog program.Program) {
-	programName := prog.Name()
-
-	// Check if we should stop before starting execution
+// lastRunAt returns when a program last completed, and whether it is still tracked.
+func (m *meeseek) lastRunAt(programName string) (time.Time, bool) {
 	m.mu.RLock()
-	stop, exists := m.schedulerStops[programName]
-	m.mu.RUnlock()
+	defer m.mu.RUnlock()
 
-	if !exists {
-		// Stop channel was deleted, scheduler is shutting down
+	execRecord, ok := m.executions[programName]
+	if !ok {
+		return time.Time{}, false
+	}
+	return execRecord.lastRunAt, true
+}
+
+// executeScheduledProgram handles execution of a scheduled program with consistent error handling.
+func (m *meeseek) executeScheduledProgram(launch *supervision, prog program.Program) {
+	// Check if we should stop before starting execution
+	if launch.ended() {
 		return
 	}
 
-	innerCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	go func() {
-		select {
-		case <-ctx.Done():
-			// Context cancelled while program was running
-			cancel()
-		case <-stop:
-			// Program was stop while running
-			cancel()
-		case <-innerCtx.Done():
-			// Program finished
-			return
-		}
-	}()
-
-	m.runOneTimeProgram(innerCtx, prog)
+	m.runOneTimeProgram(launch, prog)
 }
 
 func (m *meeseek) collectProgramStatistics(
