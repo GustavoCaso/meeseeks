@@ -532,25 +532,11 @@ func (m *meeseek) run(ctx context.Context, prog program.Program) bool {
 func (m *meeseek) retry(launch *supervision, prog program.Program) (bool, int) {
 	retryDelay := prog.RetryDelay()
 
-	var timer *time.Timer
-	if retryDelay > 0 {
-		timer = time.NewTimer(retryDelay)
-		defer timer.Stop()
-	}
-
 	retryAttempts := 0
 	for retryAttempts < prog.RetryCount() {
 		// Wait for the retry delay (if any) before each attempt, bailing out
-		// if the launch is stopped in the meantime. select picks at random
-		// when several cases are ready, so check explicitly after waiting.
-		if timer != nil {
-			select {
-			case <-launch.ctx.Done():
-			case <-launch.stop:
-			case <-timer.C:
-			}
-		}
-		if launch.ended() {
+		// if the launch is stopped in the meantime.
+		if !launch.wait(retryDelay) {
 			return false, retryAttempts
 		}
 
@@ -572,11 +558,6 @@ func (m *meeseek) retry(launch *supervision, prog program.Program) (bool, int) {
 
 		if err == nil && prog.State() == program.StateFinished {
 			return true, retryAttempts
-		}
-
-		if timer != nil && retryAttempts < prog.RetryCount() {
-			// The timer channel was drained by the select above, so Reset is safe.
-			timer.Reset(retryDelay)
 		}
 	}
 
