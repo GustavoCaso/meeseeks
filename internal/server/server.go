@@ -19,15 +19,24 @@ import (
 	"github.com/GustavoCaso/meeseeks/pkg/program"
 )
 
+// ErrAlreadyRunning means another daemon owns this socket path.
+var ErrAlreadyRunning = errors.New("meeseeks is already running")
+
 type Server struct {
 	meeseeks   meeseeks.Meeseek
 	server     *http.Server
+	lock       *instanceLock
 	sockPath   string
 	configPath string
 	mu         sync.RWMutex
 	running    bool
 	logger     *logger.Logger
 	timeout    time.Duration
+
+	shutdownRequested chan struct{}
+	shutdownOnce      sync.Once
+
+	processes *processRegistry
 }
 
 type Response struct {
@@ -48,6 +57,10 @@ func New(
 		configPath: configPath,
 		logger:     logger,
 		timeout:    timeout,
+
+		shutdownRequested: make(chan struct{}),
+
+		processes: newProcessRegistry(sockPath+".processes", logger),
 	}
 
 	err := s.loadConfig()
@@ -62,6 +75,7 @@ func New(
 	mux.HandleFunc("/follow-logs", s.handleFollowLogs)
 	mux.HandleFunc("/stop", s.handleStop)
 	mux.HandleFunc("/run-program", s.handleRunProgram)
+	mux.HandleFunc("/shutdown", s.handleShutdown)
 
 	s.server = &http.Server{
 		Handler:           mux,
@@ -82,19 +96,33 @@ func (s *Server) Start(ctx context.Context) error {
 		return errors.New("server already running")
 	}
 
-	if err := os.RemoveAll(s.sockPath); err != nil {
-		return fmt.Errorf("failed to remove existing socket: %w", err)
-	}
-
 	if err := os.MkdirAll(filepath.Dir(s.sockPath), 0750); err != nil {
 		return fmt.Errorf("failed to create socket directory: %w", err)
 	}
+
+	// The lock must be held before touching the socket, which may belong to a
+	// running daemon until the lock proves otherwise.
+	lock, err := acquireInstanceLock(instanceLockPath(s.sockPath))
+	if err != nil {
+		return err
+	}
+
+	// Programs from a crashed daemon must be gone before new copies start.
+	s.processes.stopOrphans()
+
+	if err = os.RemoveAll(s.sockPath); err != nil {
+		_ = lock.release()
+		return fmt.Errorf("failed to remove existing socket: %w", err)
+	}
+
 	listenConfig := net.ListenConfig{}
 	listener, err := listenConfig.Listen(ctx, "unix", s.sockPath)
 	if err != nil {
+		_ = lock.release()
 		return fmt.Errorf("failed to create socket: %w", err)
 	}
 
+	s.lock = lock
 	s.running = true
 
 	s.meeseeks.Start(ctx)
@@ -129,11 +157,22 @@ func (s *Server) Stop() error {
 
 	errs = append(errs, os.RemoveAll(s.sockPath))
 	errs = append(errs, s.meeseeks.Shutdown(s.timeout))
+
+	// Released last, so a new daemon cannot start while programs are stopping.
+	errs = append(errs, s.lock.release())
+	s.lock = nil
+
 	return errors.Join(errs...)
 }
 
 func (s *Server) Wait(ctx context.Context) error {
 	return s.meeseeks.Wait(ctx)
+}
+
+// ShutdownRequested closes when a client asks the daemon to exit. The daemon's
+// owner calls Stop, because a handler cannot wait for the server to shut down.
+func (s *Server) ShutdownRequested() <-chan struct{} {
+	return s.shutdownRequested
 }
 
 func (s *Server) loadConfig() error {
@@ -143,7 +182,11 @@ func (s *Server) loadConfig() error {
 	}
 
 	for _, programConfig := range cfg.Programs {
-		prog, programErr := createProgramFromConfig(programConfig, s.logger)
+		prog, programErr := createProgramFromConfig(
+			programConfig,
+			s.logger,
+			program.Tracker(s.processes),
+		)
 		if programErr != nil {
 			return programErr
 		}
@@ -335,7 +378,11 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 	programs := []program.Program{}
 
 	for _, programConfig := range cfg.Programs {
-		prog, programErr := createProgramFromConfig(programConfig, s.logger)
+		prog, programErr := createProgramFromConfig(
+			programConfig,
+			s.logger,
+			program.Tracker(s.processes),
+		)
 		if programErr != nil {
 			resp := Response{
 				Success: false,
@@ -383,6 +430,8 @@ func (s *Server) handleRunProgram(w http.ResponseWriter, r *http.Request) {
 	if async {
 		runErr = s.meeseeks.RunAsync(programName)
 	} else {
+		// A synchronous run can outlast the server's write timeout.
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 		runErr = s.meeseeks.Run(programName)
 	}
 
@@ -397,6 +446,12 @@ func (s *Server) handleRunProgram(w http.ResponseWriter, r *http.Request) {
 
 	resp := Response{Success: true}
 	handleResponse(w, resp)
+}
+
+func (s *Server) handleShutdown(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	handleResponse(w, Response{Success: true, Data: "meeseeks stopping"})
+	s.shutdownOnce.Do(func() { close(s.shutdownRequested) })
 }
 
 func handleResponse(w http.ResponseWriter, resp Response) {

@@ -4,9 +4,11 @@ package program
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"syscall"
+	"time"
 )
 
 // platformGroup addresses a POSIX process group led by process.
@@ -57,6 +59,60 @@ func (g *platformGroup) kill() error {
 }
 
 func (g *platformGroup) close() {}
+
+// terminateOrphanGroup asks the group to exit, then force-kills what remains
+// after its grace period. Only a verified group leader is signaled, because the
+// group ID equals the leader's PID.
+func terminateOrphanGroup(id ProcessIdentity) error {
+	pgid, err := syscall.Getpgid(id.PID)
+	if errors.Is(err, syscall.ESRCH) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if pgid != id.PID {
+		return nil
+	}
+
+	if err = syscall.Kill(-pgid, syscall.SIGTERM); err != nil {
+		if orphanGroupGone(err) {
+			return nil
+		}
+		return err
+	}
+	if waitForOrphanGroup(pgid, id.KillGrace) {
+		return nil
+	}
+
+	if err = syscall.Kill(-pgid, syscall.SIGKILL); err != nil && !orphanGroupGone(err) {
+		return err
+	}
+	if !waitForOrphanGroup(pgid, killSettleTime) {
+		return fmt.Errorf("process group %d still running after SIGKILL", pgid)
+	}
+	return nil
+}
+
+// waitForOrphanGroup reports whether the group disappeared within limit.
+func waitForOrphanGroup(pgid int, limit time.Duration) bool {
+	deadline := time.Now().Add(limit)
+	for {
+		if orphanGroupGone(syscall.Kill(-pgid, 0)) {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		time.Sleep(groupPollInterval)
+	}
+}
+
+// orphanGroupGone interprets a signal result. macOS reports EPERM for a group
+// containing only zombies.
+func orphanGroupGone(err error) bool {
+	return errors.Is(err, syscall.ESRCH) || errors.Is(err, syscall.EPERM)
+}
 
 func (g *platformGroup) signal(signal syscall.Signal) error {
 	err := syscall.Kill(-g.process.Pid, signal)

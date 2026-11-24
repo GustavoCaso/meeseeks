@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/GustavoCaso/meeseeks/pkg/meeseeks"
@@ -51,8 +52,27 @@ func writePidFile(pidFile string, pid int) error {
 	if err := os.MkdirAll(filepath.Dir(pidFile), 0750); err != nil {
 		return fmt.Errorf("failed to create PID directory: %w", err)
 	}
-	//nolint:gosec // writing the pid file is ok
 	return os.WriteFile(pidFile, []byte(strconv.Itoa(pid)), 0600)
+}
+
+func readPidFile(pidFile string) (int, error) {
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(strings.TrimSpace(string(data)))
+}
+
+// lastLogLineSince returns the last line added to the daemon log after offset,
+// which is the error message when the daemon fails during startup.
+func lastLogLineSince(offset int64) string {
+	data, err := os.ReadFile(getLogFilePath())
+	if err != nil || offset > int64(len(data)) {
+		return "unknown error"
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(data[offset:])), "\n")
+	return strings.TrimPrefix(lines[len(lines)-1], "Error: ")
 }
 
 func formatStatisticsAsTable(data any, programName string) error {

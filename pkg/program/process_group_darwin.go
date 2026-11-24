@@ -11,6 +11,8 @@ import (
 // darwinZombieState is the kernel's SZOMB process state.
 const darwinZombieState = 5
 
+const microsecondsPerSecond = 1_000_000
+
 // waitLeaderExit blocks until pid exits, using kqueue because it does not reap
 // the process and so keeps its group ID reserved.
 func waitLeaderExit(pid int) bool {
@@ -40,6 +42,21 @@ func waitLeaderExit(pid int) bool {
 			return err == nil
 		}
 	}
+}
+
+// processStartTime reads the process start time in microseconds since the epoch.
+func processStartTime(pid int) (uint64, error) {
+	info, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
+	if err != nil {
+		return 0, err
+	}
+	if int(info.Proc.P_pid) != pid {
+		return 0, unix.ESRCH
+	}
+
+	start := info.Proc.P_starttime
+	//nolint:gosec // Process start times are positive
+	return uint64(start.Sec)*microsecondsPerSecond + uint64(start.Usec), nil
 }
 
 // hasLiveDescendant asks the kernel for the group's members. If the query fails

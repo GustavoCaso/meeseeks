@@ -79,7 +79,7 @@ func TestLinuxService_Create_RendersUnit(t *testing.T) {
 
 	content := string(data)
 	for _, want := range []string{
-		"Restart=always",
+		"Restart=on-failure",
 		"WantedBy=multi-user.target",
 		execPath,
 		"MEESEEKS_CONFIG_DIR=" + testDir,

@@ -1,6 +1,8 @@
 package server
 
 import (
+	"slices"
+
 	"github.com/GustavoCaso/meeseeks/internal/config"
 	"github.com/GustavoCaso/meeseeks/internal/logger"
 	"github.com/GustavoCaso/meeseeks/pkg/program"
@@ -9,8 +11,9 @@ import (
 func createProgramFromConfig(
 	pc config.ProgramConfig,
 	logger *logger.Logger,
+	extra ...program.Option,
 ) (program.Program, error) {
-	var opts []program.Option
+	opts := slices.Clone(extra)
 
 	if len(pc.Args) > 0 {
 		opts = append(opts, program.Args(pc.Args...))

@@ -13,7 +13,11 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"time"
 )
+
+// stopPollInterval is how often a client checks whether the daemon has exited.
+const stopPollInterval = 20 * time.Millisecond
 
 type Client struct {
 	sockPath string
@@ -156,6 +160,34 @@ func (c *Client) RunProgram(
 	}
 
 	return c.sendRequest(ctx, "/run-program", params)
+}
+
+// Shutdown asks the daemon to stop its programs and exit.
+func (c *Client) Shutdown(ctx context.Context) (*Response, error) {
+	return c.sendRequest(ctx, "/shutdown", nil)
+}
+
+// WaitUntilStopped blocks until the daemon has released its instance lock,
+// which it does only after every program has stopped.
+func (c *Client) WaitUntilStopped(ctx context.Context) error {
+	ticker := time.NewTicker(stopPollInterval)
+	defer ticker.Stop()
+
+	for {
+		lock, err := acquireInstanceLock(instanceLockPath(c.sockPath))
+		if err == nil {
+			return lock.release()
+		}
+		if !errors.Is(err, ErrAlreadyRunning) {
+			return err
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 func (c *Client) sendRequest(

@@ -42,6 +42,10 @@ type processGroup struct {
 	drainEnd chan struct{}
 	endDrain sync.Once
 
+	// onStarted runs after the process joins its group and before it is resumed,
+	// which on Windows is before any of its code has executed.
+	onStarted func(*os.Process)
+
 	mu          sync.Mutex
 	platform    platformGroup
 	terminating bool
@@ -82,6 +86,10 @@ func (g *processGroup) start(onAttachError func(error)) error {
 
 	if err := g.platform.attach(g.cmd.Process); err != nil {
 		onAttachError(err)
+	}
+
+	if g.onStarted != nil {
+		g.onStarted(g.cmd.Process)
 	}
 
 	if err := g.platform.resume(); err != nil {
