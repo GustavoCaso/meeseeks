@@ -108,7 +108,10 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 
 	// Programs from a crashed daemon must be gone before new copies start.
-	s.processes.stopOrphans()
+	if err = s.processes.stopOrphans(); err != nil {
+		_ = lock.release()
+		return err
+	}
 
 	if err = os.RemoveAll(s.sockPath); err != nil {
 		_ = lock.release()

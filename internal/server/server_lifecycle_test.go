@@ -1,8 +1,10 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +12,7 @@ import (
 	"time"
 
 	"github.com/GustavoCaso/meeseeks/internal/logger"
+	"github.com/GustavoCaso/meeseeks/pkg/program"
 )
 
 // shortTempDir avoids t.TempDir, whose long test-named paths can exceed the
@@ -162,4 +165,101 @@ func TestServer_SynchronousRunOutlastsHTTPTimeouts(t *testing.T) {
 	if !resp.Success {
 		t.Fatalf("RunProgram() failed: %s", resp.Error)
 	}
+}
+
+func TestServer_StartAbortsWhenOrphanCannotBeStopped(t *testing.T) {
+	dir := shortTempDir(t)
+	s, runs := newRecordingServer(t, dir)
+
+	orphan := program.ProcessIdentity{PID: 4242, StartTime: 7}
+	writeRegistry(t, s.processes.path, orphan)
+	s.processes.terminate = func(program.ProcessIdentity) error {
+		return errors.New("still running after SIGKILL")
+	}
+
+	if err := s.Start(t.Context()); err == nil {
+		t.Fatal("Start() succeeded although a program from a crashed daemon is still running")
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if got := countServerRuns(t, runs); got != 0 {
+		t.Fatalf("program started %d times next to its orphan, want 0", got)
+	}
+
+	// The record is kept, so a later start retries the cleanup.
+	if got := readRegistry(t, s.processes.path); len(got) != 1 || got[0] != orphan {
+		t.Fatalf("registry = %v, want [%v]", got, orphan)
+	}
+
+	// The lock is released, so a later start can retry.
+	lock, err := acquireInstanceLock(instanceLockPath(s.sockPath))
+	if err != nil {
+		t.Fatalf("instance lock still held after failed start: %v", err)
+	}
+	_ = lock.release()
+}
+
+func TestServer_StartDropsInvalidOrphanRecords(t *testing.T) {
+	dir := shortTempDir(t)
+	s, runs := newRecordingServer(t, dir)
+	writeRegistry(t, s.processes.path, program.ProcessIdentity{PID: 1})
+
+	if err := s.Start(t.Context()); err != nil {
+		t.Fatalf("Start() error = %v, an invalid record must not block startup", err)
+	}
+	waitForServerRun(t, runs)
+
+	for _, id := range readRegistry(t, s.processes.path) {
+		if id.PID == 1 {
+			t.Fatal("invalid record for PID 1 was kept")
+		}
+	}
+}
+
+func TestServer_StartReplacesSocketLeftByCrash(t *testing.T) {
+	dir := shortTempDir(t)
+	s, runs := newRecordingServer(t, dir)
+
+	// A crashed daemon leaves its socket file behind, refusing connections.
+	var listenConfig net.ListenConfig
+	stale, err := listenConfig.Listen(t.Context(), "unix", s.sockPath)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	stale.(*net.UnixListener).SetUnlinkOnClose(false)
+	_ = stale.Close()
+
+	if err = s.Start(t.Context()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	waitForServerRun(t, runs)
+}
+
+func writeRegistry(t *testing.T, path string, ids ...program.ProcessIdentity) {
+	t.Helper()
+
+	data, err := json.Marshal(ids)
+	if err != nil {
+		t.Fatalf("encode registry: %v", err)
+	}
+	if err = os.WriteFile(path, data, 0600); err != nil {
+		t.Fatalf("write registry: %v", err)
+	}
+}
+
+func readRegistry(t *testing.T, path string) []program.ProcessIdentity {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		t.Fatalf("read registry: %v", err)
+	}
+	var ids []program.ProcessIdentity
+	if err = json.Unmarshal(data, &ids); err != nil {
+		t.Fatalf("decode registry: %v", err)
+	}
+	return ids
 }

@@ -62,13 +62,25 @@ func processStartTime(pid int) (uint64, error) {
 // hasLiveDescendant asks the kernel for the group's members. If the query fails
 // it reports true, so the kill deadline still applies.
 func hasLiveDescendant(pgid int) bool {
+	return groupHasLiveMember(pgid, true)
+}
+
+// hasLiveMember is hasLiveDescendant counting the leader too.
+func hasLiveMember(pgid int) bool {
+	return groupHasLiveMember(pgid, false)
+}
+
+func groupHasLiveMember(pgid int, skipLeader bool) bool {
 	procs, err := unix.SysctlKinfoProcSlice("kern.proc.pgrp", pgid)
 	if err != nil {
 		return true
 	}
 
 	for i := range procs {
-		if int(procs[i].Proc.P_pid) != pgid && procs[i].Proc.P_stat != darwinZombieState {
+		if skipLeader && int(procs[i].Proc.P_pid) == pgid {
+			continue
+		}
+		if procs[i].Proc.P_stat != darwinZombieState {
 			return true
 		}
 	}

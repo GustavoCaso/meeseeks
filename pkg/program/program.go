@@ -143,6 +143,12 @@ type program struct {
 	tracker        ProcessTracker
 	trackedProcess *ProcessIdentity // Guarded by cmdLock.
 
+	// callbackCtx is the context the current run was started with, without its
+	// deadline. Cancelling it stops a callback still running after the program
+	// exited, so a supervisor can stop everything a run launched. Guarded by
+	// cmdLock.
+	callbackCtx context.Context //nolint:containedctx // Scoped to a single run
+
 	consecutiveFailures int
 }
 
@@ -377,6 +383,12 @@ func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
 
 	p.state = StateRunning
 	p.dataLock.Unlock()
+
+	// Set before setup, whose failure also runs the failure callback.
+	p.cmdLock.Lock()
+	p.callbackCtx = ctx
+	p.cmdLock.Unlock()
+
 	cmd, runCtx, err := p.setupCmd(ctx)
 
 	if err != nil {
@@ -1144,9 +1156,18 @@ func (p *program) runCallback(kind string, callback *Callback, env []string) {
 		Deadline(callbackDeadline),
 		BufferSizeLimit(p.bufferLimit),
 		Logger(p.logger),
+		// Recorded so a daemon crash during a callback does not leave it running.
+		Tracker(p.tracker),
 	)
 
-	done, err := cb.Start(context.Background())
+	p.cmdLock.Lock()
+	ctx := p.callbackCtx
+	p.cmdLock.Unlock()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	done, err := cb.Start(ctx)
 	if err != nil {
 		if p.logger != nil {
 			p.logger.Error(

@@ -302,9 +302,12 @@ func (m *meeseek) runByName(programName string, async bool) error {
 	}
 
 	launch := m.superviseLocked(context.Background(), programName)
+	// Counted like scheduled launches, so Shutdown waits for manual runs too.
+	m.wg.Add(1)
 	m.mu.Unlock()
 
 	run := func() {
+		defer m.wg.Done()
 		defer m.release(programName, launch)
 		m.runOneTimeProgram(launch, prog)
 	}
@@ -390,6 +393,12 @@ func (m *meeseek) Shutdown(timeout time.Duration) error {
 	err := shutdownPrograms(programs, timeout)
 	cancelSupervisions(stopping)
 
+	// Program.Shutdown can return while a run is still ending, for example one
+	// that started just as the stop arrived or one running its callback. Every
+	// such run is cancelled above and escalates to SIGKILL, so waiting here
+	// ends, and the caller knows nothing it launched is still running.
+	m.wg.Wait()
+
 	return err
 }
 
@@ -460,12 +469,18 @@ func isClosed(ch <-chan struct{}) bool {
 	}
 }
 
+// shutdownPrograms stops programs concurrently, so each gets its full timeout
+// and kill grace instead of waiting for the ones before it.
 func shutdownPrograms(programs []program.Program, timeout time.Duration) error {
-	errs := make([]error, 0, len(programs))
+	errs := make([]error, len(programs))
 
-	for _, prog := range programs {
-		errs = append(errs, prog.Shutdown(timeout))
+	var stopping sync.WaitGroup
+	for i, prog := range programs {
+		stopping.Go(func() {
+			errs[i] = prog.Shutdown(timeout)
+		})
 	}
+	stopping.Wait()
 
 	return errors.Join(errs...)
 }

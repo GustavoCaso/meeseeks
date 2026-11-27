@@ -388,3 +388,40 @@ func TestMeeseekReload_OnlyChangedProgramRestarts(t *testing.T) {
 		t.Fatalf("new version has Failed = %d from stopping its old version", stats.Failed)
 	}
 }
+
+func TestMeeseekShutdown_StopsProgramsConcurrently(t *testing.T) {
+	t.Parallel()
+
+	const (
+		programs    = 3
+		stopTimeout = time.Second
+	)
+	// Each program ignores SIGTERM, so it only ends when SIGKILL follows the
+	// stop timeout.
+	const ignoreTerm = `trap "" TERM; echo run >> "$1"; while :; do sleep 0.05; done`
+
+	runs := filepath.Join(t.TempDir(), "runs")
+	m := New()
+	for i := range programs {
+		prog := program.New(
+			fmt.Sprintf("stubborn-%d", i),
+			"sh",
+			program.Args("-c", ignoreTerm, "sh", runs),
+		)
+		if err := m.AddProgram(prog); err != nil {
+			t.Fatalf("AddProgram() error = %v", err)
+		}
+	}
+
+	m.Start(t.Context())
+	waitForRuns(t, runs, programs)
+
+	started := time.Now()
+	_ = m.Shutdown(stopTimeout)
+	elapsed := time.Since(started)
+
+	// One after another would take programs*stopTimeout.
+	if limit := 2 * stopTimeout; elapsed >= limit {
+		t.Fatalf("Shutdown took %s for %d programs, want under %s", elapsed, programs, limit)
+	}
+}

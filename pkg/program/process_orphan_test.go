@@ -131,3 +131,37 @@ func TestTerminateOrphan_IgnoresProcessAlreadyGone(t *testing.T) {
 		t.Fatalf("TerminateOrphan() error = %v", err)
 	}
 }
+
+// TestTerminateOrphan_GroupOfZombiesCountsAsStopped covers a parent that does
+// not reap promptly. On Linux, signaling a group of only zombies succeeds, so
+// the group looks alive although nothing in it can run.
+func TestTerminateOrphan_GroupOfZombiesCountsAsStopped(t *testing.T) {
+	t.Parallel()
+
+	// The test process is the parent and does not reap until cleanup, so the
+	// leader stays a zombie after it is killed.
+	cmd := exec.Command("sleep", "30")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start process: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+
+	startTime, err := processStartTime(cmd.Process.Pid)
+	if err != nil {
+		t.Fatalf("processStartTime() error = %v", err)
+	}
+	const grace = 3 * time.Second
+	id := ProcessIdentity{PID: cmd.Process.Pid, StartTime: startTime, KillGrace: grace}
+
+	started := time.Now()
+	if err = TerminateOrphan(id); err != nil {
+		t.Fatalf("TerminateOrphan() error = %v, a group of zombies has stopped", err)
+	}
+	if elapsed := time.Since(started); elapsed >= grace {
+		t.Fatalf("TerminateOrphan() took %s, waiting out the kill grace for zombies", elapsed)
+	}
+}

@@ -68,3 +68,57 @@ func TestProgram_ReportsProcessIdentityWhileRunning(t *testing.T) {
 		t.Fatalf("exited = %+v, want the started process %+v", exited, started[0])
 	}
 }
+
+func TestProgram_ReportsCallbackProcesses(t *testing.T) {
+	t.Parallel()
+
+	tracker := &recordingTracker{}
+	p := New(
+		"with-callback",
+		"true",
+		OnSuccess(&Callback{Command: "true"}),
+		Tracker(tracker),
+	)
+
+	done, err := p.Start(context.Background())
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	<-done
+
+	started, exited := tracker.snapshot()
+	if len(started) != 2 {
+		t.Fatalf("reported %d started processes, want the program and its callback", len(started))
+	}
+	if len(exited) != 2 {
+		t.Fatalf("reported %d exited processes, want 2", len(exited))
+	}
+}
+
+func TestProgram_CancellingStartContextStopsCallback(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p := New(
+		"slow-callback",
+		"true",
+		OnSuccess(&Callback{Command: "sleep", Args: []string{"30"}}),
+		Async(),
+	)
+
+	done, err := p.Start(ctx)
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	// Give the callback time to start, then stop the run.
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("run did not end after its context was cancelled while the callback ran")
+	}
+}

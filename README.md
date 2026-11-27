@@ -341,7 +341,7 @@ programs:
 
 On Windows, programs run in a Job Object so termination covers their process tree. `kill_grace` applies only when meeseeks shares a console with the program, where it sends `CTRL_BREAK`. Under the detached daemon no graceful signal exists, so the tree is killed immediately.
 
-Only one daemon can run per config directory. If the daemon crashes, the next start stops the programs it left running, honoring each program's `kill_grace`, and then launches them again.
+Only one daemon can run per config directory. If the daemon crashes, the next start stops the programs it left running, honoring each program's `kill_grace`, and then launches them again. If one of them cannot be stopped, the daemon refuses to start rather than run a second copy, and its error names the process to stop.
 
 Callbacks are executed directly (not through a shell), so `on_success_callback` must be an executable and its arguments go in `on_success_callback_args`. To use shell features like pipes or variable expansion, invoke a shell explicitly: `on_success_callback: "sh"` with `on_success_callback_args: ["-c", "echo done >> /tmp/log"]`. Callbacks receive `MEESEEKS_PROGRAM`, `MEESEEKS_STATUS`, and (for failures) `MEESEEKS_ERROR` environment variables, and are killed if they run longer than one minute.
 

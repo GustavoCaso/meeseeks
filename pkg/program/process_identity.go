@@ -1,6 +1,7 @@
 package program
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -29,6 +30,10 @@ func Tracker(tracker ProcessTracker) Option {
 	}
 }
 
+// ErrInvalidOrphan means a recorded identity can never name a program's
+// process, so retrying it is pointless.
+var ErrInvalidOrphan = errors.New("invalid orphan record")
+
 // TerminateOrphan stops the process group of a program left behind by a crashed
 // supervisor, escalating to a forced kill after id.KillGrace.
 //
@@ -38,7 +43,7 @@ func Tracker(tracker ProcessTracker) Option {
 // process group -1 reaches every process the user owns.
 func TerminateOrphan(id ProcessIdentity) error {
 	if id.PID <= 1 || id.PID == os.Getpid() {
-		return fmt.Errorf("refusing to terminate process %d", id.PID)
+		return fmt.Errorf("%w: refusing to terminate process %d", ErrInvalidOrphan, id.PID)
 	}
 
 	startTime, err := processStartTime(id.PID)

@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -25,6 +25,10 @@ func buildMeeseeks(t *testing.T) string {
 	t.Helper()
 
 	bin := filepath.Join(t.TempDir(), "meeseeks")
+	if runtime.GOOS == "windows" {
+		// Windows runs a file only with an executable extension.
+		bin += ".exe"
+	}
 	build := exec.CommandContext(t.Context(), "go", "build", "-o", bin, ".")
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build meeseeks: %v\n%s", err, output)
@@ -92,7 +96,10 @@ func startForegroundDaemon(t *testing.T, bin string) *foregroundDaemon {
 	}()
 
 	t.Cleanup(func() {
-		_ = cmd.Process.Signal(syscall.SIGTERM)
+		// Windows cannot deliver SIGTERM, so the daemon is killed at once there.
+		if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+			_ = cmd.Process.Kill()
+		}
 		select {
 		case <-daemon.exited:
 		case <-time.After(10 * time.Second):
@@ -124,62 +131,6 @@ func TestExitCommand_StopsDaemonStartedInForeground(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("daemon still running after exit")
 	}
-}
-
-func recordedPIDs(t *testing.T, path string) []int {
-	t.Helper()
-
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		t.Fatalf("read PIDs: %v", err)
-	}
-
-	var pids []int
-	for field := range strings.FieldsSeq(string(data)) {
-		pid, convErr := strconv.Atoi(field)
-		if convErr != nil {
-			t.Fatalf("parse PID %q: %v", field, convErr)
-		}
-		pids = append(pids, pid)
-	}
-	return pids
-}
-
-func TestStart_StopsProgramsLeftByCrashedDaemon(t *testing.T) {
-	configDir := setMeeseeksConfigDirForTest(t)
-	pidsFile := filepath.Join(configDir, "pids")
-	writeDaemonConfig(t, configDir, fmt.Sprintf(
-		"programs:\n  - name: job\n    command: sh\n    args: [\"-c\", %q, \"sh\", %q]\n",
-		`echo $$ >> "$1"; exec sleep 30`,
-		pidsFile,
-	))
-	bin := buildMeeseeks(t)
-
-	crashed := startForegroundDaemon(t, bin)
-	waitFor(t, 5*time.Second, func() bool {
-		return len(recordedPIDs(t, pidsFile)) == 1
-	}, "program never started")
-	if err := crashed.cmd.Process.Kill(); err != nil {
-		t.Fatalf("kill daemon: %v", err)
-	}
-	<-crashed.exited
-
-	orphan := recordedPIDs(t, pidsFile)[0]
-	if err := syscall.Kill(orphan, 0); err != nil {
-		t.Fatalf("expected the program to outlive its daemon: %v", err)
-	}
-
-	startForegroundDaemon(t, bin)
-	waitFor(t, 5*time.Second, func() bool {
-		return len(recordedPIDs(t, pidsFile)) == 2
-	}, "restarted daemon never relaunched the program")
-
-	waitFor(t, 3*time.Second, func() bool {
-		return errors.Is(syscall.Kill(orphan, 0), syscall.ESRCH)
-	}, "program from the crashed daemon is still running")
 }
 
 func TestStartDetached_ReportsInvalidConfig(t *testing.T) {

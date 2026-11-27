@@ -53,6 +53,15 @@ func waitLeaderExit(pid int) bool {
 // its leader. If /proc cannot be read it reports true, so the kill deadline
 // still applies.
 func hasLiveDescendant(pgid int) bool {
+	return groupHasLiveMember(pgid, true)
+}
+
+// hasLiveMember is hasLiveDescendant counting the leader too.
+func hasLiveMember(pgid int) bool {
+	return groupHasLiveMember(pgid, false)
+}
+
+func groupHasLiveMember(pgid int, skipLeader bool) bool {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return true
@@ -60,7 +69,7 @@ func hasLiveDescendant(pgid int) bool {
 
 	for _, entry := range entries {
 		pid, convErr := strconv.Atoi(entry.Name())
-		if convErr != nil || pid == pgid {
+		if convErr != nil || (skipLeader && pid == pgid) {
 			continue
 		}
 

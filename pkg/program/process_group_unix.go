@@ -94,11 +94,13 @@ func terminateOrphanGroup(id ProcessIdentity) error {
 	return nil
 }
 
-// waitForOrphanGroup reports whether the group disappeared within limit.
+// waitForOrphanGroup reports whether the group stopped within limit. A group of
+// only zombies has stopped, even though Linux still lets it be signaled until
+// its new parent reaps it, which may be late or never.
 func waitForOrphanGroup(pgid int, limit time.Duration) bool {
 	deadline := time.Now().Add(limit)
 	for {
-		if orphanGroupGone(syscall.Kill(-pgid, 0)) {
+		if orphanGroupGone(syscall.Kill(-pgid, 0)) || !hasLiveMember(pgid) {
 			return true
 		}
 		if !time.Now().Before(deadline) {
