@@ -125,11 +125,69 @@ func (g *platformGroup) alive() bool {
 	return err == nil && info.ActiveProcesses > 0
 }
 
-// attach assigns the suspended process to a new job.
+// processStartTime reads the process creation time as a FILETIME value.
+func processStartTime(pid int) (uint64, error) {
+	handle, err := windows.OpenProcess(
+		windows.PROCESS_QUERY_LIMITED_INFORMATION,
+		false,
+		uint32(pid), //nolint:gosec // Windows process IDs are DWORD values
+	)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = windows.CloseHandle(handle) }()
+
+	var creation, exit, kernel, user windows.Filetime
+	if err = windows.GetProcessTimes(handle, &creation, &exit, &kernel, &user); err != nil {
+		return 0, err
+	}
+	return uint64(creation.HighDateTime)<<32 | uint64(creation.LowDateTime), nil
+}
+
+// jobName derives a job's name from its leader's identity, so a restarted
+// daemon can reopen the job of a process left behind by a crash.
+func jobName(pid int, startTime uint64) (*uint16, error) {
+	return windows.UTF16PtrFromString(fmt.Sprintf(`Local\meeseeks-%d-%d`, pid, startTime))
+}
+
+// terminateOrphanGroup kills the process tree through its named job. Windows
+// has no graceful signal without a shared console, so KillGrace does not apply.
+// CreateJobObject opens the job if it exists. If attaching failed originally
+// the new job is empty, so the leader is also killed directly.
+func terminateOrphanGroup(id ProcessIdentity) error {
+	if name, err := jobName(id.PID, id.StartTime); err == nil {
+		if job, jobErr := windows.CreateJobObject(nil, name); jobErr == nil {
+			defer func() { _ = windows.CloseHandle(job) }()
+			_ = windows.TerminateJobObject(job, jobTerminatedExitCode)
+		}
+	}
+
+	// A failed lookup means the job already ended the process.
+	process, err := os.FindProcess(id.PID)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = process.Release() }()
+
+	err = process.Kill()
+	// A process the job just terminated can report access denied while exiting.
+	if errors.Is(err, os.ErrProcessDone) || errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+		return nil
+	}
+	return err
+}
+
+// attach assigns the suspended process to a new job. A job that cannot be
+// named still works, but cannot be found again after a daemon crash.
 func (g *platformGroup) attach(process *os.Process) error {
 	g.process = process
 
-	job, err := windows.CreateJobObject(nil, nil)
+	var name *uint16
+	if startTime, timeErr := processStartTime(process.Pid); timeErr == nil {
+		name, _ = jobName(process.Pid, startTime)
+	}
+
+	job, err := windows.CreateJobObject(nil, name)
 	if err != nil {
 		return fmt.Errorf("create job object: %w", err)
 	}

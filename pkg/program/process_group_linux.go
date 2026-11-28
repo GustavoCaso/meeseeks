@@ -13,6 +13,29 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// procStatStartTimeField is the position of starttime in /proc/<pid>/stat,
+// counted from the state field that follows the command name.
+const procStatStartTimeField = 22 - 3
+
+// processStartTime reads the process start time in clock ticks since boot.
+func processStartTime(pid int) (uint64, error) {
+	stat, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
+	if err != nil {
+		return 0, err
+	}
+
+	// The command name can contain spaces and parentheses.
+	end := bytes.LastIndexByte(stat, ')')
+	if end < 0 {
+		return 0, errors.New("malformed /proc stat")
+	}
+	fields := bytes.Fields(stat[end+1:])
+	if len(fields) <= procStatStartTimeField {
+		return 0, errors.New("malformed /proc stat")
+	}
+	return strconv.ParseUint(string(fields[procStatStartTimeField]), 10, 64)
+}
+
 // waitLeaderExit blocks until pid exits. WNOWAIT leaves it as a zombie, so its
 // process group ID stays reserved.
 func waitLeaderExit(pid int) bool {
@@ -30,6 +53,15 @@ func waitLeaderExit(pid int) bool {
 // its leader. If /proc cannot be read it reports true, so the kill deadline
 // still applies.
 func hasLiveDescendant(pgid int) bool {
+	return groupHasLiveMember(pgid, true)
+}
+
+// hasLiveMember is hasLiveDescendant counting the leader too.
+func hasLiveMember(pgid int) bool {
+	return groupHasLiveMember(pgid, false)
+}
+
+func groupHasLiveMember(pgid int, skipLeader bool) bool {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return true
@@ -37,7 +69,7 @@ func hasLiveDescendant(pgid int) bool {
 
 	for _, entry := range entries {
 		pid, convErr := strconv.Atoi(entry.Name())
-		if convErr != nil || pid == pgid {
+		if convErr != nil || (skipLeader && pid == pgid) {
 			continue
 		}
 

@@ -317,3 +317,111 @@ func TestMeeseek_StoppingDuringInitialDelayEndsTheLaunchWithoutFailure(t *testin
 		})
 	}
 }
+
+func TestMeeseekReload_UnchangedProgramKeepsRunning(t *testing.T) {
+	t.Parallel()
+
+	runs := filepath.Join(t.TempDir(), "runs")
+	m := New()
+	shutdownOnCleanup(t, m)
+	if err := m.AddProgram(recordingProgram("kept", runs)); err != nil {
+		t.Fatalf("AddProgram() error = %v", err)
+	}
+
+	ctx := t.Context()
+	m.Start(ctx)
+	waitForRuns(t, runs, 1)
+
+	m.Reload(ctx, []program.Program{recordingProgram("kept", runs)}, time.Second)
+	time.Sleep(200 * time.Millisecond)
+
+	if got := countRuns(t, runs); got != 1 {
+		t.Fatalf("unchanged program started %d times, want 1", got)
+	}
+	stats, err := m.Statistic("kept")
+	if err != nil {
+		t.Fatalf("Statistic() error = %v", err)
+	}
+	if stats.State != program.StateToString[program.StateRunning] {
+		t.Fatalf("State = %s, want running", stats.State)
+	}
+}
+
+func TestMeeseekReload_OnlyChangedProgramRestarts(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	keptRuns := filepath.Join(dir, "kept")
+	oldRuns := filepath.Join(dir, "old")
+	newRuns := filepath.Join(dir, "new")
+	m := New()
+	shutdownOnCleanup(t, m)
+	for _, prog := range []program.Program{
+		recordingProgram("kept", keptRuns),
+		recordingProgram("changed", oldRuns),
+	} {
+		if err := m.AddProgram(prog); err != nil {
+			t.Fatalf("AddProgram() error = %v", err)
+		}
+	}
+
+	ctx := t.Context()
+	m.Start(ctx)
+	waitForRuns(t, keptRuns, 1)
+	waitForRuns(t, oldRuns, 1)
+
+	m.Reload(ctx, []program.Program{
+		recordingProgram("kept", keptRuns),
+		recordingProgram("changed", newRuns),
+	}, time.Second)
+	waitForRuns(t, newRuns, 1)
+	time.Sleep(100 * time.Millisecond)
+
+	if got := countRuns(t, keptRuns); got != 1 {
+		t.Fatalf("unchanged program started %d times, want 1", got)
+	}
+	stats, err := m.Statistic("changed")
+	if err != nil {
+		t.Fatalf("Statistic() error = %v", err)
+	}
+	if stats.Failed != 0 {
+		t.Fatalf("new version has Failed = %d from stopping its old version", stats.Failed)
+	}
+}
+
+func TestMeeseekShutdown_StopsProgramsConcurrently(t *testing.T) {
+	t.Parallel()
+
+	const (
+		programs    = 3
+		stopTimeout = time.Second
+	)
+	// Each program ignores SIGTERM, so it only ends when SIGKILL follows the
+	// stop timeout.
+	const ignoreTerm = `trap "" TERM; echo run >> "$1"; while :; do sleep 0.05; done`
+
+	runs := filepath.Join(t.TempDir(), "runs")
+	m := New()
+	for i := range programs {
+		prog := program.New(
+			fmt.Sprintf("stubborn-%d", i),
+			"sh",
+			program.Args("-c", ignoreTerm, "sh", runs),
+		)
+		if err := m.AddProgram(prog); err != nil {
+			t.Fatalf("AddProgram() error = %v", err)
+		}
+	}
+
+	m.Start(t.Context())
+	waitForRuns(t, runs, programs)
+
+	started := time.Now()
+	_ = m.Shutdown(stopTimeout)
+	elapsed := time.Since(started)
+
+	// One after another would take programs*stopTimeout.
+	if limit := 2 * stopTimeout; elapsed >= limit {
+		t.Fatalf("Shutdown took %s for %d programs, want under %s", elapsed, programs, limit)
+	}
+}

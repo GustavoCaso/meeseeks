@@ -34,7 +34,7 @@ Description=meeseeks process manager
 [Service]
 Type=simple
 ExecStart="{{.ExecutablePath}}" start
-Restart=always
+Restart=on-failure
 Environment="MEESEEKS_CONFIG_DIR={{.ConfigDir}}"
 StandardOutput=append:"{{.ConfigDir}}/meeseeks.out.log"
 StandardError=append:"{{.ConfigDir}}/meeseeks.error.log"

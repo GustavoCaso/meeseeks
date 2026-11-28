@@ -29,6 +29,10 @@ type Meeseek interface {
 	Programs() []string
 	// Reload performs a hot reload of the meeseeks configuration with new programs.
 	//
+	// Only differences are applied. Removed and changed programs are stopped, and
+	// new and changed programs are started. A program with an unchanged definition
+	// is left exactly as it is: running, scheduled, stopped, or finished.
+	//
 	// This method prioritizes data integrity over operational availability by holding an exclusive
 	// lock for the entire reload duration. This means ALL other operations (Statistics, Status,
 	// AddProgram, etc.) are blocked until reload completes.
@@ -98,6 +102,10 @@ type supervision struct {
 	stop   chan struct{}
 	ctx    context.Context //nolint:containedctx // Scoped to a single launch
 	cancel context.CancelFunc
+
+	// replaced means a reload removed or changed this program, so this launch's
+	// results must not count toward a newer version. Guarded by meeseek.mu.
+	replaced bool
 }
 
 // ended reports whether no further run may start.
@@ -188,29 +196,33 @@ func (m *meeseek) Reload(ctx context.Context, programs []program.Program, deadli
 	}
 
 	m.mu.Lock()
-
-	removeState := []string{}
-	keepState := []string{}
-
-	for name, oldProgram := range m.programs {
-		newProgram, exists := newPrograms[name]
-		if !exists {
-			removeState = append(removeState, name)
-		} else {
-			if equal(oldProgram, newProgram) {
-				keepState = append(keepState, name)
-			} else {
-				removeState = append(removeState, name)
-			}
-		}
-	}
+	defer m.mu.Unlock()
 
 	m.wg.Add(1)
 	defer m.wg.Done()
 
-	stopping := m.beginStopAllLocked()
+	next := make(map[string]program.Program, len(newPrograms))
+	var replaced []program.Program
+	var stopping []*supervision
 
-	err := m.shutdown(deadline)
+	for name, oldProgram := range m.programs {
+		newProgram, exists := newPrograms[name]
+		if exists && equal(oldProgram, newProgram) {
+			// The running instance is kept, so the new one is discarded.
+			next[name] = oldProgram
+			continue
+		}
+
+		replaced = append(replaced, oldProgram)
+		launches := m.beginStopLocked(name)
+		for _, launch := range launches {
+			launch.replaced = true
+		}
+		stopping = append(stopping, launches...)
+		delete(m.executions, name)
+	}
+
+	err := shutdownPrograms(replaced, deadline)
 	cancelSupervisions(stopping)
 	if err != nil {
 		if m.logger != nil {
@@ -218,33 +230,30 @@ func (m *meeseek) Reload(ctx context.Context, programs []program.Program, deadli
 		}
 	}
 
-	for _, name := range removeState {
-		delete(m.executions, name)
-	}
-
-	m.programs = map[string]program.Program{}
-
+	var added []program.Program
 	for name, prog := range newPrograms {
-		m.programs[name] = prog
-		if !slices.Contains(keepState, name) {
-			m.executions[name] = &executionTrack{}
+		if _, kept := next[name]; kept {
+			continue
 		}
+		next[name] = prog
+		m.executions[name] = &executionTrack{}
+		added = append(added, prog)
 	}
+	m.programs = next
 
-	m.startLocked(ctx)
-	m.mu.Unlock()
+	m.launchLocked(ctx, added)
 }
 
 func (m *meeseek) Start(ctx context.Context) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.startLocked(ctx)
+	m.launchLocked(ctx, slices.Collect(maps.Values(m.programs)))
 }
 
-// startLocked launches every program. Callers must hold m.mu.
-func (m *meeseek) startLocked(ctx context.Context) {
-	for _, p := range m.programs {
+// launchLocked starts the given programs. Callers must hold m.mu.
+func (m *meeseek) launchLocked(ctx context.Context, programs []program.Program) {
+	for _, p := range programs {
 		launch := m.superviseLocked(ctx, p.Name())
 		m.wg.Add(1)
 		go func(prog program.Program) {
@@ -293,9 +302,12 @@ func (m *meeseek) runByName(programName string, async bool) error {
 	}
 
 	launch := m.superviseLocked(context.Background(), programName)
+	// Counted like scheduled launches, so Shutdown waits for manual runs too.
+	m.wg.Add(1)
 	m.mu.Unlock()
 
 	run := func() {
+		defer m.wg.Done()
 		defer m.release(programName, launch)
 		m.runOneTimeProgram(launch, prog)
 	}
@@ -375,10 +387,17 @@ func (m *meeseek) Statistics() map[string]Statistics {
 func (m *meeseek) Shutdown(timeout time.Duration) error {
 	m.mu.Lock()
 	stopping := m.beginStopAllLocked()
+	programs := slices.Collect(maps.Values(m.programs))
 	m.mu.Unlock()
 
-	err := m.shutdown(timeout)
+	err := shutdownPrograms(programs, timeout)
 	cancelSupervisions(stopping)
+
+	// Program.Shutdown can return while a run is still ending, for example one
+	// that started just as the stop arrived or one running its callback. Every
+	// such run is cancelled above and escalates to SIGKILL, so waiting here
+	// ends, and the caller knows nothing it launched is still running.
+	m.wg.Wait()
 
 	return err
 }
@@ -450,12 +469,18 @@ func isClosed(ch <-chan struct{}) bool {
 	}
 }
 
-func (m *meeseek) shutdown(timeout time.Duration) error {
-	errs := make([]error, 0, len(m.programs))
+// shutdownPrograms stops programs concurrently, so each gets its full timeout
+// and kill grace instead of waiting for the ones before it.
+func shutdownPrograms(programs []program.Program, timeout time.Duration) error {
+	errs := make([]error, len(programs))
 
-	for _, program := range m.programs {
-		errs = append(errs, program.Shutdown(timeout))
+	var stopping sync.WaitGroup
+	for i, prog := range programs {
+		stopping.Go(func() {
+			errs[i] = prog.Shutdown(timeout)
+		})
 	}
+	stopping.Wait()
 
 	return errors.Join(errs...)
 }
@@ -497,7 +522,7 @@ func (m *meeseek) runOneTimeProgram(launch *supervision, prog program.Program) {
 		success, retryAttempts = m.retry(launch, prog)
 	}
 
-	m.trackProgramCompletion(prog.Name(), success, retryAttempts)
+	m.trackProgramCompletion(launch, prog.Name(), success, retryAttempts)
 }
 
 func (m *meeseek) run(ctx context.Context, prog program.Program) bool {
@@ -660,13 +685,21 @@ func (m *meeseek) collectProgramStatistics(
 }
 
 // trackProgramCompletion updates execution statistics when a program completes.
-func (m *meeseek) trackProgramCompletion(programName string, success bool, retryAttempts int) {
+func (m *meeseek) trackProgramCompletion(
+	launch *supervision,
+	programName string,
+	success bool,
+	retryAttempts int,
+) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if launch.replaced {
+		return
+	}
+
 	execRecord := m.executions[programName]
 	if execRecord == nil {
-		// Program was removed during reload, ignore completion tracking
 		return
 	}
 

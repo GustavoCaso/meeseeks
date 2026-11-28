@@ -292,17 +292,18 @@ implemented with the native mechanism for that operating system:
 
 | Platform | Mechanism | Definition location | Restart on crash | Requirements |
 | --- | --- | --- | --- | --- |
-| **macOS** | `launchd` per-user LaunchAgent | `~/Library/LaunchAgents/com.meeseeks.plist` | `KeepAlive` | none (built in) |
-| **Linux** | `systemd` **user** service | `~/.config/systemd/user/meeseeks.service` | `Restart=always` | `systemd` (`systemctl` on `PATH`) |
+| **macOS** | `launchd` per-user LaunchAgent | `~/Library/LaunchAgents/com.meeseeks.plist` | `KeepAlive` (`SuccessfulExit=false`) | none (built in) |
+| **Linux** | `systemd` **user** service | `~/.config/systemd/user/meeseeks.service` | `Restart=on-failure` | `systemd` (`systemctl` on `PATH`) |
 | **Windows** | Task Scheduler logon task | `%LOCALAPPDATA%\meeseeks\meeseeks-task.xml` | `RestartOnFailure` | none (built in) |
 
 Notes:
 
 - **All three run per user** — they start when *you* log in and do not require
   root/administrator privileges. They do not run at boot before login.
-- **Restart on crash** is enabled everywhere for parity: if the daemon exits
-  unexpectedly it is restarted automatically, and it is stopped when you
-  disable the service or log out.
+- **Restart on crash** is enabled everywhere for parity: if the daemon fails
+  it is restarted automatically. A clean `meeseeks exit` keeps it stopped until
+  your next login. Services enabled by an older version keep their previous
+  restart policy until you run `start-at-login disable` and then `enable`.
 - **Linux requires systemd.** On a host without it (e.g. some minimal or
   container images), `enable`/`disable`/`status` return a clear
   `systemd is required` error rather than failing obscurely.
@@ -339,6 +340,8 @@ programs:
 ```
 
 On Windows, programs run in a Job Object so termination covers their process tree. `kill_grace` applies only when meeseeks shares a console with the program, where it sends `CTRL_BREAK`. Under the detached daemon no graceful signal exists, so the tree is killed immediately.
+
+Only one daemon can run per config directory. If the daemon crashes, the next start stops the programs it left running, honoring each program's `kill_grace`, and then launches them again. If one of them cannot be stopped, the daemon refuses to start rather than run a second copy, and its error names the process to stop.
 
 Callbacks are executed directly (not through a shell), so `on_success_callback` must be an executable and its arguments go in `on_success_callback_args`. To use shell features like pipes or variable expansion, invoke a shell explicitly: `on_success_callback: "sh"` with `on_success_callback_args: ["-c", "echo done >> /tmp/log"]`. Callbacks receive `MEESEEKS_PROGRAM`, `MEESEEKS_STATUS`, and (for failures) `MEESEEKS_ERROR` environment variables, and are killed if they run longer than one minute.
 

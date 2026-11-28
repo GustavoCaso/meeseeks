@@ -35,6 +35,12 @@ jobs:
         check-latest: true
     - name: Build
       run: go build ./...
+    - name: Build binary
+      run: go build -o meeseeks.exe ./cmd/meeseeks
+    # vet type-checks every package and its tests, so tests that cannot
+    # compile on Windows fail here even though most of them are not run.
+    - name: Compile tests
+      run: go vet ./...
     # The wider suite depends on Unix tools such as bash and sleep.
     - name: Run process tree tests
       run: go test ./pkg/program -run 'TestWindows' -v -count=1

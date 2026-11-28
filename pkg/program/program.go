@@ -4,6 +4,7 @@ package program
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/GustavoCaso/meeseeks/pkg/logger"
 )
@@ -138,12 +140,24 @@ type program struct {
 	onSuccess  *Callback
 	onFailure  *Callback
 
+	tracker        ProcessTracker
+	trackedProcess *ProcessIdentity // Guarded by cmdLock.
+
+	// callbackCtx is the context the current run was started with, without its
+	// deadline. Cancelling it stops a callback still running after the program
+	// exited, so a supervisor can stop everything a run launched. Guarded by
+	// cmdLock.
+	callbackCtx context.Context //nolint:containedctx // Scoped to a single run
+
 	consecutiveFailures int
 }
 
 // waitDelayMargin is how long a run keeps waiting for inherited pipes after the
 // grace period before closing them.
 const waitDelayMargin = 5 * time.Second
+
+// maxLogEntryBytes is the largest single log entry.
+const maxLogEntryBytes = 64 * 1024
 
 // gatedWriter lets a run end without a copy goroutine writing to the caller's
 // writer afterwards. close waits for an in-flight write and rejects later ones,
@@ -369,6 +383,12 @@ func (p *program) Start(ctx context.Context) (<-chan struct{}, error) {
 
 	p.state = StateRunning
 	p.dataLock.Unlock()
+
+	// Set before setup, whose failure also runs the failure callback.
+	p.cmdLock.Lock()
+	p.callbackCtx = ctx
+	p.cmdLock.Unlock()
+
 	cmd, runCtx, err := p.setupCmd(ctx)
 
 	if err != nil {
@@ -765,7 +785,43 @@ func (p *program) configureTermination(ctx context.Context, cmd *exec.Cmd) *proc
 
 	setProcessGroup(cmd)
 
-	return newProcessGroup(ctx, cmd, grace)
+	group := newProcessGroup(ctx, cmd, grace)
+	group.onStarted = func(process *os.Process) { p.trackStarted(process, grace) }
+	return group
+}
+
+// trackStarted reports a new process. Callers must hold cmdLock.
+func (p *program) trackStarted(process *os.Process, grace time.Duration) {
+	if p.tracker == nil {
+		return
+	}
+
+	startTime, err := processStartTime(process.Pid)
+	if err != nil {
+		if p.logger != nil {
+			p.logger.Warn(
+				"could not record program process",
+				"program", p.name,
+				"error", err.Error(),
+			)
+		}
+		return
+	}
+
+	identity := ProcessIdentity{PID: process.Pid, StartTime: startTime, KillGrace: grace}
+	p.trackedProcess = &identity
+	p.tracker.ProcessStarted(identity)
+}
+
+func (p *program) trackExited() {
+	p.cmdLock.Lock()
+	identity := p.trackedProcess
+	p.trackedProcess = nil
+	p.cmdLock.Unlock()
+
+	if identity != nil {
+		p.tracker.ProcessExited(*identity)
+	}
 }
 
 func (p *program) run(done chan struct{}) error {
@@ -785,6 +841,7 @@ func (p *program) run(done chan struct{}) error {
 	p.cmdLock.Unlock()
 
 	if err != nil {
+		p.trackExited()
 		p.pipes.closeFiles()
 		p.runFinalizers()
 		p.dataLock.Lock()
@@ -831,6 +888,7 @@ func (p *program) monitorProcess(done chan struct{}) {
 	group.awaitLeaderExit()
 	err := cmd.Wait()
 	group.markReaped()
+	p.trackExited()
 
 	// A background process holding a pipe does not change the program's result.
 	if !p.pipes.drain(group.drainLimit(), group.drainEnd) && p.logger != nil {
@@ -906,23 +964,69 @@ func (p *program) monitorProcess(done chan struct{}) {
 	close(done)
 }
 
+// readOutput must keep reading until EOF. If it stopped early, nothing would
+// drain the pipe and the program would block forever on its next write. A line
+// longer than maxLogEntryBytes is stored as several entries, split between
+// UTF-8 characters.
 func (p *program) readOutput(reader io.Reader, isError bool) {
-	scanner := bufio.NewScanner(reader)
-
-	for scanner.Scan() {
-		line := scanner.Text()
+	lines := bufio.NewReaderSize(reader, maxLogEntryBytes)
+	store := func(entry string) {
 		p.dataLock.Lock()
-		p.writeOutput(line, isError)
-		p.dataLock.Unlock()
+		defer p.dataLock.Unlock()
+		p.writeOutput(entry, isError)
 	}
 
-	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
-		if isError {
-			p.dataLock.Lock()
-			p.writeOutput("Scanner error: "+err.Error(), true)
-			p.dataLock.Unlock()
+	var carry []byte // Start of a character cut off by the previous fragment.
+	continued := false
+
+	for {
+		fragment, isPrefix, err := lines.ReadLine()
+		if err != nil {
+			if len(carry) > 0 {
+				store(string(carry))
+			}
+			if isError && !errors.Is(err, io.EOF) {
+				store("Output read error: " + err.Error())
+			}
+			return
 		}
+
+		entry := fragment
+		if len(carry) > 0 {
+			carry = append(carry, fragment...)
+			entry, carry = carry, nil
+		}
+		if isPrefix {
+			complete := completeUTF8Length(entry)
+			// fragment points into the reader's buffer, so the rest must be copied.
+			carry = bytes.Clone(entry[complete:])
+			entry = entry[:complete]
+		}
+
+		// A line that exactly filled the buffer ends with an empty fragment,
+		// which is not a blank line in the program's output.
+		if len(entry) > 0 || !continued {
+			store(string(entry))
+		}
+		continued = isPrefix
 	}
+}
+
+// completeUTF8Length returns the length of data without a trailing incomplete
+// UTF-8 character. Invalid encodings count as complete, so binary output is
+// never held back.
+func completeUTF8Length(data []byte) int {
+	for back := 1; back < utf8.UTFMax && back <= len(data); back++ {
+		start := len(data) - back
+		if !utf8.RuneStart(data[start]) {
+			continue
+		}
+		if utf8.FullRune(data[start:]) {
+			return len(data)
+		}
+		return start
+	}
+	return len(data)
 }
 
 // writeOutput handles buffer management with byte-based limits and periodic compaction.
@@ -1052,9 +1156,18 @@ func (p *program) runCallback(kind string, callback *Callback, env []string) {
 		Deadline(callbackDeadline),
 		BufferSizeLimit(p.bufferLimit),
 		Logger(p.logger),
+		// Recorded so a daemon crash during a callback does not leave it running.
+		Tracker(p.tracker),
 	)
 
-	done, err := cb.Start(context.Background())
+	p.cmdLock.Lock()
+	ctx := p.callbackCtx
+	p.cmdLock.Unlock()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	done, err := cb.Start(ctx)
 	if err != nil {
 		if p.logger != nil {
 			p.logger.Error(
